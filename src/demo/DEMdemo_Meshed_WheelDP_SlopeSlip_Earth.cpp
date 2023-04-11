@@ -98,7 +98,7 @@ int main() {
     float mass1 = terrain_density * volume1;
     float3 MOI1 = make_float3(1.6850426, 1.6375114, 2.1187753) * terrain_density;
     // Scale the template we just created
-    std::vector<double> scales = {0.007};
+    std::vector<double> scales = {0.006};
     // Then load it to system
     std::shared_ptr<DEMClumpTemplate> my_template1 =
         DEMSim.LoadClumpType(mass1, MOI1, GetDEMEDataFile("clumps/triangular_flat.csv"), mat_type_terrain);
@@ -269,11 +269,6 @@ int main() {
                 std::cout << "Max system velocity: " << max_v_finder->GetValue() << std::endl;
                 currframe++;
                 DEMSim.DoDynamicsThenSync(0.0);
-                if (t >= 1. && Slope_deg < 14.) {
-                    DEMSim.ChangeClumpFamily(10);  // Fixed
-                    float3 pos = wheel_tracker->Pos();
-                    DEMSim.ChangeClumpFamily(0, {pos.x - 0.5, pos.x + 0.5});
-                }
             }
 
             if (t >= 2. && !start_measure) {
