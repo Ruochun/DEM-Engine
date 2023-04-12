@@ -23,8 +23,8 @@ int main() {
     std::filesystem::path out_dir = std::filesystem::current_path();
     // out_dir += "/DEMdemo_Meshed_WheelDP_SlopeSlip_Earth_KenScaled_111kg";
     // out_dir += "/DEMdemo_Meshed_WheelDP_SlopeSlip_Earth_DownScaled";
-    out_dir += "/DEMdemo_Meshed_WheelDP_SlopeSlip_Earth_NotScaled";
-    // out_dir += "/DEMdemo_Meshed_WheelDP_SlopeSlip_Earth_KenScaled";
+    // out_dir += "/DEMdemo_Meshed_WheelDP_SlopeSlip_Earth_NotScaled";
+    out_dir += "/DEMdemo_Meshed_WheelDP_SlopeSlip_Earth_KenScaled";
     std::filesystem::create_directory(out_dir);
 
     // `World'
@@ -33,8 +33,8 @@ int main() {
     double world_size_y = 0.52;
     double world_size_x = 4;  // 2.04;
     double world_size_z = 4.0;
-    // float w_r = 0.8 * 2.45;
-    float w_r = 0.8;
+    float w_r = 0.8 * 2.45;
+    // float w_r = 0.8;
 
     // Define the wheel geometry
     float wheel_rad = 0.25;
