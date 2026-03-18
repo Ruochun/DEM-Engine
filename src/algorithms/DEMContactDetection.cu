@@ -1621,7 +1621,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
             uint64_t* activeTriKeysUnique = nullptr;
             bodyID_t* activeLabelsA = nullptr;
-            bodyID_t* activeLabelsB = nullptr;
             contactPairs_t* groupActiveCount = nullptr;
             contactPairs_t* groupActiveStart = nullptr;
             bodyID_t* finalActiveLabels = nullptr;
@@ -1645,14 +1644,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 if (numUniqueActiveTri > 0) {
                     activeLabelsA = (bodyID_t*)scratchPad.allocateTempVector("activeTriLabelsA",
                                                                              numUniqueActiveTri * sizeof(bodyID_t));
-                    activeLabelsB = (bodyID_t*)scratchPad.allocateTempVector("activeTriLabelsB",
-                                                                             numUniqueActiveTri * sizeof(bodyID_t));
                     size_t blocks_needed_active =
                         (numUniqueActiveTri + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
                     initActiveTriLabels<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
                                           this_stream>>>(activeTriKeysUnique, activeLabelsA, numUniqueActiveTri);
-                    initActiveTriLabels<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                          this_stream>>>(activeTriKeysUnique, activeLabelsB, numUniqueActiveTri);
 
                     groupActiveCount = (contactPairs_t*)scratchPad.allocateTempVector(
                         "groupActiveCount", numGroups * sizeof(contactPairs_t));
@@ -1668,7 +1663,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                                                          this_stream, scratchPad);
                     }
 
-                    // ---- Option B: Precompute active-triangle neighbor positions (in activeTriKeysUnique) once.
+                    // Precompute active-triangle neighbor positions (in activeTriKeysUnique) once.
                     // triNeighbor{1,2,3} are precomputed global edge-neighbor triangle IDs, but we still need a
                     // per-step mapping "neighbor triID -> position in the ACTIVE list" to avoid per-iteration
                     // binary searches.
@@ -1680,9 +1675,12 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                                                granData->triNeighbor2, granData->triNeighbor3,
                                                                activeTriNeighborPos, numUniqueActiveTri);
 
-                    // ---- Option A: Adaptive label propagation (check for convergence every few iterations).
-                    // We check only the *last* iteration in a small batch (default: 4) to avoid host/device sync
-                    // each iteration. Worst-case wasted work is (batchSize-1) extra iterations.
+                    // Single-buffer label propagation with atomicMin for fast convergence.
+                    // Unlike the old double-buffered approach (which propagates labels exactly one
+                    // hop per iteration), the single-buffer atomicMin approach allows labels to
+                    // propagate multiple hops per iteration because updates are immediately visible.
+                    // We check convergence every kCheckEvery iterations to avoid excessive
+                    // host/device synchronization.
                     const int kCheckEvery = 4;
                     const int kMaxLabelItersCap = 512;
                     int maxIters = (int)numUniqueActiveTri;
@@ -1694,8 +1692,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     auto* changedDevRaw = scratchPad.getDualArrayDevice("activeTriLabelChanged");
                     contactPairs_t* changedDev = reinterpret_cast<contactPairs_t*>(changedDevRaw);
 
-                    bodyID_t* labelsIn = activeLabelsA;
-                    bodyID_t* labelsOut = activeLabelsB;
                     int iter = 0;
                     while (iter < maxIters) {
                         int remaining = maxIters - iter;
@@ -1705,10 +1701,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         for (int b = 0; b < batch - 1; ++b) {
                             propagateActiveTriLabelsFromNeighborPos<<<
                                 dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                                labelsIn, labelsOut, activeTriNeighborPos, nullptr, numUniqueActiveTri);
-                            bodyID_t* tmp = labelsIn;
-                            labelsIn = labelsOut;
-                            labelsOut = tmp;
+                                activeLabelsA, activeTriNeighborPos, nullptr, numUniqueActiveTri);
                             ++iter;
                         }
 
@@ -1716,10 +1709,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         DEME_GPU_CALL(cudaMemsetAsync(changedDev, 0, sizeof(contactPairs_t), this_stream));
                         propagateActiveTriLabelsFromNeighborPos<<<dim3(blocks_needed_active),
                                                                   dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            labelsIn, labelsOut, activeTriNeighborPos, changedDev, numUniqueActiveTri);
-                        bodyID_t* tmp = labelsIn;
-                        labelsIn = labelsOut;
-                        labelsOut = tmp;
+                            activeLabelsA, activeTriNeighborPos, changedDev, numUniqueActiveTri);
                         ++iter;
 
                         scratchPad.syncDualArrayDeviceToHost("activeTriLabelChanged");
@@ -1728,8 +1718,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             break;
                         }
                     }
-                    scratchPad.finishUsingDualStruct("labelChanged");
-                    finalActiveLabels = labelsIn;
+                    finalActiveLabels = activeLabelsA;
 
                     scratchPad.finishUsingDualArray("activeTriLabelChanged");
                     scratchPad.finishUsingTempVector("activeTriNeighborPos");
@@ -1967,9 +1956,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             }
             if (activeLabelsA) {
                 scratchPad.finishUsingTempVector("activeTriLabelsA");
-            }
-            if (activeLabelsB) {
-                scratchPad.finishUsingTempVector("activeTriLabelsB");
             }
             if (groupActiveCount) {
                 scratchPad.finishUsingTempVector("groupActiveCount");

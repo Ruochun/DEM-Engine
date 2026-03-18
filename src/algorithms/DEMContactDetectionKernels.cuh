@@ -698,9 +698,12 @@ __global__ void propagateActiveTriLabels(const uint64_t* keys,
 }
 
 // Label propagation using precomputed neighbor positions (avoids per-iteration binary searches).
+// Uses a single-buffer approach with atomicMin for faster convergence: labels can propagate
+// multiple hops per iteration since updates are immediately visible to other threads.
+// This "chaotic relaxation" converges much faster than double-buffered propagation because
+// a thread that runs later in the same iteration may already see updated neighbor labels.
 // If changedFlag is non-null, it will be set to 1 if any label changes in this iteration.
-__global__ void propagateActiveTriLabelsFromNeighborPos(const bodyID_t* labelsIn,
-                                                        bodyID_t* labelsOut,
+__global__ void propagateActiveTriLabelsFromNeighborPos(bodyID_t* labels,
                                                         const contactPairs_t* neighborPos,
                                                         contactPairs_t* changedFlag,
                                                         size_t n) {
@@ -714,34 +717,34 @@ __global__ void propagateActiveTriLabelsFromNeighborPos(const bodyID_t* labelsIn
     __syncthreads();
 
     if (myID < n) {
-        const bodyID_t oldLabel = labelsIn[myID];
-        bodyID_t label = oldLabel;
+        bodyID_t myLabel = labels[myID];
         const contactPairs_t p0 = neighborPos[3 * myID + 0];
         const contactPairs_t p1 = neighborPos[3 * myID + 1];
         const contactPairs_t p2 = neighborPos[3 * myID + 2];
 
+        // Gather the minimum label from neighbors.
+        bodyID_t bestLabel = myLabel;
         if (p0 != DEME_INVALID_ACTIVE_TRI_POS) {
-            const bodyID_t nb_label = labelsIn[p0];
-            if (nb_label < label) {
-                label = nb_label;
-            }
+            const bodyID_t nb_label = labels[p0];
+            if (nb_label < bestLabel)
+                bestLabel = nb_label;
         }
         if (p1 != DEME_INVALID_ACTIVE_TRI_POS) {
-            const bodyID_t nb_label = labelsIn[p1];
-            if (nb_label < label) {
-                label = nb_label;
-            }
+            const bodyID_t nb_label = labels[p1];
+            if (nb_label < bestLabel)
+                bestLabel = nb_label;
         }
         if (p2 != DEME_INVALID_ACTIVE_TRI_POS) {
-            const bodyID_t nb_label = labelsIn[p2];
-            if (nb_label < label) {
-                label = nb_label;
-            }
+            const bodyID_t nb_label = labels[p2];
+            if (nb_label < bestLabel)
+                bestLabel = nb_label;
         }
 
-        labelsOut[myID] = label;
-        if (changedFlag != nullptr && label != oldLabel) {
-            atomicExch(&blockChanged, 1);
+        // Update own label if a smaller one was found.
+        if (bestLabel < myLabel) {
+            atomicMin(&labels[myID], bestLabel);
+            if (changedFlag != nullptr)
+                atomicExch(&blockChanged, 1);
         }
     }
 
