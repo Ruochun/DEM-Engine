@@ -4,6 +4,17 @@
 #include <DEMCollisionKernels_SphTri_TriTri.cuh>
 _kernelIncludes_;
 
+inline __device__ float atomicMaxFloat(float* address, float val) {
+    int* address_as_int = (int*)address;
+    int old = *address_as_int, assumed;
+    while (val > __int_as_float(old)) {
+        assumed = old;
+        old = atomicCAS(address_as_int, assumed, __float_as_int(val));
+        if (old == assumed) break;
+    }
+    return __int_as_float(old);
+}
+
 inline __device__ float3 cylPeriodicRotatePosF(const float3& pos, const deme::DEMSimParams* simParams, float sin_span) {
     float3 pos_local = make_float3(pos.x - simParams->LBFX, pos.y - simParams->LBFY, pos.z - simParams->LBFZ);
     pos_local =

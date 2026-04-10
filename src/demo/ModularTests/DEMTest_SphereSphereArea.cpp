@@ -80,9 +80,9 @@ int main() {
         // Record patch-based penetration depth and contact area in owner wildcards.
         // Both sphere owners receive the same (patch-level) depth and area.
         if (overlapDepth > 0) {
-            atomicAdd(&penetration[AOwner], (float)overlapDepth);
+            atomicMaxFloat(&penetration[AOwner], (float)overlapDepth); 
             atomicAdd(&area[AOwner], (float)overlapArea);
-            atomicAdd(&penetration[BOwner], (float)overlapDepth);
+            atomicMaxFloat(&penetration[BOwner], (float)overlapDepth);
             atomicAdd(&area[BOwner], (float)overlapArea);
             // penetration[AOwner] = (float)overlapDepth;
             // area[AOwner]        = (float)overlapArea;
@@ -121,8 +121,8 @@ int main() {
     auto trackerA = DEMSim.Track(sphereA);
 
     // Sphere B centre: (0, 0, 3R - d0), so |AB| = 2R - d0 → penetration = d0
-    auto sphereB = DEMSim.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/sphere.obj").string(), mat);
-    // auto sphereB = DEMSim.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/sphere_highres.obj").string(), mat);
+    // auto sphereB = DEMSim.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/sphere.obj").string(), mat);
+    auto sphereB = DEMSim.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/sphere_highres.obj").string(), mat);
     sphereB->Scale(R);
     sphereB->SetMass(sphere_mass);
     sphereB->SetMOI(make_float3(sphere_moi, sphere_moi, sphere_moi));
