@@ -99,7 +99,7 @@ int main() {
 
     auto max_v_finder = DEMSim.CreateInspector("max_absv");
     auto max_angv_finder = DEMSim.CreateInspector("max_absangvel");
-    float max_v;
+    float max_v, max_angv;
 
     DEMSim.InstructBoxDomainDimension(0.4, 0.4, 0.4);
     float step_size = 1e-4f;
@@ -130,7 +130,9 @@ int main() {
         DEMSim.WriteMeshFile(out_dir / filename);
         currframe++;
         max_v = max_v_finder->GetValue();
+        max_angv = max_angv_finder->GetValue();
         std::cout << "Max velocity of any point in simulation is " << max_v << std::endl;
+        std::cout << "Max angular velocity of any point in simulation is " << max_angv << std::endl;
 
         float3 drum_moi = Drum_tracker->MOI();
         float3 drum_acc = Drum_tracker->ContactAngAccLocal();
