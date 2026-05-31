@@ -3260,9 +3260,13 @@ void DEMDynamicThread::calculateForces() {
 
         if (simParams->nCombinedOwners > 0) {
             // Optional combined-owner aggregation pass:
-            // fold member contributions into master accelerations before integration.
+            // first rescale master's own acceleration to use combined mass, then fold member contributions.
             const size_t blocks_needed_for_owners =
                 (simParams->nOwnerBodies + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+            collect_force_kernels->kernel("rescaleMasterCombinedAcc")
+                .instantiate()
+                .configure(dim3(blocks_needed_for_owners), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
+                .launch(&simParams, &granData, simParams->nOwnerBodies);
             collect_force_kernels->kernel("aggregateCombinedOwnersAcc")
                 .instantiate()
                 .configure(dim3(blocks_needed_for_owners), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
@@ -4760,6 +4764,7 @@ void DEMDynamicThread::prewarmKernels() {
     }
     if (collect_force_kernels) {
         collect_force_kernels->kernel("forceToAcc").instantiate();
+        collect_force_kernels->kernel("rescaleMasterCombinedAcc").instantiate();
         collect_force_kernels->kernel("aggregateCombinedOwnersAcc").instantiate();
         collect_force_kernels->kernel("reimposeCombinedOwners").instantiate();
     }

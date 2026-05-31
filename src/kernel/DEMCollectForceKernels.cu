@@ -147,6 +147,59 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
     }
 }
 
+DEME_KERNEL void rescaleMasterCombinedAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* granData, size_t nOwners) {
+    // Device-side master rescaling pass:
+    // The forceToAcc kernel divides forces by each body's individual mass, yielding a = F/m_individual.
+    // For a combined owner, the master must reflect the combined body's acceleration: a = F/m_combined.
+    // This kernel rescales the master's own acceleration by (m_master_individual / m_combined).
+    deme::bodyID_t owner = blockIdx.x * blockDim.x + threadIdx.x;
+    if (owner >= nOwners || simParams->nCombinedOwners == 0 || granData->ownerCombinedMaster == nullptr) {
+        return;
+    }
+
+    const deme::bodyID_t master = granData->ownerCombinedMaster[owner];
+    // Only process master owners (where master == owner).
+    if (master != owner) {
+        return;
+    }
+
+    float combinedMass = 0.f;
+    float3 combinedMOI = make_float3(0);
+    if (granData->ownerCombinedMasterMass != nullptr) {
+        combinedMass = granData->ownerCombinedMasterMass[master];
+    }
+    if (granData->ownerCombinedMasterMOI != nullptr) {
+        combinedMOI = granData->ownerCombinedMasterMOI[master];
+    }
+    if (combinedMass <= DEME_TINY_FLOAT || !isfinite(combinedMass)) {
+        return;
+    }
+
+    float myMass;
+    float3 myMOI;
+    deme::bodyID_t myOwner = owner;
+    {
+        _massAcqStrat_;
+        _moiAcqStrat_;
+    }
+
+    if (myMass > DEME_TINY_FLOAT && isfinite(myMass)) {
+        const float ratio = myMass / combinedMass;
+        granData->aX[owner] *= ratio;
+        granData->aY[owner] *= ratio;
+        granData->aZ[owner] *= ratio;
+    }
+    if (myMOI.x > DEME_TINY_FLOAT && combinedMOI.x > DEME_TINY_FLOAT && isfinite(myMOI.x)) {
+        granData->alphaX[owner] *= myMOI.x / combinedMOI.x;
+    }
+    if (myMOI.y > DEME_TINY_FLOAT && combinedMOI.y > DEME_TINY_FLOAT && isfinite(myMOI.y)) {
+        granData->alphaY[owner] *= myMOI.y / combinedMOI.y;
+    }
+    if (myMOI.z > DEME_TINY_FLOAT && combinedMOI.z > DEME_TINY_FLOAT && isfinite(myMOI.z)) {
+        granData->alphaZ[owner] *= myMOI.z / combinedMOI.z;
+    }
+}
+
 DEME_KERNEL void aggregateCombinedOwnersAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* granData, size_t nOwners) {
     // Device-side aggregation pass:
     // each non-master member contributes its already-accumulated linear/angular accelerations to its master.
