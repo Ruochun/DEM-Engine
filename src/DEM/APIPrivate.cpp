@@ -368,6 +368,7 @@ void DEMSolver::getContacts_impl(std::vector<bodyID_t>& idA,
                                  std::vector<family_t>& famB,
                                  std::function<bool(contact_t)> type_func) const {
     // Get device-major info to host first
+    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
     if (dT->solverFlags.canFamilyChangeOnDevice) {
         dT->familyID.toHostAsync(dT->streamInfo.stream);
     }
@@ -1580,11 +1581,13 @@ void DEMSolver::migrateSimParamsToDevice() {
 }
 
 void DEMSolver::migrateArrayDataToDevice() {
-    dT->granData.toDevice();
+    DEME_GPU_CALL(cudaSetDevice(kT->streamInfo.device));
     kT->granData.toDevice();
-    // Then move DualArray data to device
-    dT->migrateDataToDevice();
     kT->migrateDataToDevice();
+
+    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
+    dT->granData.toDevice();
+    dT->migrateDataToDevice();
 }
 
 void DEMSolver::migrateArrayDataToHost() {

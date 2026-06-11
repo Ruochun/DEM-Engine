@@ -309,6 +309,7 @@ std::vector<bodyID_t> DEMSolver::GetOwnerContactClumps(bodyID_t ownerID) const {
     std::vector<bodyID_t> geo_to_watch;               // geo IDs that need to scan
 
     // Get device-major info to host first
+    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
     dT->idPatchA.toHostAsync(dT->streamInfo.stream);
     dT->idPatchB.toHostAsync(dT->streamInfo.stream);
     dT->contactTypePatch.toHostAsync(dT->streamInfo.stream);

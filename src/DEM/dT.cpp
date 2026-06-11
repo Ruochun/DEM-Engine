@@ -225,6 +225,9 @@ double DEMDynamicThread::getCycleElapsedSeconds() const {
 }
 
 void DEMDynamicThread::migrateDataToDevice() {
+    // This method is also called by the API thread, whose current device may be kT's GPU.
+    DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
+
     inertiaPropOffsets.toDeviceAsync(streamInfo.stream);
     familyID.toDeviceAsync(streamInfo.stream);
     voxelID.toDeviceAsync(streamInfo.stream);
@@ -335,6 +338,9 @@ void DEMDynamicThread::migrateDataToDevice() {
 }
 
 void DEMDynamicThread::migrateDeviceModifiableInfoToHost() {
+    // Device-to-host migrations can be initiated by the API thread after it has selected kT's GPU.
+    DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
+
     migrateClumpPosInfoToHost();
     migrateClumpHighOrderInfoToHost();
     migrateFamilyToHost();

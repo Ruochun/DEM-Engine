@@ -18,6 +18,30 @@
 
 namespace deme {
 
+// Temporarily select the device that owns a CUDA allocation or stream. CUDA's current device is thread-local, so API
+// calls made by the solver's main thread may otherwise inherit the device selected by the other worker.
+class ScopedCudaDevice {
+  public:
+    explicit ScopedCudaDevice(int device) {
+        DEME_GPU_CALL(cudaGetDevice(&m_previous_device));
+        if (m_previous_device != device) {
+            DEME_GPU_CALL(cudaSetDevice(device));
+            m_restore = true;
+        }
+    }
+
+    ~ScopedCudaDevice() {
+        if (m_restore) {
+            // Destructors must not throw while unwinding an error from the guarded CUDA operation.
+            (void)cudaSetDevice(m_previous_device);
+        }
+    }
+
+  private:
+    int m_previous_device = -1;
+    bool m_restore = false;
+};
+
 template <typename T>
 class DualArray;
 template <typename T>
@@ -110,16 +134,19 @@ class DualStruct : private NonCopyable {
   private:
     T* host_data;           // Pointer to host memory (pinned)
     T* device_data;         // Pointer to device memory
+    int device;             // Device that owns device_data
     bool modified_on_host;  // Flag to track if host data has been modified
   public:
     // Constructor: Initialize and allocate memory for both host and device
     DualStruct() : modified_on_host(false) {
+        DEME_GPU_CALL(cudaGetDevice(&device));
         DEME_GPU_CALL(cudaMallocHost((void**)&host_data, sizeof(T)));
         DEME_GPU_CALL(cudaMalloc((void**)&device_data, sizeof(T)));
     }
 
     // Constructor: Initialize and allocate memory for both host and device with init values
     DualStruct(T init_val) : modified_on_host(false) {
+        DEME_GPU_CALL(cudaGetDevice(&device));
         DEME_GPU_CALL(cudaMallocHost((void**)&host_data, sizeof(T)));
         DEME_GPU_CALL(cudaMalloc((void**)&device_data, sizeof(T)));
 
@@ -132,12 +159,14 @@ class DualStruct : private NonCopyable {
     ~DualStruct() { free(); }
 
     void free() {
-        HostPtrDealloc(host_data);      // Free pinned memory
+        HostPtrDealloc(host_data);  // Free pinned memory
+        ScopedCudaDevice device_scope(device);
         DevicePtrDealloc(device_data);  // Free device memory
     }
 
     // Synchronize changes from host to device
     void toDevice() {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpy(device_data, host_data, sizeof(T), cudaMemcpyHostToDevice));
         modified_on_host = false;
     }
@@ -145,18 +174,21 @@ class DualStruct : private NonCopyable {
     // Asynchronous host->device copy on a user stream. Host memory is pinned (cudaMallocHost),
     // so the caller must ensure host_data isn't modified until the copy completes.
     void toDeviceAsync(cudaStream_t stream) {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpyAsync(device_data, host_data, sizeof(T), cudaMemcpyHostToDevice, stream));
         modified_on_host = false;
     }
 
     // Synchronize changes from device to host
     void toHost() {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpy(host_data, device_data, sizeof(T), cudaMemcpyDeviceToHost));
         modified_on_host = false;
     }
 
     // Asynchronous device->host copy on a user stream. Host memory is pinned (cudaMallocHost).
     void toHostAsync(cudaStream_t stream) {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpyAsync(host_data, device_data, sizeof(T), cudaMemcpyDeviceToHost, stream));
         modified_on_host = false;
     }
@@ -164,6 +196,7 @@ class DualStruct : private NonCopyable {
     // Synchronize change of one field of the struct to device
     template <typename MemberType>
     void syncMemberToDevice(ptrdiff_t offset) {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpy(reinterpret_cast<char*>(device_data) + offset,
                                  reinterpret_cast<char*>(host_data) + offset, sizeof(MemberType),
                                  cudaMemcpyHostToDevice));
@@ -172,6 +205,7 @@ class DualStruct : private NonCopyable {
     // Asynchronous partial host->device copy on a user stream.
     template <typename MemberType>
     void syncMemberToDeviceAsync(ptrdiff_t offset, cudaStream_t stream) {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpyAsync(reinterpret_cast<char*>(device_data) + offset,
                                       reinterpret_cast<char*>(host_data) + offset, sizeof(MemberType),
                                       cudaMemcpyHostToDevice, stream));
@@ -180,6 +214,7 @@ class DualStruct : private NonCopyable {
     // Synchronize change of one field of the struct to host
     template <typename MemberType>
     void syncMemberToHost(ptrdiff_t offset) {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpy(reinterpret_cast<char*>(host_data) + offset,
                                  reinterpret_cast<char*>(device_data) + offset, sizeof(MemberType),
                                  cudaMemcpyDeviceToHost));
@@ -188,6 +223,7 @@ class DualStruct : private NonCopyable {
     // Asynchronous partial device->host copy on a user stream.
     template <typename MemberType>
     void syncMemberToHostAsync(ptrdiff_t offset, cudaStream_t stream) {
+        ScopedCudaDevice device_scope(device);
         DEME_GPU_CALL(cudaMemcpyAsync(reinterpret_cast<char*>(host_data) + offset,
                                       reinterpret_cast<char*>(device_data) + offset, sizeof(MemberType),
                                       cudaMemcpyDeviceToHost, stream));
