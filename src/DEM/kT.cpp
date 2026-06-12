@@ -195,12 +195,20 @@ inline void DEMKinematicThread::computeMarginFromAbsv(float* absVel_owner, float
 
 inline void DEMKinematicThread::unpackMyBuffer() {
     const int dev = streamInfo.device;
-    const bool same_dev = (streamInfo.device == dT->streamInfo.device);
+    const int buffer_dev = dT->streamInfo.device;
+    const bool same_dev = (dev == buffer_dev);
     bool swapped = false;
     bool needGranDataDeviceSync = false;
+    float* absVel_local = absVel_buffer.data();
+    float* absAngVel_local = absAngVel_buffer.data();
 
-    if (same_dev && dT->dT_to_kT_BufferReadyEvent) {
-        DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, dT->dT_to_kT_BufferReadyEvent, 0));
+    if (dT->dT_to_kT_BufferReadyEvent) {
+        if (same_dev) {
+            DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, dT->dT_to_kT_BufferReadyEvent, 0));
+        } else {
+            // Cross-device staging may use a synchronous host-bounce path that cannot honor a queued stream wait.
+            DEME_GPU_CALL(cudaEventSynchronize(dT->dT_to_kT_BufferReadyEvent));
+        }
     }
 #ifndef DEME_USE_MANAGED_ARRAYS
     if (same_dev) {
@@ -233,23 +241,37 @@ inline void DEMKinematicThread::unpackMyBuffer() {
         xl.add(granData->oriQx, oriQ1_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
         xl.add(granData->oriQy, oriQ2_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
         xl.add(granData->oriQz, oriQ3_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
-        xl.add(&(stateParams.ts), &(stateParams.ts_buffer), sizeof(float));
-        xl.add(&(stateParams.maxDrift), &(stateParams.maxDrift_buffer), sizeof(unsigned int));
-        xl.run(dev, dev, streamInfo.stream);
+        xl.run(dev, buffer_dev, streamInfo.stream);
+
+        xfer::XferList scalars;
+        scalars.add(&(stateParams.ts), &(stateParams.ts_buffer), sizeof(float));
+        scalars.add(&(stateParams.maxDrift), &(stateParams.maxDrift_buffer), sizeof(unsigned int));
+        scalars.run(dev, dev, streamInfo.stream);
     }
 
-    // Copy the per-triangle max tri-tri penetration array from the transfer buffer (on dT's device) to kT's working
-    // array (on kT's device). This must happen before computeMarginFromAbsv, which reads maxTriTriPenetration[triID].
-    if (simParams->nTriGM > 0) {
-        DEME_GPU_CALL(cudaMemcpyAsync(maxTriTriPenetration.data(), maxTriTriPenetration_buffer.data(),
-                                      (size_t)simParams->nTriGM * sizeof(float), cudaMemcpyDeviceToDevice,
-                                      streamInfo.stream));
+    // dT owns the velocity buffers. On separate devices, stage them into kT scratch memory before any reduction or
+    // margin kernel reads them. The penetration array already has a required kT working copy, so transfer into it too.
+    if (!same_dev) {
+        absVel_local = reinterpret_cast<float*>(
+            solverScratchSpace.allocateTempVector("dTAbsVelOnKT", simParams->nOwnerBodies * sizeof(float)));
+        absAngVel_local = reinterpret_cast<float*>(
+            solverScratchSpace.allocateTempVector("dTAbsAngVelOnKT", simParams->nOwnerBodies * sizeof(float)));
     }
+    xfer::XferList metrics;
+    if (!same_dev) {
+        metrics.add(absVel_local, absVel_buffer.data(), simParams->nOwnerBodies * sizeof(float));
+        metrics.add(absAngVel_local, absAngVel_buffer.data(), simParams->nOwnerBodies * sizeof(float));
+    }
+    if (!simParams->meshParticlesLowPoly && simParams->nTriGM > 0) {
+        metrics.add(maxTriTriPenetration.data(), maxTriTriPenetration_buffer.data(),
+                    (size_t)simParams->nTriGM * sizeof(float));
+    }
+    metrics.run(dev, buffer_dev, streamInfo.stream);
 
     // Make sure we don't have velocity that is too high
-    cubMaxReduce<float>(absVel_buffer.data(), &(stateParams.maxVel), simParams->nOwnerBodies, streamInfo.stream,
+    cubMaxReduce<float>(absVel_local, &(stateParams.maxVel), simParams->nOwnerBodies, streamInfo.stream,
                         solverScratchSpace);
-    cubMaxReduce<float>(absAngVel_buffer.data(), &(stateParams.maxAngVel), simParams->nOwnerBodies, streamInfo.stream,
+    cubMaxReduce<float>(absAngVel_local, &(stateParams.maxAngVel), simParams->nOwnerBodies, streamInfo.stream,
                         solverScratchSpace);
     stateParams.maxVel.toHost();
     stateParams.maxAngVel.toHost();
@@ -289,9 +311,9 @@ inline void DEMKinematicThread::unpackMyBuffer() {
         }
 #endif
         if (!swapped_family) {
-            DEME_GPU_CALL(cudaMemcpyAsync(granData->familyID, familyID_buffer.data(),
-                                          simParams->nOwnerBodies * sizeof(family_t), cudaMemcpyDeviceToDevice,
-                                          streamInfo.stream));
+            xfer::XferList family_xfer;
+            family_xfer.add(granData->familyID, familyID_buffer.data(), simParams->nOwnerBodies * sizeof(family_t));
+            family_xfer.run(dev, buffer_dev, streamInfo.stream);
         }
         needGranDataDeviceSync = needGranDataDeviceSync || swapped_family;
     }
@@ -306,15 +328,11 @@ inline void DEMKinematicThread::unpackMyBuffer() {
         }
 #endif
         if (!swapped_mesh) {
-            DEME_GPU_CALL(cudaMemcpyAsync(granData->relPosNode1, relPosNode1_buffer.data(),
-                                          simParams->nTriGM * sizeof(float3), cudaMemcpyDeviceToDevice,
-                                          streamInfo.stream));
-            DEME_GPU_CALL(cudaMemcpyAsync(granData->relPosNode2, relPosNode2_buffer.data(),
-                                          simParams->nTriGM * sizeof(float3), cudaMemcpyDeviceToDevice,
-                                          streamInfo.stream));
-            DEME_GPU_CALL(cudaMemcpyAsync(granData->relPosNode3, relPosNode3_buffer.data(),
-                                          simParams->nTriGM * sizeof(float3), cudaMemcpyDeviceToDevice,
-                                          streamInfo.stream));
+            xfer::XferList mesh_xfer;
+            mesh_xfer.add(granData->relPosNode1, relPosNode1_buffer.data(), simParams->nTriGM * sizeof(float3));
+            mesh_xfer.add(granData->relPosNode2, relPosNode2_buffer.data(), simParams->nTriGM * sizeof(float3));
+            mesh_xfer.add(granData->relPosNode3, relPosNode3_buffer.data(), simParams->nTriGM * sizeof(float3));
+            mesh_xfer.run(dev, buffer_dev, streamInfo.stream);
         }
         solverFlags.willMeshDeform = false;
         needGranDataDeviceSync = needGranDataDeviceSync || swapped_mesh;
@@ -328,11 +346,15 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     if (!solverFlags.isExpandFactorFixed) {
         // This kernel will turn absv to marginSize, and if a vel is over max, it will clamp it.
         // Converting to size_t is SUPER important... CUDA kernel call basically does not have type conversion.
-        computeMarginFromAbsv(absVel_buffer.data(), absAngVel_buffer.data());
+        computeMarginFromAbsv(absVel_local, absAngVel_local);
     } else {  // If isExpandFactorFixed, then just fill in that constant array.
         // This one is statically compiled, unlike the other branch
         fillMarginValues(&simParams, &granData, (size_t)(simParams->nSpheresGM), (size_t)(simParams->nTriGM),
                          (size_t)(simParams->nAnalGM), streamInfo.stream);
+    }
+    if (!same_dev) {
+        solverScratchSpace.finishUsingTempVector("dTAbsVelOnKT");
+        solverScratchSpace.finishUsingTempVector("dTAbsAngVelOnKT");
     }
 
     // Update dT's write pointers (buffer and DualArray ping-pong via swap_device_buffer)
@@ -361,7 +383,9 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
     const int srcDev = streamInfo.device;      // kT GPU
     const int dstDev = dT->streamInfo.device;  // dT GPU
     const bool same_dev = (srcDev == dstDev);
-    const cudaStream_t xfer_stream = same_dev ? streamInfo.stream : 0;
+    // Cross-device output copies target dT-owned buffers, so queue them on dT's stream. dT's later work on that stream
+    // is then naturally ordered after the transfers even if the host-side freshness flag is observed immediately.
+    const cudaStream_t xfer_stream = same_dev ? streamInfo.stream : dT->streamInfo.stream;
 
     static const bool allow_output_swap = []() {
         const char* env = std::getenv("DEME_KT_SEND_SWAP");
@@ -443,18 +467,17 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
         granData.toDeviceAsync(streamInfo.stream);
     }
 
-    if (same_dev) {
-        DEME_GPU_CALL(cudaMemcpyAsync(granData->pDTOwnedBuffer_nPrimitiveContacts,
-                                      &(solverScratchSpace.numPrimitiveContacts), sizeof(size_t),
-                                      cudaMemcpyDeviceToDevice, streamInfo.stream));
-        DEME_GPU_CALL(cudaMemcpyAsync(granData->pDTOwnedBuffer_nPatchContacts, &(solverScratchSpace.numContacts),
-                                      sizeof(size_t), cudaMemcpyDeviceToDevice, streamInfo.stream));
-    } else {
-        DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_nPrimitiveContacts,
-                                 &(solverScratchSpace.numPrimitiveContacts), sizeof(size_t), cudaMemcpyDeviceToDevice));
-        DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_nPatchContacts, &(solverScratchSpace.numContacts),
-                                 sizeof(size_t), cudaMemcpyDeviceToDevice));
+    if (!same_dev && kT_to_dT_BufferReadyEvent) {
+        // Cross-device copies may execute on dT's stream or through synchronous host staging. Ensure all kT source
+        // arrays are complete before either transfer path starts reading them.
+        DEME_GPU_CALL(cudaEventRecord(kT_to_dT_BufferReadyEvent, streamInfo.stream));
+        DEME_GPU_CALL(cudaEventSynchronize(kT_to_dT_BufferReadyEvent));
     }
+
+    xfer::XferList counts;
+    counts.add(granData->pDTOwnedBuffer_nPrimitiveContacts, &(solverScratchSpace.numPrimitiveContacts), sizeof(size_t));
+    counts.add(granData->pDTOwnedBuffer_nPatchContacts, &(solverScratchSpace.numContacts), sizeof(size_t));
+    counts.run(dstDev, srcDev, xfer_stream);
 
     if (!output_swapped) {
         xfer::XferList xs;

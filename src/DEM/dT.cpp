@@ -2747,11 +2747,12 @@ bool DEMDynamicThread::tryConsumeKinematicProduce(bool allow_blocking, bool mark
 
 inline void DEMDynamicThread::sendToTheirBuffer() {
     const int srcDev = streamInfo.device;      // dT GPU
-    const int dstDev = kT->streamInfo.device;  // kT GPU
+    const int dstDev = kT->streamInfo.device;  // kT GPU, which owns the scalar stateParams buffers
     const size_t nOwners = (size_t)simParams->nOwnerBodies;
     const bool same_dev = (srcDev == dstDev);
-    const cudaStream_t xfer_stream = same_dev ? streamInfo.stream : 0;
 
+    // These transfer buffers are deliberately allocated on dT's device. Populate them locally, then let kT explicitly
+    // transfer their contents into kT-owned working arrays after waiting on dT_to_kT_BufferReadyEvent.
     xfer::XferList xt;
     xt.add(granData->pKTOwnedBuffer_voxelID, granData->voxelID, nOwners * sizeof(voxelID_t));
     xt.add(granData->pKTOwnedBuffer_locX, granData->locX, nOwners * sizeof(subVoxelPos_t));
@@ -2763,7 +2764,7 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
     xt.add(granData->pKTOwnedBuffer_oriQ3, granData->oriQz, nOwners * sizeof(oriQ_t));
     xt.add(granData->pKTOwnedBuffer_absVel, pCycleVel, nOwners * sizeof(float));
     xt.add(granData->pKTOwnedBuffer_absAngVel, pCycleAngVel, nOwners * sizeof(float));
-    xt.run(dstDev, srcDev, xfer_stream);
+    xt.run(srcDev, srcDev, streamInfo.stream);
 
     // Optionals
     xfer::XferList xk;
@@ -2776,7 +2777,7 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
         xk.add(granData->pKTOwnedBuffer_relPosNode2, granData->relPosNode2, (size_t)simParams->nTriGM * sizeof(float3));
         xk.add(granData->pKTOwnedBuffer_relPosNode3, granData->relPosNode3, (size_t)simParams->nTriGM * sizeof(float3));
     }
-    xk.run(dstDev, srcDev, xfer_stream);
+    xk.run(srcDev, srcDev, streamInfo.stream);
 
     // Send simulation metrics for kT's reference.
     if (same_dev) {
@@ -2801,7 +2802,7 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
         xm.add(granData->pKTOwnedBuffer_maxTriTriPenetration, maxTriTriPenetration.data(),
                (size_t)simParams->nTriGM * sizeof(float));
     }
-    xm.run(dstDev, srcDev, xfer_stream);
+    xm.run(srcDev, srcDev, streamInfo.stream);
 
     if (solverFlags.willMeshDeform) {
         solverFlags.willMeshDeform = false;
@@ -2811,8 +2812,9 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
     // Use the logical step stamp (not the completion stamp) so scheduling is not biased by progress-event drainage.
     pSchedSupport->kinematicIngredProdDateStamp = (pSchedSupport->currentStampOfDynamic).load();
 
-    // Signal kT that dT->kT buffers are populated (same-device path); kT waits on this event before unpacking.
-    if (same_dev && dT_to_kT_BufferReadyEvent) {
+    // Signal kT that dT->kT buffers are populated. kT waits on-stream when sharing this device and synchronizes the
+    // event before starting cross-device transfers, whose fallback staging path may be synchronous.
+    if (dT_to_kT_BufferReadyEvent) {
         DEME_GPU_CALL(cudaEventRecord(dT_to_kT_BufferReadyEvent, streamInfo.stream));
     }
 }
