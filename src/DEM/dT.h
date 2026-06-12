@@ -224,7 +224,7 @@ class DEMDynamicThread {
     cudaEvent_t streamSyncEvent = nullptr;
     // Signals that dT finished writing the dT->kT transfer buffers (same-device fast path).
     cudaEvent_t dT_to_kT_BufferReadyEvent = nullptr;
-    // Signals that the kT->dT numContacts copy has completed (kT stream for same-device fast path).
+    // Reusable dT-stream barrier used to ensure cross-device kT->dT copies release their kT-owned source arrays.
     cudaEvent_t kT_numContactsReadyEvent = nullptr;
     bool kT_numContacts_copy_pending = false;
     bool contactMappingUsesBuffer = false;

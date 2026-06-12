@@ -55,6 +55,8 @@ class DEMKinematicThread {
     cudaEvent_t streamSyncEvent = nullptr;
     // Signals that kT finished writing the kT->dT transfer buffers (same-device fast path).
     cudaEvent_t kT_to_dT_BufferReadyEvent = nullptr;
+    // Signals that kT finished reading dT-owned input buffers during a cross-device transfer.
+    cudaEvent_t dT_to_kT_BufferConsumedEvent = nullptr;
 
     // Memory usage recorder
     size_t m_approxDeviceBytesUsed = 0;
@@ -286,6 +288,7 @@ class DEMKinematicThread {
 
         DEME_GPU_CALL(cudaEventCreateWithFlags(&streamSyncEvent, cudaEventDisableTiming));
         DEME_GPU_CALL(cudaEventCreateWithFlags(&kT_to_dT_BufferReadyEvent, cudaEventDisableTiming));
+        DEME_GPU_CALL(cudaEventCreateWithFlags(&dT_to_kT_BufferConsumedEvent, cudaEventDisableTiming));
         timers.InitGpuEvents();
 
         // Launch a worker thread bound to this instance
@@ -311,6 +314,10 @@ class DEMKinematicThread {
         if (kT_to_dT_BufferReadyEvent) {
             cudaEventDestroy(kT_to_dT_BufferReadyEvent);
             kT_to_dT_BufferReadyEvent = nullptr;
+        }
+        if (dT_to_kT_BufferConsumedEvent) {
+            cudaEventDestroy(dT_to_kT_BufferConsumedEvent);
+            dT_to_kT_BufferConsumedEvent = nullptr;
         }
         cudaStreamDestroy(streamInfo.stream);
 

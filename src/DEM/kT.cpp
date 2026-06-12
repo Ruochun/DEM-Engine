@@ -202,6 +202,13 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     float* absVel_local = absVel_buffer.data();
     float* absAngVel_local = absAngVel_buffer.data();
 
+    if (!same_dev && dT->kT_numContactsReadyEvent) {
+        // The previous kT->dT peer transfer may still be reading kT's contact arrays. Wait before the next contact
+        // detection pass can resize or overwrite those source arrays.
+        ScopedCudaDevice device_scope(buffer_dev);
+        DEME_GPU_CALL(cudaEventSynchronize(dT->kT_numContactsReadyEvent));
+    }
+
     if (dT->dT_to_kT_BufferReadyEvent) {
         if (same_dev) {
             DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, dT->dT_to_kT_BufferReadyEvent, 0));
@@ -373,6 +380,12 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     dT->granData->pKTOwnedBuffer_relPosNode2 = relPosNode2_buffer.data();
     dT->granData->pKTOwnedBuffer_relPosNode3 = relPosNode3_buffer.data();
     dT->granData->pKTOwnedBuffer_maxTriTriPenetration = maxTriTriPenetration_buffer.data();
+
+    if (!same_dev && dT_to_kT_BufferConsumedEvent) {
+        // Record when kT's stream has finished reading dT-owned input buffers. dT waits on this event only when it is
+        // ready to reuse those buffers for the next work order, preserving overlap between the workers.
+        DEME_GPU_CALL(cudaEventRecord(dT_to_kT_BufferConsumedEvent, streamInfo.stream));
+    }
 }
 
 inline void DEMKinematicThread::sendToTheirBuffer() {
@@ -497,6 +510,13 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
                    nPatch * sizeof(contactPairs_t));
         }
         xs.run(dstDev, srcDev, xfer_stream);
+    }
+
+    if (!same_dev && dT->kT_numContactsReadyEvent) {
+        // Peer copies queued on dT's stream may still be reading kT's contact arrays after XferList::run returns.
+        // Record their completion; kT waits on this event before reusing those arrays in the next contact-detection pass.
+        ScopedCudaDevice device_scope(dstDev);
+        DEME_GPU_CALL(cudaEventRecord(dT->kT_numContactsReadyEvent, xfer_stream));
     }
 }
 

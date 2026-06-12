@@ -2751,6 +2751,12 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
     const size_t nOwners = (size_t)simParams->nOwnerBodies;
     const bool same_dev = (srcDev == dstDev);
 
+    if (!same_dev && kT->dT_to_kT_BufferConsumedEvent) {
+        // Do not overwrite dT-owned input buffers until kT's previous peer transfers have finished reading them.
+        ScopedCudaDevice device_scope(dstDev);
+        DEME_GPU_CALL(cudaEventSynchronize(kT->dT_to_kT_BufferConsumedEvent));
+    }
+
     // These transfer buffers are deliberately allocated on dT's device. Populate them locally, then let kT explicitly
     // transfer their contents into kT-owned working arrays after waiting on dT_to_kT_BufferReadyEvent.
     xfer::XferList xt;
