@@ -296,6 +296,12 @@ void DEMSolver::SetStablePatchIslandIDs(bool use) {
 void DEMSolver::SetMeshParticlesLowPoly(bool use) {
     kT->simParams->meshParticlesLowPoly = use;
     dT->simParams->meshParticlesLowPoly = use;
+    if (sys_initialized) {
+        // This toggle is read inside both workers' device kernels, so an on-the-fly change must update device
+        // simParams.
+        kT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+        dT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+    }
 }
 
 void DEMSolver::SyncMemoryTransfer() {
