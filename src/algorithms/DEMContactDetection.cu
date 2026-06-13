@@ -479,7 +479,7 @@ DEME_KERNEL void markContactsByCombinedOwnerMask(const bodyID_t* idA,
     } else if (typeB == GEO_T_ANALYTICAL && primB < nAnalGM) {
         ownerB = ownerAnalBody[primB];
     }
-    if (ownerA == NULL_BODYID || ownerB == NULL_BODYID) {
+    if (ownerA == NULL_BODYID || ownerB == NULL_BODYID || ownerA >= nOwnerBodies || ownerB >= nOwnerBodies) {
         // If owner decoding fails for any reason, keep contact to avoid accidental under-detection.
         keepFlags[i] = 1;
         return;

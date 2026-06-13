@@ -47,12 +47,18 @@ void DEMSolver::assignFamilyPersistentContact_impl(
                         "marking persistent contacts."));
     }
     // Get device-major info to host first
-    kT->previous_idPrimitiveA.toHost();
-    kT->previous_idPrimitiveB.toHost();
-    kT->previous_contactTypePrimitive.toHost();
-    kT->contactPersistency.toHost();
-    if (dT->solverFlags.canFamilyChangeOnDevice) {
-        dT->familyID.toHost();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->previous_idPrimitiveA.toHost();
+        kT->previous_idPrimitiveB.toHost();
+        kT->previous_contactTypePrimitive.toHost();
+        kT->contactPersistency.toHost();
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        if (dT->solverFlags.canFamilyChangeOnDevice) {
+            dT->familyID.toHost();
+        }
     }
 
     // What we mark are actually the prev contact arrays. These arrays will be checked by kT and if a contact is marked
@@ -72,7 +78,10 @@ void DEMSolver::assignFamilyPersistentContact_impl(
         }
     }
 
-    kT->contactPersistency.toDevice();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->contactPersistency.toDevice();
+    }
 }
 
 void DEMSolver::assignFamilyPersistentContactEither(unsigned int N, notStupidBool_t is_or_not) {
@@ -100,6 +109,7 @@ void DEMSolver::assignPersistentContact(notStupidBool_t is_or_not) {
             std::string("You must first enable persistent contact support by calling SetPersistentContact(true) before "
                         "marking persistent contacts."));
     }
+    ScopedCudaDevice device_scope(kT->streamInfo.device);
     kT->contactPersistency.toHost();
 
     // What we mark are actually the prev contact arrays. These arrays will be checked by kT and if a contact is marked
@@ -368,7 +378,7 @@ void DEMSolver::getContacts_impl(std::vector<bodyID_t>& idA,
                                  std::vector<family_t>& famB,
                                  std::function<bool(contact_t)> type_func) const {
     // Get device-major info to host first
-    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     if (dT->solverFlags.canFamilyChangeOnDevice) {
         dT->familyID.toHostAsync(dT->streamInfo.stream);
     }
@@ -1460,45 +1470,51 @@ void DEMSolver::initializeGPUArrays() {
                                                    m_template_sp_radii, m_template_sp_relPos, m_template_clump_volume);
 
     // Now we can feed those GPU-side arrays with the cached API-level simulation info
-    dT->initGPUArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_input_mesh_obj_convex,
-        m_input_mesh_obj_never_winner, m_input_mesh_obj_watertight, m_mesh_facet_owner, m_mesh_facet_patch,
-        m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner,
-        m_mesh_patch_materials,
-        // Clump template name mapping
-        m_template_number_name_map,
-        // Clump template info (mass, sphere components, materials etc.)
-        flattened_clump_templates,
-        // Analytical obj physics properties
-        m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
-        // Meshed obj physics properties
-        m_mesh_obj_mass, m_mesh_obj_moi, m_mesh_mass_jit, m_mesh_moi_jit, m_mesh_mass_offsets,
-        // Universal template info
-        m_loaded_materials,
-        // Family mask
-        m_family_mask_matrix,
-        // I/O and misc.
-        m_no_output_families, m_tracked_objs);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->initGPUArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family,
+            m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_input_mesh_obj_watertight, m_mesh_facet_owner,
+            m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
+            m_mesh_patch_owner, m_mesh_patch_materials,
+            // Clump template name mapping
+            m_template_number_name_map,
+            // Clump template info (mass, sphere components, materials etc.)
+            flattened_clump_templates,
+            // Analytical obj physics properties
+            m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
+            // Meshed obj physics properties
+            m_mesh_obj_mass, m_mesh_obj_moi, m_mesh_mass_jit, m_mesh_moi_jit, m_mesh_mass_offsets,
+            // Universal template info
+            m_loaded_materials,
+            // Family mask
+            m_family_mask_matrix,
+            // I/O and misc.
+            m_no_output_families, m_tracked_objs);
+    }
 
-    kT->initGPUArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
-        m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
-        // Analytical obj physics properties
-        m_ext_obj_comp_num,
-        // Family mask
-        m_family_mask_matrix,
-        // Templates and misc.
-        flattened_clump_templates);
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->initGPUArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
+            m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
+            // Analytical obj physics properties
+            m_ext_obj_comp_num,
+            // Family mask
+            m_family_mask_matrix,
+            // Templates and misc.
+            flattened_clump_templates);
+    }
 }
 
 /// When more clumps/meshed objects got loaded, this method should be called to transfer them to the GPU-side in
@@ -1517,55 +1533,73 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
     ClumpTemplateFlatten flattened_clump_templates(m_template_clump_mass, m_template_clump_moi, m_template_sp_mat_ids,
                                                    m_template_sp_radii, m_template_sp_relPos, m_template_clump_volume);
 
-    dT->updateClumpMeshArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_input_mesh_obj_convex,
-        m_input_mesh_obj_never_winner, m_input_mesh_obj_watertight, m_mesh_facet_owner, m_mesh_facet_patch,
-        m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner,
-        m_mesh_patch_materials,
-        // Clump template info (mass, sphere components, materials etc.)
-        flattened_clump_templates,
-        // Analytical obj physics properties
-        m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
-        // Meshed obj physics properties
-        m_mesh_obj_mass, m_mesh_obj_moi, m_mesh_mass_jit, m_mesh_moi_jit, m_mesh_mass_offsets,
-        // Universal template info
-        m_loaded_materials,
-        // Family mask
-        m_family_mask_matrix,
-        // I/O and misc.
-        m_no_output_families, m_tracked_objs,
-        // Number of entities, old
-        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
-    kT->updateClumpMeshArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
-        m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
-        // Analytical obj physics properties
-        m_ext_obj_comp_num,
-        // Family mask
-        m_family_mask_matrix,
-        // Templates and misc.
-        flattened_clump_templates,
-        // Number of entities, old
-        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->updateClumpMeshArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family,
+            m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_input_mesh_obj_watertight, m_mesh_facet_owner,
+            m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
+            m_mesh_patch_owner, m_mesh_patch_materials,
+            // Clump template info (mass, sphere components, materials etc.)
+            flattened_clump_templates,
+            // Analytical obj physics properties
+            m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
+            // Meshed obj physics properties
+            m_mesh_obj_mass, m_mesh_obj_moi, m_mesh_mass_jit, m_mesh_moi_jit, m_mesh_mass_offsets,
+            // Universal template info
+            m_loaded_materials,
+            // Family mask
+            m_family_mask_matrix,
+            // I/O and misc.
+            m_no_output_families, m_tracked_objs,
+            // Number of entities, old
+            nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->updateClumpMeshArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
+            m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
+            // Analytical obj physics properties
+            m_ext_obj_comp_num,
+            // Family mask
+            m_family_mask_matrix,
+            // Templates and misc.
+            flattened_clump_templates,
+            // Number of entities, old
+            nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
+    }
 }
 
 void DEMSolver::packDataPointers() {
-    dT->packDataPointers();
-    kT->packDataPointers();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->packDataPointers();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->packDataPointers();
+    }
     // Each worker thread needs pointers used for data transfering. Note this step must be done after packDataPointers
     // are called, so each thread has its own pointers packed.
-    dT->packTransferPointers(kT);
-    kT->packTransferPointers(dT);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->packTransferPointers(kT);
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->packTransferPointers(dT);
+    }
     // Finally, the API needs to map all mesh to their owners
     for (const auto& mmesh : m_meshes) {
         m_owner_mesh_map[mmesh->owner] = mmesh->cache_offset;
@@ -1573,26 +1607,38 @@ void DEMSolver::packDataPointers() {
 }
 
 void DEMSolver::migrateSimParamsToDevice() {
-    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
-    dT->simParams.toDevice();
-
-    DEME_GPU_CALL(cudaSetDevice(kT->streamInfo.device));
-    kT->simParams.toDevice();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams.toDevice();
+    }
 }
 
 void DEMSolver::migrateArrayDataToDevice() {
-    DEME_GPU_CALL(cudaSetDevice(kT->streamInfo.device));
-    kT->granData.toDevice();
-    kT->migrateDataToDevice();
-
-    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
-    dT->granData.toDevice();
-    dT->migrateDataToDevice();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->granData.toDevice();
+        kT->migrateDataToDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->granData.toDevice();
+        dT->migrateDataToDevice();
+    }
 }
 
 void DEMSolver::migrateArrayDataToHost() {
-    dT->migrateDeviceModifiableInfoToHost();
-    kT->migrateDeviceModifiableInfoToHost();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->migrateDeviceModifiableInfoToHost();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->migrateDeviceModifiableInfoToHost();
+    }
 }
 
 void DEMSolver::validateUserInputs() {
