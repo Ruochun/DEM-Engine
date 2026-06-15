@@ -21,6 +21,8 @@
 #include <cuda.h>
 #include <cuda_runtime_api.h>
 
+#include "CudaDebugSync.hpp"
+
 #if defined(_WIN32) || defined(_WIN64)
     #undef max
     #undef min
@@ -169,11 +171,20 @@ class JitHelper::CachedProgram::Kernel::KernelInstantiation {
 class JitHelper::CachedProgram::Kernel::KernelInstantiation::KernelLauncher {
   public:
     KernelLauncher(std::shared_ptr<jitify::experimental::KernelInstantiation> inst,
-                   jitify::experimental::KernelLauncher launcher)
-        : m_inst(std::move(inst)), m_launcher(std::move(launcher)) {}
+                   jitify::experimental::KernelLauncher launcher,
+                   cudaStream_t stream)
+        : m_inst(std::move(inst)), m_launcher(std::move(launcher)), m_stream(stream) {}
 
     CUresult launch(std::vector<void*> arg_ptrs = {}, std::vector<std::string> arg_types = {}) const {
-        return m_launcher.launch(std::move(arg_ptrs), std::move(arg_types));
+        CUresult result = m_launcher.launch(std::move(arg_ptrs), std::move(arg_types));
+        if (result == CUDA_SUCCESS) {
+            const cudaError_t sync_result = deme::DebugSyncStream(m_stream);
+            if (sync_result != cudaSuccess) {
+                throw std::runtime_error(std::string("GPU error after JIT kernel launch: ") +
+                                         cudaGetErrorString(sync_result));
+            }
+        }
+        return result;
     }
 
     template <typename... ArgTypes>
@@ -183,6 +194,11 @@ class JitHelper::CachedProgram::Kernel::KernelInstantiation::KernelLauncher {
 
     void safe_launch(std::vector<void*> arg_ptrs = {}, std::vector<std::string> arg_types = {}) const {
         m_launcher.safe_launch(std::move(arg_ptrs), std::move(arg_types));
+        const cudaError_t sync_result = deme::DebugSyncStream(m_stream);
+        if (sync_result != cudaSuccess) {
+            throw std::runtime_error(std::string("GPU error after JIT kernel launch: ") +
+                                     cudaGetErrorString(sync_result));
+        }
     }
 
     template <typename... ArgTypes>
@@ -193,6 +209,7 @@ class JitHelper::CachedProgram::Kernel::KernelInstantiation::KernelLauncher {
   private:
     std::shared_ptr<jitify::experimental::KernelInstantiation> m_inst;
     jitify::experimental::KernelLauncher m_launcher;
+    cudaStream_t m_stream;
 };
 
 template <typename... TemplateArgs>
@@ -206,7 +223,7 @@ JitHelper::CachedProgram::Kernel::KernelInstantiation::configure(dim3 grid,
                                                                  dim3 block,
                                                                  unsigned int smem,
                                                                  cudaStream_t stream) const {
-    return KernelLauncher(m_impl, m_impl->configure(grid, block, smem, stream));
+    return KernelLauncher(m_impl, m_impl->configure(grid, block, smem, stream), stream);
 }
 
 inline JitHelper::CachedProgram::Kernel::KernelInstantiation::KernelLauncher
@@ -215,8 +232,8 @@ JitHelper::CachedProgram::Kernel::KernelInstantiation::configure_1d_max_occupanc
                                                                                   CUoccupancyB2DSize smem_callback,
                                                                                   cudaStream_t stream,
                                                                                   unsigned int flags) const {
-    return KernelLauncher(m_impl,
-                          m_impl->configure_1d_max_occupancy(max_block_size, smem, smem_callback, stream, flags));
+    return KernelLauncher(
+        m_impl, m_impl->configure_1d_max_occupancy(max_block_size, smem, smem_callback, stream, flags), stream);
 }
 
 #endif

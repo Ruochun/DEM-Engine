@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "CudaAllocator.hpp"
+#include "Logger.hpp"
 
 // Convenience functions to help with Managed Memory (allocated using ManagedAllocator, typically)
 namespace deme {
@@ -29,10 +30,10 @@ inline void __migrate_impl(T* data, std::size_t size, int device, cudaStream_t s
     // CUDA 13.0+: cudaMemPrefetchAsync(const void*, size_t, cudaMemLocation, unsigned int flags, cudaStream_t)
     auto loc = make_device_location(device);
     unsigned int flags = 0;
-    cudaMemPrefetchAsync(static_cast<void*>(data), size * sizeof(T), loc, flags, stream);
+    DEME_GPU_CALL_ASYNC(cudaMemPrefetchAsync(static_cast<void*>(data), size * sizeof(T), loc, flags, stream), stream);
 #else
     // CUDA <= 12.x: cudaMemPrefetchAsync(const void*, size_t, int dstDevice, cudaStream_t)
-    cudaMemPrefetchAsync(static_cast<void*>(data), size * sizeof(T), device, stream);
+    DEME_GPU_CALL_ASYNC(cudaMemPrefetchAsync(static_cast<void*>(data), size * sizeof(T), device, stream), stream);
 #endif
 }
 

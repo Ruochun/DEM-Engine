@@ -127,6 +127,11 @@ class DEMSolver {
     std::vector<std::string> GetJitifyOptions() const { return m_jitify_options; }
     /// Set the jitification options. It is only needed by advanced users.
     void SetJitifyOptions(const std::vector<std::string>& options) { m_jitify_options = options; }
+    /// Process-wide switch to synchronize after each CUDA operation that enqueues stream work. This is enabled by
+    /// default for debugging and should be disabled for normal asynchronous performance.
+    void SetCudaDebugSync(bool enable = true) { SetCudaDebugSyncEnabled(enable); }
+    /// Return whether the process-wide CUDA debug synchronization switch is enabled.
+    bool GetCudaDebugSync() const { return IsCudaDebugSyncEnabled(); }
 
     /// Explicitly instruct the bin size (for contact detection) that the solver should use.
     void SetInitBinSize(double bin_size) {

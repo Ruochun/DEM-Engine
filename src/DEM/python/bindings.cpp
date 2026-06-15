@@ -581,6 +581,12 @@ PYBIND11_MODULE(DEME, obj) {
              "Get current jitification options. It is needed by some of this simulation system's friend classes.")
         .def("SetJitifyOptions", &deme::DEMSolver::SetJitifyOptions,
              "Set the jitification options. It is only needed by advanced users.")
+        .def("SetCudaDebugSync", &deme::DEMSolver::SetCudaDebugSync,
+             "Set the process-wide switch that synchronizes after each CUDA operation that enqueues stream work. "
+             "Disable for normal asynchronous performance.",
+             py::arg("enable") = true)
+        .def("GetCudaDebugSync", &deme::DEMSolver::GetCudaDebugSync,
+             "Return whether process-wide CUDA debug synchronization is enabled.")
 
         .def("SetInitBinSizeAsMultipleOfSmallestSphere", &deme::DEMSolver::SetInitBinSizeAsMultipleOfSmallestSphere,
              "Explicitly instruct the bin size (for contact detection) that the solver should use, as a multiple of "

@@ -62,6 +62,7 @@ set(core_headers
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/BaseClasses.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/CudaAllocator.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/ManagedMemory.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/utils/CudaDebugSync.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/JitHelper.h
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/ThreadManager.h
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/Logger.hpp
@@ -235,4 +236,3 @@ if(DEME_BUILD_PYTHON)
 		CXX_STANDARD "${CXXSTD_SUPPORTED}"
 	)
 endif()
-

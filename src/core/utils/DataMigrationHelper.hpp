@@ -175,7 +175,7 @@ class DualStruct : private NonCopyable {
     // so the caller must ensure host_data isn't modified until the copy completes.
     void toDeviceAsync(cudaStream_t stream) {
         ScopedCudaDevice device_scope(device);
-        DEME_GPU_CALL(cudaMemcpyAsync(device_data, host_data, sizeof(T), cudaMemcpyHostToDevice, stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(device_data, host_data, sizeof(T), cudaMemcpyHostToDevice, stream), stream);
         modified_on_host = false;
     }
 
@@ -189,7 +189,7 @@ class DualStruct : private NonCopyable {
     // Asynchronous device->host copy on a user stream. Host memory is pinned (cudaMallocHost).
     void toHostAsync(cudaStream_t stream) {
         ScopedCudaDevice device_scope(device);
-        DEME_GPU_CALL(cudaMemcpyAsync(host_data, device_data, sizeof(T), cudaMemcpyDeviceToHost, stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(host_data, device_data, sizeof(T), cudaMemcpyDeviceToHost, stream), stream);
         modified_on_host = false;
     }
 
@@ -206,9 +206,10 @@ class DualStruct : private NonCopyable {
     template <typename MemberType>
     void syncMemberToDeviceAsync(ptrdiff_t offset, cudaStream_t stream) {
         ScopedCudaDevice device_scope(device);
-        DEME_GPU_CALL(cudaMemcpyAsync(reinterpret_cast<char*>(device_data) + offset,
-                                      reinterpret_cast<char*>(host_data) + offset, sizeof(MemberType),
-                                      cudaMemcpyHostToDevice, stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemcpyAsync(reinterpret_cast<char*>(device_data) + offset, reinterpret_cast<char*>(host_data) + offset,
+                            sizeof(MemberType), cudaMemcpyHostToDevice, stream),
+            stream);
     }
 
     // Synchronize change of one field of the struct to host
@@ -224,9 +225,10 @@ class DualStruct : private NonCopyable {
     template <typename MemberType>
     void syncMemberToHostAsync(ptrdiff_t offset, cudaStream_t stream) {
         ScopedCudaDevice device_scope(device);
-        DEME_GPU_CALL(cudaMemcpyAsync(reinterpret_cast<char*>(host_data) + offset,
-                                      reinterpret_cast<char*>(device_data) + offset, sizeof(MemberType),
-                                      cudaMemcpyDeviceToHost, stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemcpyAsync(reinterpret_cast<char*>(host_data) + offset, reinterpret_cast<char*>(device_data) + offset,
+                            sizeof(MemberType), cudaMemcpyDeviceToHost, stream),
+            stream);
     }
 
     // Check if host data has been modified and not synced
@@ -398,8 +400,9 @@ class DualArray : private NonCopyable {
         size_t count = size();
         if (count > m_device_capacity)
             resizeDevice(count);
-        DEME_GPU_CALL(
-            cudaMemcpyAsync(m_device_ptr, m_host_vec_ptr->data(), count * sizeof(T), cudaMemcpyHostToDevice, stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemcpyAsync(m_device_ptr, m_host_vec_ptr->data(), count * sizeof(T), cudaMemcpyHostToDevice, stream),
+            stream);
         m_host_dirty = false;
     }
 
@@ -408,8 +411,9 @@ class DualArray : private NonCopyable {
     void toDeviceAsync(cudaStream_t& stream, size_t start, size_t n) {
         assert(m_host_vec_ptr && m_device_ptr);
         // Partial flavor aims for speed, no size check
-        DEME_GPU_CALL(cudaMemcpyAsync(m_device_ptr + start, m_host_vec_ptr->data() + start, n * sizeof(T),
-                                      cudaMemcpyHostToDevice, stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(m_device_ptr + start, m_host_vec_ptr->data() + start, n * sizeof(T),
+                                            cudaMemcpyHostToDevice, stream),
+                            stream);
     }
 
     void toHost() {
@@ -426,16 +430,18 @@ class DualArray : private NonCopyable {
 
     void toHostAsync(cudaStream_t& stream) {
         assert(m_host_vec_ptr && m_device_ptr);
-        DEME_GPU_CALL(
-            cudaMemcpyAsync(m_host_vec_ptr->data(), m_device_ptr, size() * sizeof(T), cudaMemcpyDeviceToHost, stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemcpyAsync(m_host_vec_ptr->data(), m_device_ptr, size() * sizeof(T), cudaMemcpyDeviceToHost, stream),
+            stream);
         m_host_dirty = false;
     }
 
     void toHostAsync(cudaStream_t& stream, size_t start, size_t n) {
         assert(m_host_vec_ptr && m_device_ptr);
         // Async partial flavor aims for speed, no size check
-        DEME_GPU_CALL(cudaMemcpyAsync(m_host_vec_ptr->data() + start, m_device_ptr + start, n * sizeof(T),
-                                      cudaMemcpyDeviceToHost, stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(m_host_vec_ptr->data() + start, m_device_ptr + start, n * sizeof(T),
+                                            cudaMemcpyDeviceToHost, stream),
+                            stream);
     }
 
     T getVal(size_t start) {
@@ -1176,7 +1182,7 @@ inline void xfer_same(int dev,
 
     for (int i = 0; i < n; ++i)
         if (bytes[i]) {
-            DEME_GPU_CALL(cudaMemcpyAsync(dst[i], src[i], bytes[i], cudaMemcpyDeviceToDevice, stream));
+            DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(dst[i], src[i], bytes[i], cudaMemcpyDeviceToDevice, stream), stream);
         }
     if (dev_sw)
         DEME_GPU_CALL(cudaSetDevice(cur));
@@ -1197,7 +1203,7 @@ inline void xfer_peer(int dstDev,
         DEME_GPU_CALL(cudaSetDevice(dstDev));
     for (int i = 0; i < n; ++i)
         if (bytes[i]) {
-            DEME_GPU_CALL(cudaMemcpyPeerAsync(dst[i], dstDev, src[i], srcDev, bytes[i], stream));
+            DEME_GPU_CALL_ASYNC(cudaMemcpyPeerAsync(dst[i], dstDev, src[i], srcDev, bytes[i], stream), stream);
         }
     if (dev_sw)
         DEME_GPU_CALL(cudaSetDevice(cur));

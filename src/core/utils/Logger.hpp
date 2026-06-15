@@ -17,6 +17,7 @@
 
 #include <cuda_runtime_api.h>
 #include "BaseClasses.hpp"
+#include "CudaDebugSync.hpp"
 // #include "../../DEM/Defines.h"
 
 namespace deme {
@@ -262,6 +263,16 @@ class Logger : private NonCopyable, public Singleton<Logger> {
                 cudaGetErrorString(res));                                                                             \
         }                                                                                                             \
     }
+
+// Use this for CUDA calls that enqueue work on a known stream. In debug-sync mode it reports asynchronous failures at
+// the operation that caused them, while preserving the normal asynchronous behavior when debug-sync mode is disabled.
+#define DEME_GPU_CALL_ASYNC(code, stream)             \
+    {                                                 \
+        DEME_GPU_CALL(code);                          \
+        DEME_GPU_CALL(deme::DebugSyncStream(stream)); \
+    }
+
+#define DEME_GPU_DEBUG_SYNC(stream) DEME_GPU_CALL(deme::DebugSyncStream(stream))
 
 #define DEME_GPU_CALL_NOTHROW(code)                                       \
     {                                                                     \

@@ -2614,9 +2614,10 @@ inline void DEMDynamicThread::unpackMyBuffer() {
         if (*solverScratchSpace.numPrevContacts > previousContactTypePatchMetric.size()) {
             DEME_DEVICE_ARRAY_RESIZE(previousContactTypePatchMetric, *solverScratchSpace.numPrevContacts);
         }
-        DEME_GPU_CALL(cudaMemcpyAsync(previousContactTypePatchMetric.data(), granData->contactTypePatch,
-                                      *solverScratchSpace.numPrevContacts * sizeof(contact_t), cudaMemcpyDeviceToDevice,
-                                      streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(previousContactTypePatchMetric.data(), granData->contactTypePatch,
+                                            *solverScratchSpace.numPrevContacts * sizeof(contact_t),
+                                            cudaMemcpyDeviceToDevice, streamInfo.stream),
+                            streamInfo.stream);
     }
     // kT's batch of produce is made with this max drift in mind
     pSchedSupport->dynamicMaxFutureDrift = (pSchedSupport->kinematicMaxFutureDrift).load();
@@ -2787,8 +2788,9 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
 
     // Send simulation metrics for kT's reference.
     if (same_dev) {
-        DEME_GPU_CALL(cudaMemcpyAsync(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float),
-                                      cudaMemcpyHostToDevice, streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float),
+                                            cudaMemcpyHostToDevice, streamInfo.stream),
+                            streamInfo.stream);
     } else {
         DEME_GPU_CALL(
             cudaMemcpy(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float), cudaMemcpyHostToDevice));
@@ -2796,8 +2798,9 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
     // Note that perhapsIdealFutureDrift is non-negative, and it will be used to determine the margin size; however, if
     // scheduleHelper is instructed to have negative future drift then perhapsIdealFutureDrift no longer affects them.
     if (same_dev) {
-        DEME_GPU_CALL(cudaMemcpyAsync(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
-                                      sizeof(unsigned int), cudaMemcpyHostToDevice, streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
+                                            sizeof(unsigned int), cudaMemcpyHostToDevice, streamInfo.stream),
+                            streamInfo.stream);
     } else {
         DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
                                  sizeof(unsigned int), cudaMemcpyHostToDevice));
@@ -2871,14 +2874,17 @@ inline void DEMDynamicThread::migrateEnduringContacts() {
                 // contact array. This keeps the METRIC warning compact while naming the affected contact routes.
                 unsigned int* lostContactTypeFlags = (unsigned int*)solverScratchSpace.allocateTempVector(
                     "lostContactTypeFlags", NUM_SUPPORTED_CONTACT_TYPES * sizeof(unsigned int));
-                DEME_GPU_CALL(cudaMemsetAsync(lostContactTypeFlags, 0,
-                                              NUM_SUPPORTED_CONTACT_TYPES * sizeof(unsigned int), streamInfo.stream));
+                DEME_GPU_CALL_ASYNC(
+                    cudaMemsetAsync(lostContactTypeFlags, 0, NUM_SUPPORTED_CONTACT_TYPES * sizeof(unsigned int),
+                                    streamInfo.stream),
+                    streamInfo.stream);
                 markAliveContactTypes(previousContactTypePatchMetric.data(), contactSentry, lostContactTypeFlags,
                                       *solverScratchSpace.numPrevContacts, streamInfo.stream);
                 unsigned int lostContactTypeFlagsHost[NUM_SUPPORTED_CONTACT_TYPES] = {};
-                DEME_GPU_CALL(cudaMemcpyAsync(lostContactTypeFlagsHost, lostContactTypeFlags,
-                                              NUM_SUPPORTED_CONTACT_TYPES * sizeof(unsigned int),
-                                              cudaMemcpyDeviceToHost, streamInfo.stream));
+                DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(lostContactTypeFlagsHost, lostContactTypeFlags,
+                                                    NUM_SUPPORTED_CONTACT_TYPES * sizeof(unsigned int),
+                                                    cudaMemcpyDeviceToHost, streamInfo.stream),
+                                    streamInfo.stream);
                 DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
 
                 std::string lostContactTypeNames;
@@ -2929,9 +2935,10 @@ inline void DEMDynamicThread::migrateEnduringContacts() {
         }
     }
     for (unsigned int i = 0; i < simParams->nContactWildcards; i++) {
-        DEME_GPU_CALL(cudaMemcpyAsync(granData->contactWildcards[i], newWildcards[i],
-                                      (*solverScratchSpace.numContacts) * sizeof(float), cudaMemcpyDeviceToDevice,
-                                      streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactWildcards[i], newWildcards[i],
+                                            (*solverScratchSpace.numContacts) * sizeof(float), cudaMemcpyDeviceToDevice,
+                                            streamInfo.stream),
+                            streamInfo.stream);
     }
 
     solverScratchSpace.finishUsingTempVector("newWildcards");
@@ -3262,8 +3269,9 @@ void DEMDynamicThread::calculateForces() {
     // Reset per-triangle max tri-tri penetration for this timestep (skipped when meshParticlesLowPoly is enabled,
     // since the atomicMax updates and kT transfer are also skipped in that mode).
     if (!simParams->meshParticlesLowPoly) {
-        DEME_GPU_CALL(cudaMemsetAsync(maxTriTriPenetration.data(), 0, (size_t)simParams->nTriGM * sizeof(float),
-                                      streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(cudaMemsetAsync(maxTriTriPenetration.data(), 0, (size_t)simParams->nTriGM * sizeof(float),
+                                            streamInfo.stream),
+                            streamInfo.stream);
     }
     if (nContactPairs > 0) {
         timers.StartGpuTimer("Calculate contact forces", streamInfo.stream);
@@ -4632,17 +4640,24 @@ void DEMDynamicThread::disableTrianglePVTracking() {
     }
 
     if (triPVStepP.size() > 0) {
-        DEME_GPU_CALL(cudaMemsetAsync(triPVStepP.device(), 0, triPVStepP.size() * sizeof(float), streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemsetAsync(triPVStepP.device(), 0, triPVStepP.size() * sizeof(float), streamInfo.stream),
+            streamInfo.stream);
     }
     if (triPVStepPV.size() > 0) {
-        DEME_GPU_CALL(cudaMemsetAsync(triPVStepPV.device(), 0, triPVStepPV.size() * sizeof(float), streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemsetAsync(triPVStepPV.device(), 0, triPVStepPV.size() * sizeof(float), streamInfo.stream),
+            streamInfo.stream);
     }
     if (triPVAccumP.size() > 0) {
-        DEME_GPU_CALL(cudaMemsetAsync(triPVAccumP.device(), 0, triPVAccumP.size() * sizeof(float), streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemsetAsync(triPVAccumP.device(), 0, triPVAccumP.size() * sizeof(float), streamInfo.stream),
+            streamInfo.stream);
     }
     if (triPVAccumPV.size() > 0) {
-        DEME_GPU_CALL(
-            cudaMemsetAsync(triPVAccumPV.device(), 0, triPVAccumPV.size() * sizeof(float), streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemsetAsync(triPVAccumPV.device(), 0, triPVAccumPV.size() * sizeof(float), streamInfo.stream),
+            streamInfo.stream);
     }
     syncMemoryTransfer();
 }
@@ -4697,11 +4712,14 @@ bool DEMDynamicThread::getTrackedOwnerTrianglePV(bodyID_t ownerID,
 void DEMDynamicThread::resetTrackedTrianglePVWindow() {
     triPVWindowSteps = 0;
     if (triPVAccumP.size() > 0) {
-        DEME_GPU_CALL(cudaMemsetAsync(triPVAccumP.device(), 0, triPVAccumP.size() * sizeof(float), streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemsetAsync(triPVAccumP.device(), 0, triPVAccumP.size() * sizeof(float), streamInfo.stream),
+            streamInfo.stream);
     }
     if (triPVAccumPV.size() > 0) {
-        DEME_GPU_CALL(
-            cudaMemsetAsync(triPVAccumPV.device(), 0, triPVAccumPV.size() * sizeof(float), streamInfo.stream));
+        DEME_GPU_CALL_ASYNC(
+            cudaMemsetAsync(triPVAccumPV.device(), 0, triPVAccumPV.size() * sizeof(float), streamInfo.stream),
+            streamInfo.stream);
     }
     syncMemoryTransfer();
 }
