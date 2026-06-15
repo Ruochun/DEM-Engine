@@ -8,7 +8,6 @@
 
 #include "Defines.h"
 #include "../core/utils/CudaAllocator.hpp"
-#include "../core/utils/ManagedMemory.hpp"
 #include "../core/utils/csv.hpp"
 #include "../core/utils/Logger.hpp"
 #include "../core/utils/DataMigrationHelper.hpp"

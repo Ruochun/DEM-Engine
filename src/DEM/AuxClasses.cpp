@@ -696,13 +696,6 @@ void DEMTracker::SetFamily(unsigned int fam_num, size_t offset) {
     sys->SetOwnerFamily(obj->ownerID + offset, fam_num);
 }
 
-void DEMTracker::ChangeClumpSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors) {
-    std::vector<bodyID_t> offsetted_IDs(IDs);
-    size_t offset = obj->ownerID;
-    std::for_each(offsetted_IDs.begin(), offsetted_IDs.end(), [offset](bodyID_t& x) { x += offset; });
-    sys->ChangeClumpSizes(offsetted_IDs, factors);
-}
-
 void DEMTracker::UpdateMesh(const std::vector<float3>& new_nodes) {
     assertMesh("UpdateMesh");
     // Outsource to API system to handle...

@@ -91,14 +91,6 @@ if(USE_CHPF)
     endif()
 endif()
 
-# Let the user decide if they want to use managed arrays, rather than default cudaMalloc and cudaMallocHost memory.
-# Note that turning this on gives no performance benefits, and it's considered legacy.
-set(USE_MANAGED_ARRAYS_DESC
-	"Use managed CUDA arrays (instead of manual CUDA host and device memory) to store data"
-	"Switching it on makes the project operable on a Linux platform (excluding WSL) only."
-)
-option(USE_MANAGED_ARRAYS "${USE_MANAGED_ARRAYS_DESC}" OFF)
-
 # ---------------------------------------------------------------------------- #
 # Global Configuration
 # ---------------------------------------------------------------------------- #
@@ -199,11 +191,6 @@ else()
 	target_link_libraries(simulator_multi_gpu
 		PUBLIC ${DEME_LINK_LIBS}
 	)
-endif()
-
-# If use managed arrays, define a macro
-if(USE_MANAGED_ARRAYS)
-	target_compile_definitions(simulator_multi_gpu PUBLIC DEME_USE_MANAGED_ARRAYS)
 endif()
 
 # Specific to Windows...

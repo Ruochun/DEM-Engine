@@ -61,7 +61,6 @@ set(core_headers
 	${CMAKE_BINARY_DIR}/src/core/ApiVersion.h
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/BaseClasses.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/CudaAllocator.hpp
-	${CMAKE_CURRENT_SOURCE_DIR}/utils/ManagedMemory.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/CudaDebugSync.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/JitHelper.h
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/ThreadManager.h

@@ -116,7 +116,6 @@ int main() {
     //     cur_terrain_rad += terrain_rad / 10;
     //     std::cout << "Current particle size: " << cur_terrain_rad << std::endl;
     //     std::vector<float> enlarge_ratio(enlarge_ids.size(), (double)cur_terrain_rad / prev_rad);
-    //     terrain_tracker->ChangeClumpSizes(enlarge_ids, enlarge_ratio);
 
     //     do {
     //         // Must DoDynamicsThenSync (not DoDynamics), as adding entities to the simulation is only allowed at a

@@ -482,8 +482,6 @@ class DEMKinematicThread {
     void changeFamily(unsigned int ID_from, unsigned int ID_to);
 
     /// Change radii and relPos info of these owners (if these owners are clumps)
-    void changeOwnerSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors);
-
     // Jitify kT kernels (at initialization) based on existing knowledge of this run
     void jitifyKernels(const std::unordered_map<std::string, std::string>& Subs,
                        const std::vector<std::string>& JitifyOptions);

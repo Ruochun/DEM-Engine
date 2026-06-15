@@ -1504,7 +1504,6 @@ PYBIND11_MODULE(DEME, obj) {
         .value("FAMILY", deme::OUTPUT_CONTENT::FAMILY)
         .value("MAT", deme::OUTPUT_CONTENT::MAT)
         .value("OWNER_WILDCARD", deme::OUTPUT_CONTENT::OWNER_WILDCARD)
-        .value("EXP_FACTOR", deme::OUTPUT_CONTENT::EXP_FACTOR)
         .export_values();
 
     py::enum_<deme::OUTPUT_FORMAT>(obj, "OUTPUT_FORMAT")

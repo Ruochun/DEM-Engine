@@ -217,7 +217,6 @@ inline void DEMKinematicThread::unpackMyBuffer() {
             DEME_GPU_CALL(cudaEventSynchronize(dT->dT_to_kT_BufferReadyEvent));
         }
     }
-#ifndef DEME_USE_MANAGED_ARRAYS
     if (same_dev) {
         swapped = swap_device_buffer(voxelID, voxelID_buffer);
         swapped = swap_device_buffer(locX, locX_buffer) && swapped;
@@ -228,7 +227,6 @@ inline void DEMKinematicThread::unpackMyBuffer() {
         swapped = swap_device_buffer(oriQy, oriQ2_buffer) && swapped;
         swapped = swap_device_buffer(oriQz, oriQ3_buffer) && swapped;
     }
-#endif
 
     if (swapped) {
         xfer::XferList scalars;
@@ -312,11 +310,9 @@ inline void DEMKinematicThread::unpackMyBuffer() {
 
     if (solverFlags.canFamilyChangeOnDevice) {
         bool swapped_family = false;
-#ifndef DEME_USE_MANAGED_ARRAYS
         if (same_dev) {
             swapped_family = swap_device_buffer(familyID, familyID_buffer);
         }
-#endif
         if (!swapped_family) {
             xfer::XferList family_xfer;
             family_xfer.add(granData->familyID, familyID_buffer.data(), simParams->nOwnerBodies * sizeof(family_t));
@@ -327,13 +323,11 @@ inline void DEMKinematicThread::unpackMyBuffer() {
 
     if (solverFlags.willMeshDeform) {
         bool swapped_mesh = false;
-#ifndef DEME_USE_MANAGED_ARRAYS
         if (same_dev) {
             swapped_mesh = swap_device_buffer(relPosNode1, relPosNode1_buffer);
             swapped_mesh = swap_device_buffer(relPosNode2, relPosNode2_buffer) && swapped_mesh;
             swapped_mesh = swap_device_buffer(relPosNode3, relPosNode3_buffer) && swapped_mesh;
         }
-#endif
         if (!swapped_mesh) {
             xfer::XferList mesh_xfer;
             mesh_xfer.add(granData->relPosNode1, relPosNode1_buffer.data(), simParams->nTriGM * sizeof(float3));
@@ -444,7 +438,6 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
     }
 
     bool output_swapped = false;
-#ifndef DEME_USE_MANAGED_ARRAYS
     if (same_dev && allow_output_swap) {
         output_swapped = swap_device_buffer(idPrimitiveA, dT->idPrimitiveA_buffer[write_idx]);
         output_swapped = swap_device_buffer(idPrimitiveB, dT->idPrimitiveB_buffer[write_idx]) && output_swapped;
@@ -460,7 +453,6 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
             output_swapped = swap_device_buffer(contactMapping, dT->contactMapping_buffer[write_idx]) && output_swapped;
         }
     }
-#endif
 
     granData->pDTOwnedBuffer_idPrimitiveA = dT->idPrimitiveA_buffer[write_idx].data();
     granData->pDTOwnedBuffer_idPrimitiveB = dT->idPrimitiveB_buffer[write_idx].data();
@@ -647,46 +639,6 @@ void DEMKinematicThread::changeFamily(unsigned int ID_from, unsigned int ID_to) 
         familyID.getHostVector().begin(), familyID.getHostVector().end(),
         [ID_from_impl](family_t& i) { return i == ID_from_impl; }, ID_to_impl);
     familyID.toDevice();
-}
-
-void DEMKinematicThread::changeOwnerSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors) {
-    // Set the gpu for this thread
-    cudaSetDevice(streamInfo.device);
-    // cudaStream_t new_stream;
-    // cudaStreamCreate(&new_stream);
-
-    // First get IDs and factors to device side
-    size_t IDSize = IDs.size() * sizeof(bodyID_t);
-    bodyID_t* dIDs = (bodyID_t*)solverScratchSpace.allocateTempVector("dIDs", IDSize);
-    DEME_GPU_CALL(cudaMemcpy(dIDs, IDs.data(), IDSize, cudaMemcpyHostToDevice));
-    size_t factorSize = factors.size() * sizeof(float);
-    float* dFactors = (float*)solverScratchSpace.allocateTempVector("dFactors", factorSize);
-    DEME_GPU_CALL(cudaMemcpy(dFactors, factors.data(), factorSize, cudaMemcpyHostToDevice));
-
-    size_t idBoolSize = (size_t)simParams->nOwnerBodies * sizeof(notStupidBool_t);
-    size_t ownerFactorSize = (size_t)simParams->nOwnerBodies * sizeof(float);
-    // Bool table for whether this owner should change
-    notStupidBool_t* idBool = (notStupidBool_t*)solverScratchSpace.allocateTempVector("idBool", idBoolSize);
-    DEME_GPU_CALL(cudaMemset(idBool, 0, idBoolSize));
-    float* ownerFactors = (float*)solverScratchSpace.allocateTempVector("ownerFactors", ownerFactorSize);
-
-    // Mark on the bool array those owners that need a change
-    markOwnerToChange(idBool, ownerFactors, dIDs, dFactors, (size_t)IDs.size(), streamInfo.stream);
-
-    // Change the size of the sphere components in question
-    modifyComponents<DEMDataKT>(&granData, idBool, ownerFactors, (size_t)simParams->nSpheresGM, streamInfo.stream);
-
-    solverScratchSpace.finishUsingTempVector("dIDs");
-    solverScratchSpace.finishUsingTempVector("dFactors");
-    solverScratchSpace.finishUsingTempVector("idBool");
-    solverScratchSpace.finishUsingTempVector("ownerFactors");
-    // cudaStreamDestroy(new_stream);
-
-    // Update them back to host
-    relPosSphereX.toHost();
-    relPosSphereY.toHost();
-    relPosSphereZ.toHost();
-    radiiSphere.toHost();
 }
 
 void DEMKinematicThread::startThread() {
@@ -1017,17 +969,8 @@ void DEMKinematicThread::allocateGPUArrays(size_t nOwnerBodies,
         DEME_DEVICE_ARRAY_RESIZE(oriQ3_buffer, nOwnerBodies);
         DEME_DEVICE_ARRAY_RESIZE(absVel_buffer, nOwnerBodies);
         DEME_DEVICE_ARRAY_RESIZE(absAngVel_buffer, nOwnerBodies);
-        // DEME_ADVISE_DEVICE(voxelID_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(locX_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(locY_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(locZ_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(oriQ0_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(oriQ1_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(oriQ2_buffer, dT->streamInfo.device);
-        // DEME_ADVISE_DEVICE(oriQ3_buffer, dT->streamInfo.device);
 
         if (solverFlags.canFamilyChangeOnDevice) {
-            // DEME_ADVISE_DEVICE(familyID_buffer, dT->streamInfo.device);
             DEME_DEVICE_ARRAY_RESIZE(familyID_buffer, nOwnerBodies);
         }
 

@@ -900,31 +900,6 @@ class DEMCombinedInstances {
     }
 };
 
-/*
-/// GPU-side struct that holds external object component info. Only component, not their parents, so this is the
-/// equivalent of clump templates. External objects themselves (and their position, velocity etc.) are not stored with
-/// this struct; instead, they are considered a general owner (or clump)
-class DEMObjComponent {
-  public:
-    // float3* pSomething;
-
-    //
-    // std::vector<scratch_t, ManagedAllocator<scratch_t>> something;
-
-    union {
-        ManagedAllocator<DEMPlateParams_t> plate;
-        ManagedAllocator<DEMPlaneParams_t> plane;
-    };
-
-    DEMObjComponent() {
-        // cudaMallocManaged(&pSomething, sizeof(float3));
-    }
-    ~DEMObjComponent() {
-        // cudaFree(pSomething);
-    }
-};
-*/
-
 }  // namespace deme
 
 #endif

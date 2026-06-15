@@ -302,16 +302,6 @@ void markAliveContactTypes(const contact_t* previousContactTypes,
 // Misc kernels declarations
 ////////////////////////////////////////////////////////////////////////////////
 
-void markOwnerToChange(notStupidBool_t* idBool,
-                       float* ownerFactors,
-                       bodyID_t* dIDs,
-                       float* dFactors,
-                       size_t n,
-                       cudaStream_t& this_stream);
-
-template <typename DEMData>
-void modifyComponents(DEMData* granData, notStupidBool_t* idBool, float* factors, size_t n, cudaStream_t& this_stream);
-
 void fillMarginValues(DEMSimParams* simParams,
                       DEMDataKT* granData,
                       size_t nSphere,
