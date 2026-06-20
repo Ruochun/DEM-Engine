@@ -506,7 +506,8 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
 
     if (!same_dev && dT->kT_numContactsReadyEvent) {
         // Peer copies queued on dT's stream may still be reading kT's contact arrays after XferList::run returns.
-        // Record their completion; kT waits on this event before reusing those arrays in the next contact-detection pass.
+        // Record their completion; kT waits on this event before reusing those arrays in the next contact-detection
+        // pass.
         ScopedCudaDevice device_scope(dstDev);
         DEME_GPU_CALL(cudaEventRecord(dT->kT_numContactsReadyEvent, xfer_stream));
     }

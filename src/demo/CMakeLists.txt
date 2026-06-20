@@ -32,6 +32,7 @@ SET(DEMOS
 		DEMdemo_BallDrop
 		DEMdemo_BallDrop2D
 		DEMdemo_Mixer
+		DEMdemo_MixerCubes
 		DEMdemo_PolydisperseGeneration
 		DEMdemo_RoverWheel
 		DEMdemo_GRCPrep_Part1
