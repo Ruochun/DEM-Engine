@@ -13,9 +13,11 @@
 #include <vector>
 #include <mutex>
 #include <memory>
+#include <unordered_map>
 
 #include <cuda_runtime_api.h>
 #include "BaseClasses.hpp"
+#include "CudaDebugSync.hpp"
 // #include "../../DEM/Defines.h"
 
 namespace deme {
@@ -70,7 +72,7 @@ class Logger : private NonCopyable, public Singleton<Logger> {
         }
     }
 
-    // snprintf version of logging
+    // snprintf version of logging with format arguments
     template <typename... Args>
     std::string Logf(MessageType type, const char* func, const char* file, int line, const char* fmt, Args&&... args) {
         constexpr size_t BUF_SIZE = 2048;
@@ -81,10 +83,35 @@ class Logger : private NonCopyable, public Singleton<Logger> {
         return message;
     }
 
+    // const char* version without format arguments (avoids -Wformat-security warning)
+    std::string Logf(MessageType type, const char* func, const char* file, int line, const char* message) {
+        Log(type, func, std::string(message), file, line);
+        return std::string(message);
+    }
+
     // std::string version of logging
     std::string Logf(MessageType type, const char* func, const char* file, int line, const std::string& message) {
         Log(type, func, message, file, line);
         return message;
+    }
+
+    // LogStatus with format arguments
+    template <typename... Args>
+    void LogStatusf(const std::string& identifier,
+                    const char* func,
+                    const char* file,
+                    int line,
+                    const char* fmt,
+                    Args&&... args) {
+        constexpr size_t BUF_SIZE = 2048;
+        char buffer[BUF_SIZE];
+        std::snprintf(buffer, BUF_SIZE, fmt, std::forward<Args>(args)...);
+        LogStatus(identifier, func, std::string(buffer), file, line);
+    }
+
+    // LogStatus without format arguments (avoids -Wformat-security warning)
+    void LogStatusf(const std::string& identifier, const char* func, const char* file, int line, const char* message) {
+        LogStatus(identifier, func, std::string(message), file, line);
     }
 
     void LogStatus(const std::string& identifier,
@@ -167,6 +194,7 @@ class Logger : private NonCopyable, public Singleton<Logger> {
                 return verbosity >= VERBOSITY_INFO;
             case MessageType::Status:
                 return verbosity >= VERBOSITY_METRIC;
+            // Debug level will just immediately output all previous ones
             default:
                 return false;
         }
@@ -189,7 +217,7 @@ class Logger : private NonCopyable, public Singleton<Logger> {
                 break;
         }
         oss << Log.source << ": " << Log.message;
-        if (Log.type != MessageType::Info)
+        if (Log.type == MessageType::Error)
             oss << " (" << Log.file << ":" << Log.line << ")";
         if (!Log.identifier.empty() && Log.type == MessageType::Status)
             oss << " [id: " << Log.identifier << "]";
@@ -206,25 +234,23 @@ class Logger : private NonCopyable, public Singleton<Logger> {
 // Logging utils for easy usage
 // -----------------------------
 
-#define DEME_GET_VERBOSITY() Logger::GetInstance().GetVerbosity()
+#define DEME_GET_VERBOSITY() deme::Logger::GetInstance().GetVerbosity()
 
-#define DEME_ERROR(...) \
-    throw SolverException(Logger::GetInstance().Logf(MessageType::Error, __func__, __FILE__, __LINE__, __VA_ARGS__))
+#define DEME_ERROR(...)          \
+    throw deme::SolverException( \
+        deme::Logger::GetInstance().Logf(deme::MessageType::Error, __func__, __FILE__, __LINE__, __VA_ARGS__))
 
 #define DEME_ERROR_NOTHROW(...) \
-    Logger::GetInstance().Logf(MessageType::Error, __func__, __FILE__, __LINE__, __VA_ARGS__)
+    deme::Logger::GetInstance().Logf(deme::MessageType::Error, __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define DEME_WARNING(...) Logger::GetInstance().Logf(MessageType::Warning, __func__, __FILE__, __LINE__, __VA_ARGS__)
+#define DEME_WARNING(...) \
+    deme::Logger::GetInstance().Logf(deme::MessageType::Warning, __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define DEME_INFO(...) Logger::GetInstance().Logf(MessageType::Info, __func__, __FILE__, __LINE__, __VA_ARGS__)
+#define DEME_INFO(...) \
+    deme::Logger::GetInstance().Logf(deme::MessageType::Info, __func__, __FILE__, __LINE__, __VA_ARGS__)
 
-#define DEME_STATUS(identifier, ...)                                                       \
-    do {                                                                                   \
-        constexpr size_t BUF_SIZE = 2048;                                                  \
-        char buffer[BUF_SIZE];                                                             \
-        std::snprintf(buffer, BUF_SIZE, __VA_ARGS__);                                      \
-        Logger::GetInstance().LogStatus(identifier, __func__, buffer, __FILE__, __LINE__); \
-    } while (0)
+#define DEME_STATUS(identifier, ...) \
+    deme::Logger::GetInstance().LogStatusf(identifier, __func__, __FILE__, __LINE__, __VA_ARGS__)
 
 #define DEME_GPU_CALL(code)                                                                                           \
     {                                                                                                                 \
@@ -237,6 +263,16 @@ class Logger : private NonCopyable, public Singleton<Logger> {
                 cudaGetErrorString(res));                                                                             \
         }                                                                                                             \
     }
+
+// Use this for CUDA calls that enqueue work on a known stream. In debug-sync mode it reports asynchronous failures at
+// the operation that caused them, while preserving the normal asynchronous behavior when debug-sync mode is disabled.
+#define DEME_GPU_CALL_ASYNC(code, stream)             \
+    {                                                 \
+        DEME_GPU_CALL(code);                          \
+        DEME_GPU_CALL(deme::DebugSyncStream(stream)); \
+    }
+
+#define DEME_GPU_DEBUG_SYNC(stream) DEME_GPU_CALL(deme::DebugSyncStream(stream))
 
 #define DEME_GPU_CALL_NOTHROW(code)                                       \
     {                                                                     \

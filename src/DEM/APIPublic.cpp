@@ -2540,7 +2540,7 @@ void DEMSolver::ClearThreadCollaborationStats() {
     dT->nTotalSteps = 0;
 }
 
-float DEMSolver::dTInspectReduce(const std::shared_ptr<jitify::Program>& inspection_kernel,
+float DEMSolver::dTInspectReduce(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                                  const std::string& kernel_name,
                                  INSPECT_ENTITY_TYPE thing_to_insp,
                                  CUB_REDUCE_FLAVOR reduce_flavor,
@@ -2554,7 +2554,7 @@ float DEMSolver::dTInspectReduce(const std::shared_ptr<jitify::Program>& inspect
     return (float)(*pRes);
 }
 
-float* DEMSolver::dTInspectNoReduce(const std::shared_ptr<jitify::Program>& inspection_kernel,
+float* DEMSolver::dTInspectNoReduce(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                                     const std::string& kernel_name,
                                     INSPECT_ENTITY_TYPE thing_to_insp,
                                     CUB_REDUCE_FLAVOR reduce_flavor,
@@ -2568,7 +2568,7 @@ float* DEMSolver::dTInspectNoReduce(const std::shared_ptr<jitify::Program>& insp
     return pRes;
 }
 
-float DEMSolver::dTInspectReduceDevice(const std::shared_ptr<jitify::Program>& inspection_kernel,
+float DEMSolver::dTInspectReduceDevice(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                                        const std::string& kernel_name,
                                        INSPECT_ENTITY_TYPE thing_to_insp,
                                        CUB_REDUCE_FLAVOR reduce_flavor,
@@ -2582,7 +2582,7 @@ float DEMSolver::dTInspectReduceDevice(const std::shared_ptr<jitify::Program>& i
     return (float)(*pRes);
 }
 
-float* DEMSolver::dTInspectNoReduceDevice(const std::shared_ptr<jitify::Program>& inspection_kernel,
+float* DEMSolver::dTInspectNoReduceDevice(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                                           const std::string& kernel_name,
                                           INSPECT_ENTITY_TYPE thing_to_insp,
                                           CUB_REDUCE_FLAVOR reduce_flavor,

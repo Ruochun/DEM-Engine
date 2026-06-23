@@ -1013,29 +1013,29 @@ void DEMKinematicThread::jitifyKernels(const std::unordered_map<std::string, std
                                        const std::vector<std::string>& JitifyOptions) {
     // First one is bin_sphere_kernels kernels, which figure out the bin--sphere touch pairs
     {
-        bin_sphere_kernels = std::make_shared<jitify::Program>(std::move(JitHelper::buildProgram(
+        bin_sphere_kernels = std::make_shared<JitHelper::CachedProgram>(std::move(JitHelper::buildProgram(
             "DEMBinSphereKernels", JitHelper::KERNEL_DIR / "DEMBinSphereKernels.cu", Subs, JitifyOptions)));
     }
     // Then CD kernels
     {
-        sphere_contact_kernels = std::make_shared<jitify::Program>(std::move(
+        sphere_contact_kernels = std::make_shared<JitHelper::CachedProgram>(std::move(
             JitHelper::buildProgram("DEMContactKernels_SphereSphere",
                                     JitHelper::KERNEL_DIR / "DEMContactKernels_SphereSphere.cu", Subs, JitifyOptions)));
     }
     // Then triangle--bin intersection-related kernels
     {
-        bin_triangle_kernels = std::make_shared<jitify::Program>(std::move(JitHelper::buildProgram(
+        bin_triangle_kernels = std::make_shared<JitHelper::CachedProgram>(std::move(JitHelper::buildProgram(
             "DEMBinTriangleKernels", JitHelper::KERNEL_DIR / "DEMBinTriangleKernels.cu", Subs, JitifyOptions)));
     }
     // Then sphere--triangle contact detection-related kernels
     {
-        sphTri_contact_kernels = std::make_shared<jitify::Program>(std::move(JitHelper::buildProgram(
+        sphTri_contact_kernels = std::make_shared<JitHelper::CachedProgram>(std::move(JitHelper::buildProgram(
             "DEMContactKernels_SphTri_TriTri", JitHelper::KERNEL_DIR / "DEMContactKernels_SphTri_TriTri.cu", Subs,
             JitifyOptions)));
     }
     // Then misc.
     {
-        misc_kernels = std::make_shared<jitify::Program>(std::move(JitHelper::buildProgram(
+        misc_kernels = std::make_shared<JitHelper::CachedProgram>(std::move(JitHelper::buildProgram(
             "DEMKinematicMisc", JitHelper::KERNEL_DIR / "DEMKinematicMisc.cu", Subs, JitifyOptions)));
     }
 }

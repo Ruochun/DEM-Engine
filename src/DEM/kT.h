@@ -16,16 +16,12 @@
 #include "../core/utils/ThreadManager.h"
 #include "../core/utils/GpuManager.h"
 #include "../core/utils/DataMigrationHelper.hpp"
+#include "../core/utils/JitHelper.h"
 #include "../core/utils/Timer.hpp"
 
 #include "BdrsAndObjs.h"
 #include "Defines.h"
 #include "Structs.h"
-
-// Forward declare jitify::Program to avoid downstream dependency
-namespace jitify {
-class Program;
-}
 
 namespace deme {
 
@@ -454,12 +450,11 @@ class DEMKinematicThread {
     void deallocateEverything();
 
     // Just-in-time compiled kernels
-    // jitify::Program bin_sphere_kernels = JitHelper::buildProgram("bin_sphere_kernels", " ");
-    std::shared_ptr<jitify::Program> bin_sphere_kernels;
-    std::shared_ptr<jitify::Program> bin_triangle_kernels;
-    std::shared_ptr<jitify::Program> sphTri_contact_kernels;
-    std::shared_ptr<jitify::Program> sphere_contact_kernels;
-    std::shared_ptr<jitify::Program> misc_kernels;
+    std::shared_ptr<JitHelper::CachedProgram> bin_sphere_kernels;
+    std::shared_ptr<JitHelper::CachedProgram> bin_triangle_kernels;
+    std::shared_ptr<JitHelper::CachedProgram> sphTri_contact_kernels;
+    std::shared_ptr<JitHelper::CachedProgram> sphere_contact_kernels;
+    std::shared_ptr<JitHelper::CachedProgram> misc_kernels;
 
     // Adjuster for bin size
     class AccumTimer {

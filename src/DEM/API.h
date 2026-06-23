@@ -14,6 +14,7 @@
 #include "kT.h"
 #include "dT.h"
 #include "../core/utils/CudaAllocator.hpp"
+#include "../core/utils/CudaDebugSync.hpp"
 #include "../core/utils/ThreadManager.h"
 #include "../core/utils/GpuManager.h"
 #include "../core/utils/DEMEPaths.h"
@@ -127,6 +128,12 @@ class DEMSolver {
     std::vector<std::string> GetJitifyOptions() const { return m_jitify_options; }
     /// Set the jitification options. It is only needed by advanced users.
     void SetJitifyOptions(const std::vector<std::string>& options) { m_jitify_options = options; }
+
+    /// Process-wide switch to synchronize after CUDA operations that enqueue stream work.
+    /// Enabled by default for debugging; disable it for normal asynchronous performance.
+    void SetCudaDebugSync(bool enable = true) { SetCudaDebugSyncEnabled(enable); }
+    /// Return whether process-wide CUDA debug synchronization is enabled.
+    bool GetCudaDebugSync() const { return IsCudaDebugSyncEnabled(); }
 
     /// Explicitly instruct the bin size (for contact detection) that the solver should use.
     void SetInitBinSize(double bin_size) {
@@ -1471,28 +1478,28 @@ class DEMSolver {
     void PrintKinematicScratchSpaceUsage() const { kT->printScratchSpaceUsage(); }
 
     /// Let dT do this call and return the reduce value of the inspected quantity.
-    float dTInspectReduce(const std::shared_ptr<jitify::Program>& inspection_kernel,
+    float dTInspectReduce(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                           const std::string& kernel_name,
                           INSPECT_ENTITY_TYPE thing_to_insp,
                           CUB_REDUCE_FLAVOR reduce_flavor,
                           bool all_domain,
                           DualArray<scratch_t>& reduceResArr,
                           DualArray<scratch_t>& reduceRes);
-    float* dTInspectNoReduce(const std::shared_ptr<jitify::Program>& inspection_kernel,
+    float* dTInspectNoReduce(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                              const std::string& kernel_name,
                              INSPECT_ENTITY_TYPE thing_to_insp,
                              CUB_REDUCE_FLAVOR reduce_flavor,
                              bool all_domain,
                              DualArray<scratch_t>& reduceResArr,
                              DualArray<scratch_t>& reduceRes);
-    float dTInspectReduceDevice(const std::shared_ptr<jitify::Program>& inspection_kernel,
+    float dTInspectReduceDevice(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                                 const std::string& kernel_name,
                                 INSPECT_ENTITY_TYPE thing_to_insp,
                                 CUB_REDUCE_FLAVOR reduce_flavor,
                                 bool all_domain,
                                 DualArray<scratch_t>& reduceResArr,
                                 DualArray<scratch_t>& reduceRes);
-    float* dTInspectNoReduceDevice(const std::shared_ptr<jitify::Program>& inspection_kernel,
+    float* dTInspectNoReduceDevice(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
                                    const std::string& kernel_name,
                                    INSPECT_ENTITY_TYPE thing_to_insp,
                                    CUB_REDUCE_FLAVOR reduce_flavor,
