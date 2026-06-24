@@ -274,6 +274,21 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
             float dotProd = dot(B2A, triPatchPosA - triPatchPosB);
             granData->contactPatchDirectionRespected[myPrimitiveContactID] = (dotProd > 0.f) ? 1 : 0;
 
+            // Reject suspicious back-face false pairings when the penetration is too large relative to the distance
+            // from the contact point to either patch center. A negative ratio disables this guard.
+            if (in_contact && simParams->triTriContactRejectionRatio >= 0.f) {
+                const double ratio = (double)simParams->triTriContactRejectionRatio;
+                const double distA = length(contactPnt - to_double3(triPatchPosA));
+                const double distB = length(contactPnt - to_double3(triPatchPosB));
+                if (overlapDepth > ratio * distA || overlapDepth > ratio * distB) {
+                    in_contact = false;
+                    ContactType = deme::NOT_A_CONTACT;
+                    overlapDepth = -DEME_HUGE_FLOAT;
+                    overlapArea = 0.0;
+                    granData->contactPatchDirectionRespected[myPrimitiveContactID] = 0;
+                }
+            }
+
             // Fix ContactType if needed
             // If the solver says in contact, we do not question it
             if (!in_contact) {
