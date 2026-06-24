@@ -26,7 +26,7 @@ __device__ __forceinline__ float getApproxAbsVel(deme::DEMSimParams* simParams,
     // estimation as no direction is considered.
     float vel = abs_v + length(myRelPos) * abs_angv;
 
-    vel = fminf(vel, simParams->approxMaxVel);
+    vel = fminf(vel, simParams->dyn.approxMaxVel);
     return vel;
 }
 
@@ -50,7 +50,7 @@ __global__ void computeMarginFromAbsv_implSph(deme::DEMSimParams* simParams,
         float vel = getApproxAbsVel(simParams, ownerID, absVel_owner, absAngVel_owner, myRelPos);
         unsigned int my_family = granData->familyID[ownerID];
         granData->marginSizeSphere[sphereID] =
-            (double)(vel * simParams->expSafetyMulti + simParams->expSafetyAdder) * (*ts) * (*maxDrift) +
+            (double)(vel * simParams->dyn.expSafetyMulti + simParams->dyn.expSafetyAdder) * (*ts) * (*maxDrift) +
             granData->familyExtraMarginSize[my_family];
     }
 }
@@ -87,7 +87,7 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
         // We hope that penetrationMargin is small, so it's absorbed into the velocity-induce margin.
         // But if not, it should prevail to avoid losing contacts involving triangles inside another mesh.
         double finalMargin =
-            (double)(vel * simParams->expSafetyMulti + simParams->expSafetyAdder) * (*ts) * (*maxDrift) +
+            (double)(vel * simParams->dyn.expSafetyMulti + simParams->dyn.expSafetyAdder) * (*ts) * (*maxDrift) +
             granData->familyExtraMarginSize[my_family];
         if (finalMargin < penetrationMargin) {
             finalMargin = penetrationMargin;
@@ -112,7 +112,7 @@ __global__ void computeMarginFromAbsv_implAnal(deme::DEMSimParams* simParams,
         float vel = getApproxAbsVel(simParams, ownerID, absVel_owner, absAngVel_owner, myRelPos);
         unsigned int my_family = granData->familyID[ownerID];
         granData->marginSizeAnalytical[objID] =
-            (double)(vel * simParams->expSafetyMulti + simParams->expSafetyAdder) * (*ts) * (*maxDrift) +
+            (double)(vel * simParams->dyn.expSafetyMulti + simParams->dyn.expSafetyAdder) * (*ts) * (*maxDrift) +
             granData->familyExtraMarginSize[my_family];
     }
 }

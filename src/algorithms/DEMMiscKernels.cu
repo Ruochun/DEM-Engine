@@ -89,7 +89,7 @@ __global__ void fillMarginValues_impl(DEMSimParams* simParams,
     if (ID < n) {
         bodyID_t ownerID = ownerIDArr[ID];
         unsigned int my_family = granData->familyID[ownerID];
-        marginSizeArr[ID] = simParams->beta + granData->familyExtraMarginSize[my_family];
+        marginSizeArr[ID] = simParams->dyn.beta + granData->familyExtraMarginSize[my_family];
     }
 }
 

@@ -377,18 +377,19 @@ void DEMDynamicThread::setSimParams(unsigned char nvXp2,
     simParams->nvZp2 = nvZp2;
     simParams->l = l;
     simParams->voxelSize = voxelSize;
-    simParams->binSize = binSize;
+    simParams->dyn.binSize = binSize;
+    simParams->dyn.inv_binSize = 1. / binSize;
     simParams->LBFX = LBFPoint.x;
     simParams->LBFY = LBFPoint.y;
     simParams->LBFZ = LBFPoint.z;
     simParams->Gx = G.x;
     simParams->Gy = G.y;
     simParams->Gz = G.z;
-    simParams->h = ts_size;
-    simParams->beta = expand_factor;  // If beta is auto-adapting, this assignment has no effect
-    simParams->approxMaxVel = approx_max_vel;
-    simParams->expSafetyMulti = expand_safety_param;
-    simParams->expSafetyAdder = expand_safety_adder;
+    simParams->dyn.h = ts_size;
+    simParams->dyn.beta = expand_factor;  // If beta is auto-adapting, this assignment has no effect
+    simParams->dyn.approxMaxVel = approx_max_vel;
+    simParams->dyn.expSafetyMulti = expand_safety_param;
+    simParams->dyn.expSafetyAdder = expand_safety_adder;
     simParams->capTriTriPenetration = max_tritri_penetration;
     simParams->nbX = nbX;
     simParams->nbY = nbY;
@@ -2141,7 +2142,7 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
                              cudaMemcpyDeviceToDevice));
 
     // Send simulation metrics for kT's reference.
-    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_ts, &(simParams->h), sizeof(float), cudaMemcpyHostToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float), cudaMemcpyHostToDevice));
     // Note that perhapsIdealFutureDrift is non-negative, and it will be used to determine the margin size; however, if
     // scheduleHelper is instructed to have negative future drift then perhapsIdealFutureDrift no longer affects them.
     DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
@@ -2223,7 +2224,7 @@ inline void DEMDynamicThread::migrateEnduringContacts() {
                     "ALIVE_CONTACT_NOT_DETECTED",
                     "%zu contacts were active at time %.9g on dT, but they are not detected on kT, therefore being "
                     "removed unexpectedly!",
-                    *lostContact, simParams->timeElapsed);
+                    *lostContact, simParams->dyn.timeElapsed);
                 DEME_DEBUG_PRINTF("New number of contacts: %zu", *solverScratchSpace.numContacts);
                 DEME_DEBUG_PRINTF("Old number of contacts: %zu", *solverScratchSpace.numPrevContacts);
                 DEME_DEBUG_PRINTF("New contact A:");
@@ -2267,7 +2268,8 @@ inline void DEMDynamicThread::migrateEnduringContacts() {
 // kernel name)]
 inline void DEMDynamicThread::dispatchPrimitiveForceKernels(
     const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountMap,
-    const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>& typeKernelMap) {
+    const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
+        typeKernelMap) {
     // For each contact type that exists, call its corresponding kernel(s)
     for (size_t i = 0; i < m_numExistingTypes; i++) {
         contact_t contact_type = existingContactTypes[i];
@@ -2304,7 +2306,8 @@ inline void DEMDynamicThread::dispatchPrimitiveForceKernels(
 inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
     const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPrimitiveMap,
     const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPatchMap,
-    const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>& typeKernelMap) {
+    const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
+        typeKernelMap) {
     // Reset max tri-tri penetration for this timestep on device (kT may need this info)
     DEME_GPU_CALL(cudaMemset(maxTriTriPenetration.getDevicePointer(), 0, sizeof(double)));
 
@@ -2848,7 +2851,7 @@ void DEMDynamicThread::workerThread() {
             }
         }
 
-        for (double cycle = 0.0; cycle < cycleDuration; cycle += (double)(simParams->h)) {
+        for (double cycle = 0.0; cycle < cycleDuration; cycle += (double)(simParams->dyn.h)) {
             // If the produce is fresh, use it, and then send kT a new work order.
             // We used to send work order to kT whenever kT unpacks its buffer. This can lead to a situation where dT
             // sends a new work order and then immediately bails out (user asks it to do something else). A bit later
@@ -2910,12 +2913,13 @@ void DEMDynamicThread::workerThread() {
             accumStepUpdater.AddStep();
 
             //// TODO: make changes for variable time step size cases
-            simParams->timeElapsed += (double)simParams->h;
+            simParams->dyn.timeElapsed += (double)simParams->dyn.h;
             // timeElapsed needs to be updated to the device each time step
-            // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, timeElapsed));
+            // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, dyn) +
+            //                                      offsetof(DEMSimParamsDynamic, timeElapsed));
             simParams.toDevice();
 
-            DEME_DEBUG_PRINTF("Completed step %zu, time %.9g", nTotalSteps, simParams->timeElapsed);
+            DEME_DEBUG_PRINTF("Completed step %zu, time %.9g", nTotalSteps, simParams->dyn.timeElapsed);
         }
 
         // Unless the user did something critical, must we wait for a kT update before next step
@@ -3170,12 +3174,13 @@ size_t DEMDynamicThread::getNumContacts() const {
 }
 
 double DEMDynamicThread::getSimTime() const {
-    return simParams->timeElapsed;
+    return simParams->dyn.timeElapsed;
 }
 
 void DEMDynamicThread::setSimTime(double time) {
-    simParams->timeElapsed = time;
-    // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, timeElapsed));
+    simParams->dyn.timeElapsed = time;
+    // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, dyn) +
+    //                                      offsetof(DEMSimParamsDynamic, timeElapsed));
     simParams.toDevice();
 }
 

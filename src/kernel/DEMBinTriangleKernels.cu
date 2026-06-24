@@ -122,15 +122,15 @@ __global__ void getNumberOfBinsEachTriangleTouches(deme::DEMSimParams* simParams
         // Just sweep through all potential bins and you are fine.
         float BinCenter[3];
         float BinHalfSizes[3];
-        BinHalfSizes[0] = simParams->binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
-        BinHalfSizes[1] = simParams->binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
-        BinHalfSizes[2] = simParams->binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
+        BinHalfSizes[0] = simParams->dyn.binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
+        BinHalfSizes[1] = simParams->dyn.binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
+        BinHalfSizes[2] = simParams->dyn.binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
         for (deme::binID_t i = L1[0]; i <= U1[0]; i++) {
             for (deme::binID_t j = L1[1]; j <= U1[1]; j++) {
                 for (deme::binID_t k = L1[2]; k <= U1[2]; k++) {
-                    BinCenter[0] = simParams->binSize * i + simParams->binSize / 2.;
-                    BinCenter[1] = simParams->binSize * j + simParams->binSize / 2.;
-                    BinCenter[2] = simParams->binSize * k + simParams->binSize / 2.;
+                    BinCenter[0] = simParams->dyn.binSize * i + simParams->dyn.binSize / 2.;
+                    BinCenter[1] = simParams->dyn.binSize * j + simParams->dyn.binSize / 2.;
+                    BinCenter[2] = simParams->dyn.binSize * k + simParams->dyn.binSize / 2.;
 
                     if (check_TriangleBoxOverlap(BinCenter, BinHalfSizes, vA1, vB1, vC1) ||
                         check_TriangleBoxOverlap(BinCenter, BinHalfSizes, vA2, vB2, vC2)) {
@@ -245,18 +245,18 @@ __global__ void populateBinTriangleTouchingPairs(deme::DEMSimParams* simParams,
         // Triangle may span a collection of bins...
         float BinCenter[3];
         float BinHalfSizes[3];
-        BinHalfSizes[0] = simParams->binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
-        BinHalfSizes[1] = simParams->binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
-        BinHalfSizes[2] = simParams->binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
+        BinHalfSizes[0] = simParams->dyn.binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
+        BinHalfSizes[1] = simParams->dyn.binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
+        BinHalfSizes[2] = simParams->dyn.binSize / 2. + DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
         for (deme::binID_t i = L1[0]; i <= U1[0]; i++) {
             for (deme::binID_t j = L1[1]; j <= U1[1]; j++) {
                 for (deme::binID_t k = L1[2]; k <= U1[2]; k++) {
                     if (myReportOffset >= myReportOffset_end) {
                         continue;  // Don't step on the next triangle's domain
                     }
-                    BinCenter[0] = simParams->binSize * i + simParams->binSize / 2.;
-                    BinCenter[1] = simParams->binSize * j + simParams->binSize / 2.;
-                    BinCenter[2] = simParams->binSize * k + simParams->binSize / 2.;
+                    BinCenter[0] = simParams->dyn.binSize * i + simParams->dyn.binSize / 2.;
+                    BinCenter[1] = simParams->dyn.binSize * j + simParams->dyn.binSize / 2.;
+                    BinCenter[2] = simParams->dyn.binSize * k + simParams->dyn.binSize / 2.;
 
                     if (check_TriangleBoxOverlap(BinCenter, BinHalfSizes, vA1, vB1, vC1) ||
                         check_TriangleBoxOverlap(BinCenter, BinHalfSizes, vA2, vB2, vC2)) {

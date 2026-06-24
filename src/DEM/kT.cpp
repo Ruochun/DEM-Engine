@@ -97,22 +97,23 @@ void DEMKinematicThread::calibrateParams() {
 
             // Change bin size
             if (stateParams.binCurrentChangeRate > 0) {
-                simParams->binSize *= (1. + stateParams.binCurrentChangeRate);
+                simParams->dyn.binSize *= (1. + stateParams.binCurrentChangeRate);
             } else {
-                simParams->binSize /= (1. - stateParams.binCurrentChangeRate);
+                simParams->dyn.binSize /= (1. - stateParams.binCurrentChangeRate);
             }
+            simParams->dyn.inv_binSize = 1. / simParams->dyn.binSize;
             // Register the new bin size
             stateParams.numBins =
-                hostCalcBinNum(simParams->nbX, simParams->nbY, simParams->nbZ, simParams->voxelSize, simParams->binSize,
-                               simParams->nvXp2, simParams->nvYp2, simParams->nvZp2);
+                hostCalcBinNum(simParams->nbX, simParams->nbY, simParams->nbZ, simParams->voxelSize,
+                               simParams->dyn.binSize, simParams->nvXp2, simParams->nvYp2, simParams->nvZp2);
 
-            DEME_DEBUG_PRINTF("Bin size is now: %.7g", simParams->binSize);
+            DEME_DEBUG_PRINTF("Bin size is now: %.7g", simParams->dyn.binSize);
             DEME_DEBUG_PRINTF("Total num of bins is now: %zu", stateParams.numBins);
         }
         DEME_DEBUG_PRINTF("kT runtime per step: %.7gs", CDAccumTimer.GetPrevTime());
     }
     // binSize is now calculated, we need to migrate that to device
-    // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, binSize));
+    // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, binSize));
     simParams.toDevice();
 }
 
@@ -198,10 +199,10 @@ inline void DEMKinematicThread::unpackMyBuffer() {
             *(stateParams.maxVel), *(stateParams.maxAngVel), simParams->errOutVel, simParams->errOutAngVel);
     }
     if (*stateParams.maxVel >
-        simParams->approxMaxVel) {  // If maxVel is larger than the user estimation, that is an anomaly
+        simParams->dyn.approxMaxVel) {  // If maxVel is larger than the user estimation, that is an anomaly
         // This prints when verbosity higher than METRIC
         DEME_STATUS("OVER_MAX_VEL", "Simulation entity velocity reached %.6g, over the user-estimated max (%.6g)",
-                    *stateParams.maxVel, simParams->approxMaxVel);
+                    *stateParams.maxVel, simParams->dyn.approxMaxVel);
     }
     if (*stateParams.maxTriTriPenetration > simParams->capTriTriPenetration) {
         DEME_STATUS("OVER_MAX_MESH_PENETRATION",
@@ -652,18 +653,19 @@ void DEMKinematicThread::setSimParams(unsigned char nvXp2,
     simParams->nvZp2 = nvZp2;
     simParams->l = l;
     simParams->voxelSize = voxelSize;
-    simParams->binSize = binSize;
+    simParams->dyn.binSize = binSize;
+    simParams->dyn.inv_binSize = 1. / binSize;
     simParams->LBFX = LBFPoint.x;
     simParams->LBFY = LBFPoint.y;
     simParams->LBFZ = LBFPoint.z;
     simParams->Gx = G.x;
     simParams->Gy = G.y;
     simParams->Gz = G.z;
-    simParams->h = ts_size;
-    simParams->beta = expand_factor;  // If beta is auto-adapting, this assignment has no effect
-    simParams->approxMaxVel = approx_max_vel;
-    simParams->expSafetyMulti = expand_safety_param;
-    simParams->expSafetyAdder = expand_safety_adder;
+    simParams->dyn.h = ts_size;
+    simParams->dyn.beta = expand_factor;  // If beta is auto-adapting, this assignment has no effect
+    simParams->dyn.approxMaxVel = approx_max_vel;
+    simParams->dyn.expSafetyMulti = expand_safety_param;
+    simParams->dyn.expSafetyAdder = expand_safety_adder;
     simParams->capTriTriPenetration = max_tritri_penetration;
     simParams->nbX = nbX;
     simParams->nbY = nbY;

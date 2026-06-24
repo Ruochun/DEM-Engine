@@ -329,7 +329,7 @@ class DEMSolver {
     }
     /// @brief Get the current bin (for contact detection) size. Must be called from synchronized stance.
     /// @return Bin size.
-    double GetBinSize() { return kT->simParams->binSize; }
+    double GetBinSize() { return kT->simParams->dyn.binSize; }
     // NOTE: No need to get binSize from the device, as binSize is only changed on the host
 
     /// @brief Get the current number of bins (for contact detection). Must be called from synchronized stance.

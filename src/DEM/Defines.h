@@ -14,6 +14,12 @@
 #include "VariableTypes.h"
 #include "cuda_runtime.h"
 
+#ifdef __CUDACC__
+    #define DEME_KERNEL extern "C" __global__
+#else
+    #define DEME_KERNEL
+#endif
+
 #define DEME_MIN(a, b) ((a < b) ? a : b)
 #define DEME_MAX(a, b) ((a > b) ? a : b)
 
@@ -220,7 +226,26 @@ enum CNT_OUTPUT_CONTENT {
 // NOTE: All data structs here need to be simple enough to jitify. In general, if you need to include something much
 // more complex than DEMDefines for example, then do it in Structs.h.
 
-// A structure for storing simulation parameters.
+// A structure for storing frequently updated simulation parameters.
+struct DEMSimParamsDynamic {
+    // The edge length and inverse edge length of a bin (for contact detection)
+    double binSize;
+    double inv_binSize;
+    // Time step size
+    float h;
+    // Time elappsed since start of simulation
+    double timeElapsed = 0;
+    // Sphere radii/geometry thickness inflation amount (for safer contact detection)
+    float beta;
+    // Max velocity, user approximated, we verify during simulation
+    float approxMaxVel;
+    // Expand safety parameter (multiplier for the max vel)
+    float expSafetyMulti;
+    // Expand safety parameter (adder for the max vel)
+    float expSafetyAdder;
+};
+
+// A structure for storing mostly static simulation parameters.
 struct DEMSimParams {
     // Number of voxels in the X direction, expressed as a power of 2
     unsigned char nvXp2;
@@ -238,8 +263,8 @@ struct DEMSimParams {
     double l;
     // Double-precision single voxel size
     double voxelSize;
-    // The edge length of a bin (for contact detection)
-    double binSize;
+    // Frequently updated parameters (kept inline for device access)
+    DEMSimParamsDynamic dyn;
     // Number of clumps, spheres, triangles, mesh-represented objects, analytical components, external objs...
     bodyID_t nSpheresGM;
     bodyID_t nTriGM;
@@ -267,18 +292,6 @@ struct DEMSimParams {
     // User's box size
     float3 userBoxMin;
     float3 userBoxMax;
-    // Time step size
-    float h;
-    // Time elappsed since start of simulation
-    double timeElapsed = 0;
-    // Sphere radii/geometry thickness inflation amount (for safer contact detection)
-    float beta;
-    // Max velocity, user approximated, we verify during simulation
-    float approxMaxVel;
-    // Expand safety parameter (multiplier for the max vel)
-    float expSafetyMulti;
-    // Expand safety parameter (adder for the max vel)
-    float expSafetyAdder;
     // Stepping method
     TIME_INTEGRATOR stepping = TIME_INTEGRATOR::FORWARD_EULER;
     // Whether needs to store the contact normal
@@ -292,6 +305,10 @@ struct DEMSimParams {
     // Max tri-tri penetration margin (to prevent super large margins from being added)
     double capTriTriPenetration = DEME_HUGE_FLOAT;
 
+    // Ratio threshold for rejecting suspicious tri-tri contacts: a contact is rejected when the penetration depth
+    // exceeds this fraction of the distance from the contact point to a mesh's geometric center.
+    float triTriContactRejectionRatio = 0.8f;
+
     // The max vel at which the solver errors out
     float errOutVel = DEME_HUGE_FLOAT;
     // The max ang vel at which the solver errors out
@@ -300,6 +317,19 @@ struct DEMSimParams {
     unsigned int errOutBinSphNum = 32768;
     // The max num of triangles per bin before solver errors out
     unsigned int errOutBinTriNum = 32768;
+    // Whether angular velocity contributes to contact margin sizing (and sphere--sphere rot. velocity use).
+    notStupidBool_t useAngVelMargin = 1;
+
+    // When true, the per-triangle maxTriTriPenetration array is neither computed (atomic max skipped in force kernel),
+    // nor transferred to kT, nor used to guard finalMargin in computeMarginFromAbsv. This saves compute time when the
+    // user knows that meshed particles have a low polygon count (e.g. box with 12 triangles, tetrahedron with 4) and
+    // mesh-mesh contacts are always SAT-traceable, i.e. no triangle can be completely submerged inside another mesh.
+    bool meshParticlesLowPoly = false;
+
+    // Number of owners currently participating in combined-owner rigid groups.
+    bodyID_t nCombinedOwners = 0;
+    // If 1, contact detection keeps contacts among owners that share the same combined master.
+    notStupidBool_t allowIntraCombinedOwnerContacts = 0;
 };
 
 // A struct that holds pointers to data arrays that dT uses

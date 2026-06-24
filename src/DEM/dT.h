@@ -326,8 +326,10 @@ class DEMDynamicThread {
     ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>> typeStartCountPrimitiveMap;
     ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>> typeStartCountPatchMap;
     // A map that records the corresponding jitify program bundle and kernel name for each contact type
-    ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>> contactTypePrimitiveKernelMap;
-    ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>> contactTypePatchKernelMap;
+    ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>
+        contactTypePrimitiveKernelMap;
+    ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>
+        contactTypePatchKernelMap;
 
     // dT's timers
     std::vector<std::string> timer_names = {"Clear force array", "Calculate contact forces", "Optional force reduction",
@@ -725,11 +727,13 @@ class DEMDynamicThread {
     // Impl of calculateForces
     inline void dispatchPrimitiveForceKernels(
         const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountMap,
-        const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>& typeKernelMap);
+        const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
+            typeKernelMap);
     inline void dispatchPatchBasedForceCorrections(
         const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPrimitiveMap,
         const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPatchMap,
-        const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>& typeKernelMap);
+        const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
+            typeKernelMap);
     // Update clump-based acceleration array based on sphere-based force array
     void calculateForces();
 

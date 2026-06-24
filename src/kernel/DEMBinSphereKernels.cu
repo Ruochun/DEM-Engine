@@ -51,11 +51,11 @@ __global__ void getNumberOfBinsEachSphereTouches(deme::DEMSimParams* simParams,
             deme::binsSphereTouches_t numX, numY, numZ;
             {
                 // The bin number that I live in (with fractions)?
-                double myBinX = myPosXYZ.x / simParams->binSize;
-                double myBinY = myPosXYZ.y / simParams->binSize;
-                double myBinZ = myPosXYZ.z / simParams->binSize;
+                double myBinX = myPosXYZ.x / simParams->dyn.binSize;
+                double myBinY = myPosXYZ.y / simParams->dyn.binSize;
+                double myBinZ = myPosXYZ.z / simParams->dyn.binSize;
                 // How many bins my radius spans (with fractions)?
-                double myRadiusSpan = myRadius / simParams->binSize;
+                double myRadiusSpan = myRadius / simParams->dyn.binSize;
                 // printf("myRadius: %f\n", myRadiusSpan);
                 // Now, figure out how many bins I touch in each direction
                 numX = ((myBinX + myRadiusSpan < (double)simParams->nbX) ? (unsigned int)(myBinX + myRadiusSpan)
@@ -179,11 +179,11 @@ __global__ void populateBinSphereTouchingPairs(deme::DEMSimParams* simParams,
             }
 
             // The bin number that I live in (with fractions)?
-            double myBinX = myPosXYZ.x / simParams->binSize;
-            double myBinY = myPosXYZ.y / simParams->binSize;
-            double myBinZ = myPosXYZ.z / simParams->binSize;
+            double myBinX = myPosXYZ.x / simParams->dyn.binSize;
+            double myBinY = myPosXYZ.y / simParams->dyn.binSize;
+            double myBinZ = myPosXYZ.z / simParams->dyn.binSize;
             // How many bins my radius spans (with fractions)?
-            double myRadiusSpan = myRadius / simParams->binSize;
+            double myRadiusSpan = myRadius / simParams->dyn.binSize;
             // Now, write the IDs of those bins that I touch, back to the global memory
             deme::binID_t thisBinID;
             for (deme::binID_t k = (deme::binID_t)((myBinZ - myRadiusSpan > 0.0) ? myBinZ - myRadiusSpan : 0.0);

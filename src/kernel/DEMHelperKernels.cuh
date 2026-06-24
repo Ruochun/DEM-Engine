@@ -399,11 +399,11 @@ inline __device__ void boundingBoxIntersectBin(deme::binID_t* L,
     min_pt.z = DEME_MIN(vA.z, DEME_MIN(vB.z, vC.z));
 
     // Enlarge bounding box, so that no triangle lies right between 2 layers of bins
-    min_pt -= DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
+    min_pt -= DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
     // A point on a mesh can be out of the simulation world. In this case, becasue we only need to detect contacts
     // inside the simulation world, so we just clamp out the bins that are outside the simulation world.
     int3 min_bin =
-        clampBetween3Comp<float3, int3>(min_pt / simParams->binSize, make_int3(0, 0, 0),
+        clampBetween3Comp<float3, int3>(min_pt / simParams->dyn.binSize, make_int3(0, 0, 0),
                                         make_int3(simParams->nbX - 1, simParams->nbY - 1, simParams->nbZ - 1));
 
     float3 max_pt;
@@ -411,9 +411,9 @@ inline __device__ void boundingBoxIntersectBin(deme::binID_t* L,
     max_pt.y = DEME_MAX(vA.y, DEME_MAX(vB.y, vC.y));
     max_pt.z = DEME_MAX(vA.z, DEME_MAX(vB.z, vC.z));
 
-    max_pt += DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->binSize;
+    max_pt += DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
     int3 max_bin =
-        clampBetween3Comp<float3, int3>(max_pt / simParams->binSize, make_int3(0, 0, 0),
+        clampBetween3Comp<float3, int3>(max_pt / simParams->dyn.binSize, make_int3(0, 0, 0),
                                         make_int3(simParams->nbX - 1, simParams->nbY - 1, simParams->nbZ - 1));
 
     L[0] = min_bin.x;

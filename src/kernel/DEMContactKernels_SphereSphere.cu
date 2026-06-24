@@ -85,7 +85,7 @@ inline __device__ bool calcContactPoint(deme::DEMSimParams* simParams,
     // added margin. This is a design choice, to avoid having too many contact pairs when adding artificial margins.
     float artificialMargin = (artificialMarginA < artificialMarginB) ? artificialMarginA : artificialMarginB;
     in_contact = in_contact && (overlapDepth > (double)artificialMargin);
-    binID = getPointBinID<deme::binID_t>(contactPntX, contactPntY, contactPntZ, simParams->binSize, simParams->nbX,
+    binID = getPointBinID<deme::binID_t>(contactPntX, contactPntY, contactPntZ, simParams->dyn.binSize, simParams->nbX,
                                          simParams->nbY);
     return in_contact;
 }

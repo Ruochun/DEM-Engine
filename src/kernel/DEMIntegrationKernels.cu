@@ -258,6 +258,6 @@ __global__ void integrateOwners(deme::DEMSimParams* simParams, deme::DEMDataDT* 
         // These 2 quantities mean the velocity and ang vel used for updating position/quaternion for this step.
         // Depending on the integration scheme in use, they can be different.
         float3 v, omgBar;
-        integrateVelPos(ownerID, simParams, granData, v, omgBar, simParams->h, simParams->timeElapsed);
+        integrateVelPos(ownerID, simParams, granData, v, omgBar, simParams->dyn.h, simParams->dyn.timeElapsed);
     }
 }
