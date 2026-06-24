@@ -511,7 +511,12 @@ PYBIND11_MODULE(DEME, obj) {
              "Instruct the solver that there is no need to record the contact force (and contact point location etc.) "
              "in an array.",
              py::arg("flag") = true)
-        .def("LoadSphereType", &deme::DEMSolver::LoadSphereType)
+        .def("LoadSphereType",
+             static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
+                 float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType))
+        .def("LoadSphereType",
+             static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
+                 float, float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType))
         .def("EnsureKernelErrMsgLineNum", &deme::DEMSolver::EnsureKernelErrMsgLineNum,
              "If true, each jitification string substitution will do a one-liner to one-liner replacement, so that if "
              "the kernel compilation fails, the error meessage line number will reflex the actual spot where that "
@@ -626,6 +631,8 @@ PYBIND11_MODULE(DEME, obj) {
         .def("SetExpandSafetyAdder", &deme::DEMSolver::SetExpandSafetyAdder,
              "Set a `base' velocity, which we will always add to our estimated maximum system velocity, when deriving "
              "the thickness of the contact `safety' margin")
+        .def("SetUseAngularVelocityMargin", &deme::DEMSolver::SetUseAngularVelocityMargin,
+             "Control whether angular velocity contributes to the contact detection margin.")
         .def("SetMaxSphereInBin", &deme::DEMSolver::SetMaxSphereInBin,
              "Used to force the solver to error out when there are too many spheres in a bin. A huge number can be "
              "used to discourage this error type")
@@ -649,6 +656,8 @@ PYBIND11_MODULE(DEME, obj) {
         .def("SetMaxTriTriPenetration", &deme::DEMSolver::SetMaxTriTriPenetration,
              "Set the maximum allowed triangle-triangle penetration used as the margin added in kT contact detection. "
              "This value caps the penetration margin added to prevent excessively large values.")
+        .def("SetTriTriContactRejectionRatio", &deme::DEMSolver::SetTriTriContactRejectionRatio,
+             "Set the ratio threshold for rejecting suspicious triangle-triangle contacts.")
         .def("GetAvgSphContacts", &deme::DEMSolver::GetAvgSphContacts,
              "Get the current number of contacts each sphere has")
         .def("UseAdaptiveBinSize", &deme::DEMSolver::UseAdaptiveBinSize,

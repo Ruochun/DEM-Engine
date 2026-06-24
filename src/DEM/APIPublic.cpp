@@ -829,6 +829,12 @@ void DEMSolver::SetExpandSafetyType(const std::string& insp_type) {
     }
 }
 
+void DEMSolver::SetUseAngularVelocityMargin(bool use) {
+    assertSysNotInit("SetUseAngularVelocityMargin");
+    m_use_angvel_margin = use;
+    m_use_angvel_margin_user_set = true;
+}
+
 void DEMSolver::InstructBoxDomainDimension(float x, float y, float z, const std::string& dir_exact) {
     m_user_box_min = make_float3(-x / 2., -y / 2., -z / 2.);
     m_user_box_max = make_float3(x / 2., y / 2., z / 2.);
@@ -1803,6 +1809,16 @@ std::shared_ptr<DEMClumpTemplate> DEMSolver::LoadSphereType(float mass,
                                                             float radius,
                                                             const std::shared_ptr<DEMMaterial>& material) {
     float3 I = make_float3(2.0 / 5.0 * mass * radius * radius);
+    float3 pos = make_float3(0);
+    return LoadClumpType(mass, I, std::vector<float>(1, radius), std::vector<float3>(1, pos),
+                         std::vector<std::shared_ptr<DEMMaterial>>(1, material));
+}
+
+std::shared_ptr<DEMClumpTemplate> DEMSolver::LoadSphereType(float mass,
+                                                            float moi,
+                                                            float radius,
+                                                            const std::shared_ptr<DEMMaterial>& material) {
+    float3 I = make_float3(moi);
     float3 pos = make_float3(0);
     return LoadClumpType(mass, I, std::vector<float>(1, radius), std::vector<float3>(1, pos),
                          std::vector<std::shared_ptr<DEMMaterial>>(1, material));

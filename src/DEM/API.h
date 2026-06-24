@@ -226,6 +226,9 @@ class DEMSolver {
     /// thinckness of the contact `safety' margin. This need not to be large unless the simulation velocity can increase
     /// significantly in one kT update cycle.
     void SetExpandSafetyAdder(float vel) { m_expand_base_vel = vel; }
+    /// @brief Control whether angular velocity contributes to the contact detection margin.
+    /// @details Default is auto: false for pure single-sphere clumps; true when multi-sphere clumps or meshes exist.
+    void SetUseAngularVelocityMargin(bool use);
 
     /// @brief Manually seed the current triangle--triangle penetration margin in dT.
     /// @details This fills every entry of the per-triangle maxTriTriPenetration array with the same value, which will
@@ -250,6 +253,9 @@ class DEMSolver {
         }
         m_max_tritri_penetration = max_margin;
     }
+    /// @brief Set the ratio threshold used to reject suspicious triangle-triangle contacts.
+    /// @details A negative value disables this guard when the corresponding contact kernel support is enabled.
+    void SetTriTriContactRejectionRatio(float ratio) { m_triTriContactRejectionRatio = ratio; }
 
     /// @brief Used to force the solver to error out when there are too many spheres in a bin. A huge number can be used
     /// to discourage this error type.
@@ -443,6 +449,11 @@ class DEMSolver {
     }
     /// A simplified version of LoadClumpType: it just loads a one-sphere clump template
     std::shared_ptr<DEMClumpTemplate> LoadSphereType(float mass,
+                                                     float radius,
+                                                     const std::shared_ptr<DEMMaterial>& material);
+    /// A simplified version of LoadClumpType: it just loads a one-sphere clump template, with explicit MOI supplied
+    std::shared_ptr<DEMClumpTemplate> LoadSphereType(float mass,
+                                                     float moi,
                                                      float radius,
                                                      const std::shared_ptr<DEMMaterial>& material);
 
@@ -1626,6 +1637,11 @@ class DEMSolver {
 
     // User-instructed maximum tri-tri penetration margin (to prevent super large margins)
     double m_max_tritri_penetration = DEME_HUGE_FLOAT;
+    // Ratio threshold for rejecting suspicious tri-tri contacts based on penetration depth vs center-contact distance.
+    float m_triTriContactRejectionRatio = 0.8f;
+    // Whether angular velocity contributes to the contact margin (auto-detected if not user-set).
+    bool m_use_angvel_margin = true;
+    bool m_use_angvel_margin_user_set = false;
 
     // The number of user-estimated (max) number of owners that will be present in the simulation. If 0, then the arrays
     // will just be resized at intialization based on the input size.
