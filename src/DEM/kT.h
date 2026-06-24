@@ -87,10 +87,15 @@ class DEMKinematicThread {
     DeviceArray<float3> relPosNode1_buffer = DeviceArray<float3>(&m_approxDeviceBytesUsed);
     DeviceArray<float3> relPosNode2_buffer = DeviceArray<float3>(&m_approxDeviceBytesUsed);
     DeviceArray<float3> relPosNode3_buffer = DeviceArray<float3>(&m_approxDeviceBytesUsed);
+    // Buffer for per-triangle max tri-tri penetration received from dT
+    DeviceArray<float> maxTriTriPenetration_buffer = DeviceArray<float>(&m_approxDeviceBytesUsed);
     // Vel of entities
     DeviceArray<float> absVel_buffer = DeviceArray<float>(&m_approxDeviceBytesUsed);
     // Angular velocity magnitude of entities
     DeviceArray<float> absAngVel_buffer = DeviceArray<float>(&m_approxDeviceBytesUsed);
+
+    // kT's working copy of per-triangle max tri-tri penetration values
+    DeviceArray<float> maxTriTriPenetration = DeviceArray<float>(&m_approxDeviceBytesUsed);
 
     // kT's copy of family map
     // std::unordered_map<unsigned int, family_t> familyUserImplMap;

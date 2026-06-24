@@ -412,6 +412,7 @@ struct DEMDataDT {
     float3* relPosNode3;
     float3* relPosPatch;
     materialsOffset_t* patchMaterialOffset;
+    float* maxTriTriPenetration = nullptr;
 
     // pointer to remote buffer where kinematic thread stores work-order data provided by the dynamic thread
     unsigned int* pKTOwnedBuffer_maxDrift = nullptr;
@@ -430,7 +431,7 @@ struct DEMDataDT {
     float3* pKTOwnedBuffer_relPosNode1 = nullptr;
     float3* pKTOwnedBuffer_relPosNode2 = nullptr;
     float3* pKTOwnedBuffer_relPosNode3 = nullptr;
-    double* pKTOwnedBuffer_maxTriTriPenetration = nullptr;
+    float* pKTOwnedBuffer_maxTriTriPenetration = nullptr;
 
     // The collection of pointers to DEM template arrays such as radiiSphere, still useful when there are template info
     // not directly jitified into the kernels
@@ -486,6 +487,7 @@ struct DEMDataKT {
     float3* relPosNode1;
     float3* relPosNode2;
     float3* relPosNode3;
+    float* maxTriTriPenetration = nullptr;
 
     // kT produces contact info, and stores it, temporarily
     bodyID_t* idPrimitiveA;

@@ -645,7 +645,7 @@ PYBIND11_MODULE(DEME, obj) {
              "to discourage this error type. Defaulted to 100")
         .def("SetTriTriPenetration", &deme::DEMSolver::SetTriTriPenetration,
              "Manually set the current triangle-triangle penetration value in dT. This allows the user to directly "
-             "control the maxTriTriPenetration value which will ONLY be used in the NEXT contact detection run in kT.")
+             "fill the per-triangle maxTriTriPenetration array for use in the NEXT contact detection run in kT.")
         .def("SetMaxTriTriPenetration", &deme::DEMSolver::SetMaxTriTriPenetration,
              "Set the maximum allowed triangle-triangle penetration used as the margin added in kT contact detection. "
              "This value caps the penetration margin added to prevent excessively large values.")

@@ -517,6 +517,7 @@ __device__ bool projections_overlap(T minA, T maxA, T minB, T maxB) {
  * @param depth Output: penetration depth (max distance of submerged vertices)
  * @param area Output: area of the clipping polygon
  * @param centroid Output: centroid of the clipping polygon
+ * @param minPenetrationFullySubmerged Output: min penetration if all incident vertices are submerged, otherwise 0
  * @return true if there is contact (at least one vertex submerged), false otherwise
  */
 template <typename T1, typename T2>
@@ -525,10 +526,13 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
                                             const T1& refNormal,
                                             T2& depth,
                                             T2& area,
-                                            T1& centroid) {
+                                            T1& centroid,
+                                            T2& minPenetrationFullySubmerged) {
     // Compute signed distances of incident triangle vertices to reference plane
     T2 incDists[3];
     T2 maxPenetration = 0.0;
+    T2 minPenetration = T2(DEME_HUGE_FLOAT);
+    minPenetrationFullySubmerged = T2(0.0);
     int8_t numSubmerged = 0;
 #pragma unroll
     for (int8_t i = 0; i < 3; ++i) {
@@ -538,6 +542,8 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
             T2 pen = -incDists[i];
             if (pen > maxPenetration)
                 maxPenetration = pen;
+            if (pen < minPenetration)
+                minPenetration = pen;
         }
     }
 
@@ -721,6 +727,9 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
 
     area = 0.0;
     depth = maxPenetration;
+    if (numSubmerged == 3) {
+        minPenetrationFullySubmerged = minPenetration;
+    }
     if (numInputVerts >= 3) {
         for (int8_t i = 0; i < numInputVerts; ++i) {
             centroid = centroid + resultPoly[i];
@@ -1040,7 +1049,9 @@ __device__ bool checkTriangleTriangleOverlap(
     T1& normal,         ///< contact normal (B2A direction)
     T2& depth,          ///< penetration (positive if in contact)
     T2& projectedArea,  ///< projected area of clipping polygon (optional output)
-    T1& point) {        ///< contact point
+    T1& point,          ///< contact point
+    T2& minDepthA,      ///< min fully-submerged depth of triangle A into B
+    T2& minDepthB) {    ///< min fully-submerged depth of triangle B into A
     // Triangle A vertices (tri1)
     const T1 triA[3] = {A1, B1, C1};
     // Triangle B vertices (tri2)
@@ -1060,12 +1071,14 @@ __device__ bool checkTriangleTriangleOverlap(
     // Project triangle B onto triangle A's plane and clip against A
     T2 depthBA, areaBA;
     T1 centroidBA;
-    bool contactBA = projectTriangleOntoTriangle<T1, T2>(triB, triA, nA, depthBA, areaBA, centroidBA);
+    minDepthA = T2(0.0);
+    minDepthB = T2(0.0);
+    bool contactBA = projectTriangleOntoTriangle<T1, T2>(triB, triA, nA, depthBA, areaBA, centroidBA, minDepthB);
 
     // Project triangle A onto triangle B's plane and clip against B
     T2 depthAB, areaAB;
     T1 centroidAB;
-    bool contactAB = projectTriangleOntoTriangle<T1, T2>(triA, triB, nB, depthAB, areaAB, centroidAB);
+    bool contactAB = projectTriangleOntoTriangle<T1, T2>(triA, triB, nB, depthAB, areaAB, centroidAB, minDepthA);
 
     // Determine if there is contact
     bool inContact = contactBA && contactAB;

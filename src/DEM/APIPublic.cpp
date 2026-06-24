@@ -18,6 +18,7 @@
 #include <cstring>
 #include <limits>
 #include <algorithm>
+#include <vector>
 
 namespace deme {
 
@@ -805,8 +806,18 @@ void DEMSolver::SetTriTriPenetration(double penetration) {
             "SetTriTriPenetration called before system initialization. This has no effect until after Initialize()."));
         return;
     }
-    // Directly set the value in dT
-    *dT->maxTriTriPenetration = penetration;
+    size_t nTri = dT->maxTriTriPenetration.size();
+    if (nTri == 0) {
+        return;
+    }
+
+    int prev_device = 0;
+    DEME_GPU_CALL(cudaGetDevice(&prev_device));
+    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
+    std::vector<float> hostBuf(nTri, static_cast<float>(penetration));
+    DEME_GPU_CALL(
+        cudaMemcpy(dT->maxTriTriPenetration.data(), hostBuf.data(), nTri * sizeof(float), cudaMemcpyHostToDevice));
+    DEME_GPU_CALL(cudaSetDevice(prev_device));
 }
 
 void DEMSolver::SetExpandSafetyType(const std::string& insp_type) {

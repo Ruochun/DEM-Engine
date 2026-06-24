@@ -33,6 +33,10 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     double overlapDepth = 0.0;
     // Area of the contact surface, or in the mesh--mesh case, area of the clipping polygon projection
     double overlapArea = 0.0;
+    // Per-triangle shallowest vertex penetration into the other triangle's plane. Each is non-zero only when that
+    // triangle is completely submerged, in which case kT needs this depth to keep it traceable by the broad phase.
+    double minDepthA = 0.0;
+    double minDepthB = 0.0;
     // `Body pos' in the primitive contact kernel means the position of the primitive itself, e.g., sphere center or
     // triangle nodes
     double3 AOwnerPos, bodyAPos, BOwnerPos, bodyBPos;
@@ -50,6 +54,8 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     // Then allocate the optional quantities that will be needed in the force model (note: this one can't be in a
     // curly bracket, obviously...)
     _forceModelIngredientDefinition_;
+    const deme::bodyID_t idA_raw = granData->idPrimitiveA[myPrimitiveContactID];
+    const deme::bodyID_t idB_raw = granData->idPrimitiveB[myPrimitiveContactID];
     // Take care of 2 bodies in order, bodyA first, grab location and velocity to local cache
     // Decompose ContactType to get the types of A and B (known at compile time)
     constexpr deme::geoType_t AType = (CONTACT_TYPE >> 4);
@@ -256,9 +262,9 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         } else if constexpr (AType == deme::GEO_T_TRIANGLE) {
             // Triangle--triangle contact, a bit more complex...
             double3 contact_normal;
-            bool in_contact = checkTriangleTriangleOverlap<double3, double>(triANode1, triANode2, triANode3, triBNode1,
-                                                                            triBNode2, triBNode3, contact_normal,
-                                                                            overlapDepth, overlapArea, contactPnt);
+            bool in_contact = checkTriangleTriangleOverlap<double3, double>(
+                triANode1, triANode2, triANode3, triBNode1, triBNode2, triBNode3, contact_normal, overlapDepth,
+                overlapArea, contactPnt, minDepthA, minDepthB);
             B2A = to_float3(contact_normal);
 
             // We require that in the tri--tri case, the contact also respects the patch--patch general direction. This
@@ -378,6 +384,22 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         // kernel to compute forces. contactForces is used to store the contact normal. contactPointGeometryA is used to
         // store the (double) contact penetration. contactPointGeometryB is used to store the (double) contact area
         // contactTorque_convToForce is used to store the contact point position (cast from double3 to float3)
+
+        // For tri-tri contacts, update each triangle's own shallowest fully-submerged depth so kT can keep deeply
+        // penetrating surface triangles inside the broad-phase margin. Non-negative floats preserve ordering when
+        // reinterpreted as unsigned ints, so atomicMax works on their bit representation.
+        if constexpr (CONTACT_TYPE == deme::TRIANGLE_TRIANGLE_CONTACT) {
+            if (!simParams->meshParticlesLowPoly && ContactType != deme::NOT_A_CONTACT) {
+                if (minDepthA > 0.0) {
+                    unsigned int valBits = __float_as_uint(static_cast<float>(minDepthA));
+                    atomicMax((unsigned int*)&granData->maxTriTriPenetration[idA_raw], valBits);
+                }
+                if (minDepthB > 0.0) {
+                    unsigned int valBits = __float_as_uint(static_cast<float>(minDepthB));
+                    atomicMax((unsigned int*)&granData->maxTriTriPenetration[idB_raw], valBits);
+                }
+            }
+        }
 
         // Store contact normal (B2A is already a float3)
         granData->contactForces[myPrimitiveContactID] = B2A;

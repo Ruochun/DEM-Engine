@@ -133,7 +133,7 @@ inline void DEMKinematicThread::computeMarginFromAbsv(float* absVel_owner, float
             .instantiate()
             .configure(dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
             .launch(&simParams, &granData, absVel_owner, absAngVel_owner, &(stateParams.ts), &(stateParams.maxDrift),
-                    &(stateParams.maxTriTriPenetration), solverFlags.meshUniversalContact, (size_t)simParams->nTriGM);
+                    maxTriTriPenetration.data(), solverFlags.meshUniversalContact, (size_t)simParams->nTriGM);
     }
     blocks_needed = (simParams->nAnalGM + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
     if (blocks_needed > 0) {
@@ -166,8 +166,10 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     DEME_GPU_CALL(cudaMemcpy(&(stateParams.ts), &(stateParams.ts_buffer), sizeof(float), cudaMemcpyDeviceToDevice));
     DEME_GPU_CALL(cudaMemcpy(&(stateParams.maxDrift), &(stateParams.maxDrift_buffer), sizeof(unsigned int),
                              cudaMemcpyDeviceToDevice));
-    DEME_GPU_CALL(cudaMemcpy(&(stateParams.maxTriTriPenetration), &(stateParams.maxTriTriPenetration_buffer),
-                             sizeof(double), cudaMemcpyDeviceToDevice));
+    if (!simParams->meshParticlesLowPoly && simParams->nTriGM > 0) {
+        DEME_GPU_CALL(cudaMemcpy(maxTriTriPenetration.data(), maxTriTriPenetration_buffer.data(),
+                                 (size_t)simParams->nTriGM * sizeof(float), cudaMemcpyDeviceToDevice));
+    }
     // Use two temp arrays to store absVel and absAngVel's buffer
     float* absVel_owner =
         (float*)solverScratchSpace.allocateTempVector("absVel_owner", simParams->nOwnerBodies * sizeof(float));
@@ -186,7 +188,6 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     // Get the reduced maxVel value
     stateParams.maxVel.toHost();
     stateParams.maxAngVel.toHost();
-    stateParams.maxTriTriPenetration.toHost();
     if (*stateParams.maxVel > simParams->errOutVel || !std::isfinite(*stateParams.maxVel) ||
         *stateParams.maxAngVel > simParams->errOutAngVel || !std::isfinite(*stateParams.maxAngVel)) {
         DEME_ERROR(
@@ -204,14 +205,8 @@ inline void DEMKinematicThread::unpackMyBuffer() {
         DEME_STATUS("OVER_MAX_VEL", "Simulation entity velocity reached %.6g, over the user-estimated max (%.6g)",
                     *stateParams.maxVel, simParams->dyn.approxMaxVel);
     }
-    if (*stateParams.maxTriTriPenetration > simParams->capTriTriPenetration) {
-        DEME_STATUS("OVER_MAX_MESH_PENETRATION",
-                    "Mesh--mesh contact penetration reached %.6g, over the user-estimated max (%.6g)",
-                    *stateParams.maxTriTriPenetration, simParams->capTriTriPenetration);
-    }
     DEME_DEBUG_PRINTF("kT received an update, max vel: %.6g", *stateParams.maxVel);
     DEME_DEBUG_PRINTF("kT received an update, max ang vel: %.6g", *stateParams.maxAngVel);
-    DEME_DEBUG_PRINTF("kT received an update, max tri--tri penetration: %.6g", *stateParams.maxTriTriPenetration);
 
     // Now update the future drift info. Whatever drift value dT says, kT listens; unless kinematicMaxFutureDrift is
     // negative in which case the user explicitly said not caring the future drift.
@@ -548,6 +543,7 @@ void DEMKinematicThread::packDataPointers() {
     relPosNode1.bindDevicePointer(&(granData->relPosNode1));
     relPosNode2.bindDevicePointer(&(granData->relPosNode2));
     relPosNode3.bindDevicePointer(&(granData->relPosNode3));
+    maxTriTriPenetration.bindDevicePointer(&(granData->maxTriTriPenetration));
 
     // Template array pointers
     radiiSphere.bindDevicePointer(&(granData->radiiSphere));
@@ -723,6 +719,7 @@ void DEMKinematicThread::allocateGPUArrays(size_t nOwnerBodies,
     DEME_DEVICE_ARRAY_RESIZE(marginSizeSphere, nSpheresGM);
     DEME_DEVICE_ARRAY_RESIZE(marginSizeAnalytical, nAnalGM);
     DEME_DEVICE_ARRAY_RESIZE(marginSizeTriangle, nTriGM);
+    DEME_DEVICE_ARRAY_RESIZE(maxTriTriPenetration, nTriGM);
 
     // Transfer buffer arrays
     // It is cudaMalloc-ed memory, not on host, because we want explicit locality control of buffers
@@ -739,6 +736,7 @@ void DEMKinematicThread::allocateGPUArrays(size_t nOwnerBodies,
         DEME_DEVICE_ARRAY_RESIZE(oriQ3_buffer, nOwnerBodies);
         DEME_DEVICE_ARRAY_RESIZE(absVel_buffer, nOwnerBodies);
         DEME_DEVICE_ARRAY_RESIZE(absAngVel_buffer, nOwnerBodies);
+        DEME_DEVICE_ARRAY_RESIZE(maxTriTriPenetration_buffer, nTriGM);
         // DEME_ADVISE_DEVICE(voxelID_buffer, dT->streamInfo.device);
         // DEME_ADVISE_DEVICE(locX_buffer, dT->streamInfo.device);
         // DEME_ADVISE_DEVICE(locY_buffer, dT->streamInfo.device);

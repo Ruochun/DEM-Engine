@@ -61,7 +61,7 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
                                               const float* absAngVel_owner,
                                               float* ts,
                                               unsigned int* maxDrift,
-                                              double* maxTriTriPenetration,
+                                              float* maxTriTriPenetration,
                                               bool meshUniversalContact,
                                               size_t n) {
     size_t triID = blockIdx.x * blockDim.x + threadIdx.x;
@@ -78,7 +78,7 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
         // Compute additional margin based on max tri-tri penetration if meshUniversalContact is enabled. This is needed
         // as our meshed particle representation is surface only, so we need to account for existing penetration length
         // in our future-proof contact detection, always.
-        double penetrationMargin = *maxTriTriPenetration;
+        double penetrationMargin = maxTriTriPenetration[triID];
         penetrationMargin = (meshUniversalContact && penetrationMargin > 0.0) ? penetrationMargin : 0.0;
         // Clamp penetration margin to the maximum allowed value to prevent super large margins
         if (penetrationMargin > simParams->capTriTriPenetration) {
@@ -89,7 +89,7 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
         double finalMargin =
             (double)(vel * simParams->dyn.expSafetyMulti + simParams->dyn.expSafetyAdder) * (*ts) * (*maxDrift) +
             granData->familyExtraMarginSize[my_family];
-        if (finalMargin < penetrationMargin) {
+        if (!simParams->meshParticlesLowPoly && finalMargin < penetrationMargin) {
             finalMargin = penetrationMargin;
         }
 
