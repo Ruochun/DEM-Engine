@@ -7,6 +7,7 @@
 #include "API.h"
 #include "Defines.h"
 #include "utils/HostSideHelpers.hpp"
+#include "utils/MeshUtils.hpp"
 #include "AuxClasses.h"
 #include "../kernel/DEMHelperKernels.cuh"
 
@@ -158,6 +159,12 @@ void DEMSolver::SetMeshOutputFormat(const std::string& format) {
         case ("OBJ"_):
             m_mesh_out_format = MESH_FORMAT::OBJ;
             break;
+        case ("STL"_):
+            m_mesh_out_format = MESH_FORMAT::STL;
+            break;
+        case ("PLY"_):
+            m_mesh_out_format = MESH_FORMAT::PLY;
+            break;
         default:
             DEME_ERROR("Instruction %s is unknown in SetMeshOutputFormat call.", format.c_str());
     }
@@ -273,6 +280,15 @@ void DEMSolver::SetMeshUniversalContact(bool use) {
 void DEMSolver::SetPersistentContact(bool use) {
     kT->solverFlags.hasPersistentContacts = use;
     dT->solverFlags.hasPersistentContacts = use;
+}
+
+void DEMSolver::SetMeshParticlesLowPoly(bool use) {
+    kT->simParams->meshParticlesLowPoly = use;
+    dT->simParams->meshParticlesLowPoly = use;
+    if (sys_initialized) {
+        kT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+        dT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+    }
 }
 
 void DEMSolver::SyncMemoryTransfer() {
@@ -1909,6 +1925,38 @@ std::shared_ptr<DEMMesh> DEMSolver::AddMesh(DEMMesh& mesh) {
     if (mesh.GetNumTriangles() == 0) {
         DEME_WARNING(std::string("It seems that a mesh contains 0 triangle facet at the time it is loaded."));
     }
+    if (!mesh.mass_specified || !mesh.moi_specified) {
+        double volume = 0.0;
+        float3 center = make_float3(0, 0, 0);
+        float3 unit_inertia = make_float3(0, 0, 0);
+        mesh.ComputeMassProperties(volume, center, unit_inertia);
+        if (volume > 1e-20 && std::isfinite(volume) && length(unit_inertia) > 1e-20 &&
+            std::isfinite(length(unit_inertia))) {
+            if (!mesh.mass_specified) {
+                mesh.mass = static_cast<float>(volume);
+            }
+            if (!mesh.moi_specified) {
+                const float scale = static_cast<float>(mesh.mass / volume);
+                mesh.MOI = unit_inertia * scale;
+            }
+        } else if (!mesh.mass_specified || !mesh.moi_specified) {
+            DEME_WARNING(
+                "Mesh %s requested auto mass/MOI, but geometric mass properties could not be computed (volume: %.9g, "
+                "unit MOI magnitude: %.9g).",
+                mesh.filename.empty() ? "<in-memory mesh>" : mesh.filename.c_str(), volume, length(unit_inertia));
+        }
+    }
+    if (!mesh.IsShell()) {
+        size_t boundary_edges = 0;
+        size_t nonmanifold_edges = 0;
+        if (!mesh.IsWatertight(&boundary_edges, &nonmanifold_edges)) {
+            const char* mesh_name = mesh.filename.empty() ? "<in-memory mesh>" : mesh.filename.c_str();
+            DEME_WARNING(
+                "Mesh %s is not watertight (boundary edges: %zu, non-manifold edges: %zu). Volume/MOI may be "
+                "inaccurate.",
+                mesh_name, boundary_edges, nonmanifold_edges);
+        }
+    }
     // load_order should be its position in the cache array, not nTriObjLoad
     mesh.load_order = cached_mesh_objs.size();
 
@@ -1924,7 +1972,7 @@ std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontMeshObject(const std::string& fi
                                                            bool load_normals,
                                                            bool load_uv) {
     DEMMesh mesh;
-    bool flag = mesh.LoadWavefrontMesh(filename, load_normals, load_uv);
+    bool flag = loadMeshByExtension(mesh, filename, load_normals, load_uv);
     if (!flag) {
         DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
     }
@@ -1936,7 +1984,7 @@ std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontMeshObject(const std::string& fi
                                                            bool load_normals,
                                                            bool load_uv) {
     DEMMesh mesh;
-    bool flag = mesh.LoadWavefrontMesh(filename, load_normals, load_uv);
+    bool flag = loadMeshByExtension(mesh, filename, load_normals, load_uv);
     if (!flag) {
         DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
     }
@@ -1960,7 +2008,7 @@ std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(const std::string& filename,
                                                  bool load_normals,
                                                  bool load_uv) {
     DEMMesh mesh;
-    bool flag = mesh.LoadWavefrontMesh(filename, load_normals, load_uv);
+    bool flag = loadMeshByExtension(mesh, filename, load_normals, load_uv);
     if (!flag) {
         DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
     }
@@ -1970,7 +2018,7 @@ std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(const std::string& filename,
 
 std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(const std::string& filename, bool load_normals, bool load_uv) {
     DEMMesh mesh;
-    bool flag = mesh.LoadWavefrontMesh(filename, load_normals, load_uv);
+    bool flag = loadMeshByExtension(mesh, filename, load_normals, load_uv);
     if (!flag) {
         DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
     }
@@ -2094,6 +2142,18 @@ void DEMSolver::WriteMeshFile(const std::string& outfilename) const {
         case (MESH_FORMAT::VTK): {
             std::ofstream ptFile(outfilename, std::ios::out);
             dT->writeMeshesAsVtk(ptFile);
+            ptFile.close();
+            break;
+        }
+        case (MESH_FORMAT::STL): {
+            std::ofstream ptFile(outfilename, std::ios::out);
+            dT->writeMeshesAsStl(ptFile);
+            ptFile.close();
+            break;
+        }
+        case (MESH_FORMAT::PLY): {
+            std::ofstream ptFile(outfilename, std::ios::out);
+            dT->writeMeshesAsPly(ptFile);
             ptFile.close();
             break;
         }

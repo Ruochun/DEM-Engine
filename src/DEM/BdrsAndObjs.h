@@ -320,6 +320,13 @@ class DEMMesh : public DEMInitializer {
     float mass = 1.f;
     // Mesh's MOI
     float3 MOI = make_float3(1.f);
+    // Whether mass/MOI were explicitly specified by the user.
+    bool mass_specified = false;
+    bool moi_specified = false;
+    // If true, this mesh is treated as a shell surface with finite thickness in mesh utilities.
+    bool is_shell = false;
+    // Physical shell thickness (full thickness, not half-thickness), in simulation length unit.
+    float shell_thickness = 0.f;
 
     std::string filename;  ///< file string if loading an obj file
 
@@ -339,6 +346,12 @@ class DEMMesh : public DEMInitializer {
     }
     ~DEMMesh() {}
 
+    /// Load a triangle mesh saved as an STL file (ASCII or binary)
+    bool LoadSTLMesh(std::string input_file, bool load_normals = true);
+
+    /// Load a triangle mesh saved as a PLY file (ASCII, triangulated or polygonal)
+    bool LoadPLYMesh(std::string input_file, bool load_normals = true);
+
     /// Load a triangle mesh saved as a Wavefront .obj file
     bool LoadWavefrontMesh(std::string input_file, bool load_normals = true, bool load_uv = false);
 
@@ -357,6 +370,25 @@ class DEMMesh : public DEMInitializer {
     /// Instruct that when the mesh is initialized into the system, it will re-order the nodes of each triangle so that
     /// the normals derived from right-hand-rule are the same as the normals in the mesh file
     void UseNormals(bool use = true) { use_mesh_normals = use; }
+    /// Treat this mesh as a shell surface with finite thickness. Thickness must be finite and non-negative.
+    void SetShellThickness(float thickness) {
+        if (!std::isfinite(thickness) || thickness < 0.f) {
+            DEME_ERROR("Shell thickness must be finite and non-negative (got %.9g).", thickness);
+        }
+        shell_thickness = thickness;
+        is_shell = thickness > DEME_TINY_FLOAT;
+    }
+    /// Disable shell mode (fallback to zero-thickness triangle surface behavior).
+    void DisableShell() {
+        is_shell = false;
+        shell_thickness = 0.f;
+    }
+    /// Query whether this mesh is configured as a shell.
+    bool IsShell() const { return is_shell; }
+    /// Get full shell thickness.
+    float GetShellThickness() const { return shell_thickness; }
+    /// Get half shell thickness (used internally by kernels).
+    float GetShellHalfThickness() const { return (is_shell && shell_thickness > 0.f) ? 0.5f * shell_thickness : 0.f; }
 
     /// Access the n-th triangle in mesh
     DEMTriangle GetTriangle(size_t index) const {  // No need to wrap (for Shlok)
@@ -383,11 +415,17 @@ class DEMMesh : public DEMInitializer {
     }
 
     /// Set mass.
-    void SetMass(float mass) { this->mass = mass; }
+    void SetMass(float mass) {
+        this->mass = mass;
+        this->mass_specified = true;
+    }
     /// Get mass.
     float GetMass() const { return mass; }
     /// Set MOI (in principal frame).
-    void SetMOI(float3 MOI) { this->MOI = MOI; }
+    void SetMOI(float3 MOI) {
+        this->MOI = MOI;
+        this->moi_specified = true;
+    }
     /// Set MOI (in principal frame).
     void SetMOI(const std::vector<float>& MOI) {
         assertThreeElements(MOI, "SetMOI", "MOI");
@@ -412,10 +450,16 @@ class DEMMesh : public DEMInitializer {
         SetMaterial(std::vector<std::shared_ptr<DEMMaterial>>(nPatches, input));
     }
 
-    /*
-    /// Compute barycenter, mass and MOI in CoM frame
-    void ComputeMassProperties(double& mass, float3& center, float3& inertia);
+    /// Compute volume, centroid and MOI in CoM frame (unit density).
+    /// For shells (`SetShellThickness`), uses a centered-thickening shell model: volume = surface area * thickness.
+    void ComputeMassProperties(double& volume, float3& center, float3& inertia) const;
+    /// Compute volume, centroid and full inertia tensor in CoM frame (unit density).
+    /// `inertia_products` stores tensor terms (Ixy, Iyz, Izx).
+    void ComputeMassProperties(double& volume, float3& center, float3& inertia, float3& inertia_products) const;
+    /// Check if mesh is watertight (closed, manifold). Returns true if no boundary/non-manifold edges.
+    bool IsWatertight(size_t* boundary_edges = nullptr, size_t* nonmanifold_edges = nullptr) const;
 
+    /*
     /// Create a map of neighboring triangles, vector of:
     /// [Ti TieA TieB TieC]
     /// (the free sides have triangle id = -1).
@@ -446,6 +490,13 @@ class DEMMesh : public DEMInitializer {
         for (auto& node : m_vertices) {
             applyFrameTransformGlobalToLocal(node, center, prin_Q);
         }
+        for (auto& normal : m_normals) {
+            applyOriQToVector3(normal.x, normal.y, normal.z, prin_Q.w, -prin_Q.x, -prin_Q.y, -prin_Q.z);
+            const float n_len = length(normal);
+            if (n_len > DEME_TINY_FLOAT) {
+                normal /= n_len;
+            }
+        }
     }
     void InformCentroidPrincipal(const std::vector<float>& center, const std::vector<float>& prin_Q) {
         assertThreeElements(center, "InformCentroidPrincipal", "center");
@@ -460,6 +511,13 @@ class DEMMesh : public DEMInitializer {
     void Move(float3 vec, float4 rot_Q) {
         for (auto& node : m_vertices) {
             applyFrameTransformLocalToGlobal(node, vec, rot_Q);
+        }
+        for (auto& normal : m_normals) {
+            applyOriQToVector3(normal.x, normal.y, normal.z, rot_Q.w, rot_Q.x, rot_Q.y, rot_Q.z);
+            const float n_len = length(normal);
+            if (n_len > DEME_TINY_FLOAT) {
+                normal /= n_len;
+            }
         }
     }
     void Move(const std::vector<float>& vec, const std::vector<float>& rot_Q) {
@@ -520,6 +578,9 @@ class DEMMesh : public DEMInitializer {
         assertPositive(s, "Scale", "s");
         for (auto& node : m_vertices) {
             node *= s;
+        }
+        if (is_shell) {
+            shell_thickness *= s;
         }
         double double_s = (double)std::abs(s);
         mass *= double_s * double_s * double_s;

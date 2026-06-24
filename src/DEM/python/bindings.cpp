@@ -616,6 +616,10 @@ PYBIND11_MODULE(DEME, obj) {
              "Set whether the solver should expect the user to mark certain contacts as persistent across kT updates. "
              "Set this to true if you later will call MarkPersistentContact series of methods.",
              py::arg("use") = true)
+        .def("SetMeshParticlesLowPoly", &deme::DEMSolver::SetMeshParticlesLowPoly,
+             "Declare that all meshed particles have a low polygon count. When enabled, per-triangle mesh-mesh "
+             "penetration-margin bookkeeping is skipped.",
+             py::arg("use") = true)
 
         .def("SetExpandSafetyType", &deme::DEMSolver::SetExpandSafetyType,
              "A string. If 'auto': the solver automatically derives.")
@@ -1468,6 +1472,8 @@ PYBIND11_MODULE(DEME, obj) {
     py::enum_<deme::MESH_FORMAT>(obj, "MESH_FORMAT")
         .value("VTK", deme::MESH_FORMAT::VTK)
         .value("OBJ", deme::MESH_FORMAT::OBJ)
+        .value("STL", deme::MESH_FORMAT::STL)
+        .value("PLY", deme::MESH_FORMAT::PLY)
         .export_values();
 
     py::enum_<deme::SPATIAL_DIR>(obj, "SPATIAL_DIR")

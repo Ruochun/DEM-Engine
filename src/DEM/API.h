@@ -370,6 +370,12 @@ class DEMSolver {
     /// @details Set this to true if you later will call MarkPersistentContact series of methods.
     void SetPersistentContact(bool use = true);
 
+    /// @brief Declare that all meshed particles in the simulation have a low polygon count.
+    /// @param use If true, skip per-triangle mesh-mesh penetration-margin bookkeeping.
+    /// @details Toggle this on only when mesh-mesh contacts are always SAT-traceable, i.e. no triangle from one mesh is
+    /// expected to be completely submerged inside another mesh.
+    void SetMeshParticlesLowPoly(bool use = true);
+
     /// @brief Load a clump type into the API-level cache.
     /// @return the shared ptr to the clump type just loaded.
     std::shared_ptr<DEMClumpTemplate> LoadClumpType(float mass,
@@ -694,8 +700,8 @@ class DEMSolver {
     /// @brief Load a mesh-represented object into the simulation, using the internal mesh format.
     std::shared_ptr<DEMMesh> AddMesh(DEMMesh& mesh);
 
-    /// @brief Load a mesh-represented object from a wavefront .obj file.
-    /// @param filename Path to the wavefront .obj file.
+    /// @brief Load a mesh-represented object from a mesh file (.obj, .stl, or .ply).
+    /// @param filename Path to the mesh file.
     /// @param mat Material to assign to the mesh.
     /// @param load_normals Whether to load normals from the file.
     /// @param load_uv Whether to load UV coordinates from the file.
@@ -704,8 +710,8 @@ class DEMSolver {
                                                     const std::shared_ptr<DEMMaterial>& mat,
                                                     bool load_normals = true,
                                                     bool load_uv = false);
-    /// @brief Load a mesh-represented object from a wavefront .obj file.
-    /// @param filename Path to the wavefront .obj file.
+    /// @brief Load a mesh-represented object from a mesh file (.obj, .stl, or .ply).
+    /// @param filename Path to the mesh file.
     /// @param load_normals Whether to load normals from the file.
     /// @param load_uv Whether to load UV coordinates from the file.
     /// @return A shared pointer to the loaded mesh object.
@@ -719,7 +725,7 @@ class DEMSolver {
     /// @details The mesh is not immediately added to the simulation, but stored as a template
     /// that can be instantiated multiple times at different locations. This is similar to LoadClumpType()
     /// for clump templates.
-    /// @param filename Path to the wavefront .obj file.
+    /// @param filename Path to the mesh file (.obj, .stl, or .ply).
     /// @param mat Material to assign to the mesh.
     /// @param load_normals Whether to load normals from the file.
     /// @param load_uv Whether to load UV coordinates from the file.
@@ -729,7 +735,7 @@ class DEMSolver {
                                           bool load_normals = true,
                                           bool load_uv = false);
     /// @brief Load a mesh type into the API-level cache as a template.
-    /// @param filename Path to the wavefront .obj file.
+    /// @param filename Path to the mesh file (.obj, .stl, or .ply).
     /// @param load_normals Whether to load normals from the file.
     /// @param load_uv Whether to load UV coordinates from the file.
     /// @return A shared pointer to the loaded mesh template.
