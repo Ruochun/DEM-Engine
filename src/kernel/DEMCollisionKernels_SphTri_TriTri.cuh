@@ -294,6 +294,122 @@ __device__ bool snap_to_face(const T1& A, const T1& B, const T1& C, const T1& P,
     return false;
 }
 
+template <typename T2>
+__device__ __forceinline__ T2 clamp01(const T2& x) {
+    return x < (T2)0 ? (T2)0 : (x > (T2)1 ? (T2)1 : x);
+}
+
+template <typename T1, typename T2>
+__device__ __forceinline__ T2
+closestPtSegmentSegment(const T1& p1, const T1& q1, const T1& p2, const T1& q2, T1& c1, T1& c2) {
+    constexpr T2 EPS = (T2)1e-20;
+    const T1 d1 = q1 - p1;
+    const T1 d2 = q2 - p2;
+    const T1 r = p1 - p2;
+    const T2 a = dot(d1, d1);
+    const T2 e = dot(d2, d2);
+    const T2 f = dot(d2, r);
+
+    T2 s = (T2)0;
+    T2 t = (T2)0;
+
+    if (a <= EPS && e <= EPS) {
+        c1 = p1;
+        c2 = p2;
+        return dot(c1 - c2, c1 - c2);
+    }
+    if (a <= EPS) {
+        s = (T2)0;
+        t = clamp01<T2>(f / e);
+    } else {
+        const T2 c = dot(d1, r);
+        if (e <= EPS) {
+            t = (T2)0;
+            s = clamp01<T2>(-c / a);
+        } else {
+            const T2 b = dot(d1, d2);
+            const T2 denom = a * e - b * b;
+            if (denom > EPS) {
+                s = clamp01<T2>((b * f - c * e) / denom);
+            } else {
+                s = (T2)0;
+            }
+            t = (b * s + f) / e;
+            if (t < (T2)0) {
+                t = (T2)0;
+                s = clamp01<T2>(-c / a);
+            } else if (t > (T2)1) {
+                t = (T2)1;
+                s = clamp01<T2>((b - c) / a);
+            }
+        }
+    }
+
+    c1 = p1 + d1 * s;
+    c2 = p2 + d2 * t;
+    return dot(c1 - c2, c1 - c2);
+}
+
+template <typename T1, typename T2>
+__device__ __forceinline__ T2 closestPtTriTriDistance(const T1& A1,
+                                                      const T1& B1,
+                                                      const T1& C1,
+                                                      const T1& A2,
+                                                      const T1& B2,
+                                                      const T1& C2,
+                                                      T1& outA,
+                                                      T1& outB) {
+    const T1 triA[3] = {A1, B1, C1};
+    const T1 triB[3] = {A2, B2, C2};
+
+    T2 best2 = DEME_HUGE_FLOAT;
+    outA = A1;
+    outB = A2;
+
+    for (int i = 0; i < 3; i++) {
+        const T1 pA = triA[i];
+        const T1 qA = triA[(i + 1) % 3];
+        for (int j = 0; j < 3; j++) {
+            const T1 pB = triB[j];
+            const T1 qB = triB[(j + 1) % 3];
+            T1 cA, cB;
+            const T2 d2 = closestPtSegmentSegment<T1, T2>(pA, qA, pB, qB, cA, cB);
+            if (d2 < best2) {
+                best2 = d2;
+                outA = cA;
+                outB = cB;
+            }
+        }
+    }
+
+    for (int i = 0; i < 3; i++) {
+        T1 q;
+        snap_to_face<T1, T2>(A2, B2, C2, triA[i], q);
+        const T2 d2 = dot(triA[i] - q, triA[i] - q);
+        if (d2 < best2) {
+            best2 = d2;
+            outA = triA[i];
+            outB = q;
+        }
+    }
+
+    for (int i = 0; i < 3; i++) {
+        T1 q;
+        snap_to_face<T1, T2>(A1, B1, C1, triB[i], q);
+        const T2 d2 = dot(q - triB[i], q - triB[i]);
+        if (d2 < best2) {
+            best2 = d2;
+            outA = q;
+            outB = triB[i];
+        }
+    }
+
+    if (best2 < (T2)0) {
+        best2 = (T2)0;
+    }
+    return sqrt(best2);
+}
+
 /**
 /brief TRIANGLE FACE--SPHERE COLLISION DETECTION
 

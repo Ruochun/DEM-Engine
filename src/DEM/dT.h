@@ -279,6 +279,10 @@ class DEMDynamicThread {
     DualArray<bodyID_t> ownerClumpBody = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> ownerTriMesh = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> ownerAnalBody = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Mesh owner metadata used in shell and watertight contact checks.
+    DualArray<notStupidBool_t> ownerMeshWatertight =
+        DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float> ownerMeshShellHalfThickness = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Mesh patch information: each facet belongs to a patch, and each patch has material properties
     // Patch ID for each triangle facet (maps facet to patch)
     DualArray<bodyID_t> triPatchID = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);

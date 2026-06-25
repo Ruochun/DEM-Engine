@@ -97,6 +97,8 @@ void DEMDynamicThread::packDataPointers() {
     ownerPatchMesh.bindDevicePointer(&(granData->ownerPatchMesh));
     triPatchID.bindDevicePointer(&(granData->triPatchID));
     ownerAnalBody.bindDevicePointer(&(granData->ownerAnalBody));
+    ownerMeshWatertight.bindDevicePointer(&(granData->ownerMeshWatertight));
+    ownerMeshShellHalfThickness.bindDevicePointer(&(granData->ownerMeshShellHalfThickness));
     relPosNode1.bindDevicePointer(&(granData->relPosNode1));
     relPosNode2.bindDevicePointer(&(granData->relPosNode2));
     relPosNode3.bindDevicePointer(&(granData->relPosNode3));
@@ -184,6 +186,8 @@ void DEMDynamicThread::migrateDataToDevice() {
     ownerPatchMesh.toDeviceAsync(streamInfo.stream);
     triPatchID.toDeviceAsync(streamInfo.stream);
     ownerAnalBody.toDeviceAsync(streamInfo.stream);
+    ownerMeshWatertight.toDeviceAsync(streamInfo.stream);
+    ownerMeshShellHalfThickness.toDeviceAsync(streamInfo.stream);
     relPosNode1.toDeviceAsync(streamInfo.stream);
     relPosNode2.toDeviceAsync(streamInfo.stream);
     relPosNode3.toDeviceAsync(streamInfo.stream);
@@ -509,6 +513,8 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
     DEME_DUAL_ARRAY_RESIZE(alphaZ, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(accSpecified, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(angAccSpecified, nOwnerBodies, 0);
+    DEME_DUAL_ARRAY_RESIZE(ownerMeshWatertight, nOwnerBodies, 0);
+    DEME_DUAL_ARRAY_RESIZE(ownerMeshShellHalfThickness, nOwnerBodies, 0);
 
     // Resize the family mask `matrix' (in fact it is flattened)
     DEME_DUAL_ARRAY_RESIZE(familyMaskMatrix, (NUM_AVAL_FAMILIES + 1) * NUM_AVAL_FAMILIES / 2, DONT_PREVENT_CONTACT);
@@ -1018,7 +1024,10 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
     size_t p = 0;
     for (size_t i = 0; i < input_mesh_objs.size(); i++) {
         // If got here, it is a mesh
-        ownerTypes[i + owner_offset_for_mesh_obj] = OWNER_T_MESH;
+        const bodyID_t owner_id = i + owner_offset_for_mesh_obj;
+        ownerTypes[owner_id] = OWNER_T_MESH;
+        ownerMeshWatertight[owner_id] = input_mesh_objs.at(i)->IsWatertight() ? 1 : 0;
+        ownerMeshShellHalfThickness[owner_id] = std::max(input_mesh_objs.at(i)->GetShellHalfThickness(), 0.f);
 
         // Store inherent geo wildcards
         {
@@ -1041,31 +1050,30 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         }
 
         // Store this mesh in dT's cache
-        input_mesh_objs.at(i)->owner = i + owner_offset_for_mesh_obj;
+        input_mesh_objs.at(i)->owner = owner_id;
         input_mesh_objs.at(i)->cache_offset = m_meshes.size();
         m_meshes.push_back(input_mesh_objs.at(i));
 
-        inertiaPropOffsets[i + owner_offset_for_mesh_obj] = i + offset_for_mesh_obj_mass_template;
+        inertiaPropOffsets[owner_id] = i + offset_for_mesh_obj_mass_template;
         if (!solverFlags.useMassJitify) {
-            massOwnerBody[i + owner_offset_for_mesh_obj] = mesh_obj_mass_types.at(i);
+            massOwnerBody[owner_id] = mesh_obj_mass_types.at(i);
             const float3 this_moi = mesh_obj_moi_types.at(i);
-            mmiXX[i + owner_offset_for_mesh_obj] = this_moi.x;
-            mmiYY[i + owner_offset_for_mesh_obj] = this_moi.y;
-            mmiZZ[i + owner_offset_for_mesh_obj] = this_moi.z;
+            mmiXX[owner_id] = this_moi.x;
+            mmiYY[owner_id] = this_moi.y;
+            mmiZZ[owner_id] = this_moi.z;
         }
         auto this_CoM_coord = input_mesh_obj_xyz.at(i) - LBF;
         positionToVoxelID<voxelID_t, subVoxelPos_t, double>(
-            voxelID[i + owner_offset_for_mesh_obj], locX[i + owner_offset_for_mesh_obj],
-            locY[i + owner_offset_for_mesh_obj], locZ[i + owner_offset_for_mesh_obj], (double)this_CoM_coord.x,
+            voxelID[owner_id], locX[owner_id], locY[owner_id], locZ[owner_id], (double)this_CoM_coord.x,
             (double)this_CoM_coord.y, (double)this_CoM_coord.z, simParams->nvXp2, simParams->nvYp2,
             simParams->voxelSize, simParams->l);
 
         // Set mesh owner's oriQ
         auto oriQ_of_this = input_mesh_obj_rot.at(i);
-        oriQw[i + owner_offset_for_mesh_obj] = oriQ_of_this.w;
-        oriQx[i + owner_offset_for_mesh_obj] = oriQ_of_this.x;
-        oriQy[i + owner_offset_for_mesh_obj] = oriQ_of_this.y;
-        oriQz[i + owner_offset_for_mesh_obj] = oriQ_of_this.z;
+        oriQw[owner_id] = oriQ_of_this.w;
+        oriQx[owner_id] = oriQ_of_this.x;
+        oriQy[owner_id] = oriQ_of_this.y;
+        oriQz[owner_id] = oriQ_of_this.z;
 
         //// For setting initial vel ang angvel, DEME's expected usage is now setting them using trackers after
         /// initialization. / For clumps, their init vel can be set via initializers because of historical reasons.
@@ -1110,7 +1118,7 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         }
 
         family_t this_family_num = input_mesh_obj_family.at(i);
-        familyID[i + owner_offset_for_mesh_obj] = this_family_num;
+        familyID[owner_id] = this_family_num;
 
         // Cached initial values for wildcards of this mesh is not needed anymore
         m_meshes.back()->ClearWildcards();

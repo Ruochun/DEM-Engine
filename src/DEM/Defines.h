@@ -406,6 +406,9 @@ struct DEMDataDT {
     bodyID_t* ownerTriMesh;
     bodyID_t* ownerPatchMesh;
     bodyID_t* ownerAnalBody;
+    // Mesh-owner flags used by primitive mesh contact handling.
+    notStupidBool_t* ownerMeshWatertight = nullptr;
+    float* ownerMeshShellHalfThickness = nullptr;
     bodyID_t* triPatchID;
     float3* relPosNode1;
     float3* relPosNode2;
