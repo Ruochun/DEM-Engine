@@ -407,9 +407,16 @@ struct DEMDataDT {
     bodyID_t* ownerPatchMesh;
     bodyID_t* ownerAnalBody;
     // Mesh-owner flags used by primitive mesh contact handling.
+    notStupidBool_t* ownerMeshConvex = nullptr;
+    notStupidBool_t* ownerMeshNeverWinner = nullptr;
     notStupidBool_t* ownerMeshWatertight = nullptr;
     float* ownerMeshShellHalfThickness = nullptr;
     bodyID_t* triPatchID;
+    // Map global triangle ID -> compact neighbor index (NULL_BODYID if neighbors are not stored).
+    bodyID_t* triNeighborIndex = nullptr;
+    bodyID_t* triNeighbor1 = nullptr;
+    bodyID_t* triNeighbor2 = nullptr;
+    bodyID_t* triNeighbor3 = nullptr;
     float3* relPosNode1;
     float3* relPosNode2;
     float3* relPosNode3;
@@ -486,7 +493,15 @@ struct DEMDataKT {
     clumpComponentOffsetExt_t* clumpComponentOffsetExt;
     bodyID_t* ownerTriMesh;
     bodyID_t* ownerAnalBody;
+    notStupidBool_t* ownerMeshConvex = nullptr;
+    notStupidBool_t* ownerMeshNeverWinner = nullptr;
+    float* ownerMeshShellHalfThickness = nullptr;
     bodyID_t* triPatchID;
+    // Map global triangle ID -> compact neighbor index (NULL_BODYID if neighbors are not stored).
+    bodyID_t* triNeighborIndex = nullptr;
+    bodyID_t* triNeighbor1 = nullptr;
+    bodyID_t* triNeighbor2 = nullptr;
+    bodyID_t* triNeighbor3 = nullptr;
     float3* relPosNode1;
     float3* relPosNode2;
     float3* relPosNode3;

@@ -1736,6 +1736,8 @@ class DEMSolver {
     size_t nSpheresGM = 0;
     // Total number of triangle facets
     size_t nTriGM = 0;
+    // Total number of triangles that need neighbor info (compact neighbor array size)
+    size_t nTriNeighbors = 0;
     // Total number of mesh patches
     size_t nMeshPatches = 0;
     // Number of analytical entites (as components of some external objects)
@@ -1891,6 +1893,8 @@ class DEMSolver {
     std::vector<float3> m_input_mesh_obj_xyz;
     std::vector<float4> m_input_mesh_obj_rot;
     std::vector<unsigned int> m_input_mesh_obj_family;
+    std::vector<notStupidBool_t> m_input_mesh_obj_convex;
+    std::vector<notStupidBool_t> m_input_mesh_obj_never_winner;
 
     // Processed unique family prescription info
     std::vector<familyPrescription_t> m_unique_family_prescription;
@@ -1926,6 +1930,10 @@ class DEMSolver {
     std::vector<bodyID_t> m_mesh_facet_owner;
     // Patch ID for each mesh facet, flattened
     std::vector<bodyID_t> m_mesh_facet_patch;
+    // Per-facet edge neighbors (global triangle indices, NULL_BODYID if boundary)
+    std::vector<bodyID_t> m_mesh_facet_neighbor1;
+    std::vector<bodyID_t> m_mesh_facet_neighbor2;
+    std::vector<bodyID_t> m_mesh_facet_neighbor3;
     // Three nodes of each triangle, flattened
     std::vector<DEMTriangle> m_mesh_facets;
 
@@ -2056,6 +2064,7 @@ class DEMSolver {
                                size_t nSpheres,
                                size_t nTriMesh,
                                size_t nFacets,
+                               size_t nTriNeighbors,
                                size_t nMeshPatches,
                                unsigned int nExtObj_old,
                                unsigned int nAnalGM_old);

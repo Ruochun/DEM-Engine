@@ -195,10 +195,20 @@ class DEMKinematicThread {
     DualArray<bodyID_t> ownerClumpBody = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> ownerTriMesh = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> ownerAnalBody = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Mesh owner flags (indexed by owner body ID)
+    DualArray<notStupidBool_t> ownerMeshConvex =
+        DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<notStupidBool_t> ownerMeshNeverWinner =
+        DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
     // Mesh patch information: each facet belongs to a patch
     // Patch ID for each triangle facet (maps facet to patch)
     DualArray<bodyID_t> triPatchID = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Triangle edge neighbors (compact; index via triNeighborIndex)
+    DualArray<bodyID_t> triNeighborIndex = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> triNeighbor1 = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> triNeighbor2 = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> triNeighbor3 = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
     // The ID that maps this sphere component's geometry-defining parameters, when this component is jitified
     DualArray<clumpComponentOffset_t> clumpComponentOffset =
@@ -306,6 +316,7 @@ class DEMKinematicThread {
                            size_t nTriMeshes,
                            size_t nSpheresGM,
                            size_t nTriGM,
+                           size_t nTriNeighbors,
                            unsigned int nAnalGM,
                            size_t nExtraContacts,
                            unsigned int nMassProperties,
@@ -319,22 +330,33 @@ class DEMKinematicThread {
     void populateEntityArrays(const std::vector<std::shared_ptr<DEMClumpBatch>>& input_clump_batches,
                               const std::vector<unsigned int>& input_ext_obj_family,
                               const std::vector<unsigned int>& input_mesh_obj_family,
+                              const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                              const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                               const std::vector<unsigned int>& input_mesh_facet_owner,
                               const std::vector<bodyID_t>& input_mesh_facet_patch,
+                              const std::vector<bodyID_t>& input_mesh_facet_neighbor1,
+                              const std::vector<bodyID_t>& input_mesh_facet_neighbor2,
+                              const std::vector<bodyID_t>& input_mesh_facet_neighbor3,
                               const std::vector<DEMTriangle>& input_mesh_facets,
                               const ClumpTemplateFlatten& clump_templates,
                               const std::vector<unsigned int>& ext_obj_comp_num,
                               size_t nExistOwners,
                               size_t nExistSpheres,
                               size_t nExistingFacets,
-                              size_t nExistingMeshPatches);
+                              size_t nExistingMeshPatches,
+                              size_t nExistingTriNeighbors);
 
     /// Initialize arrays
     void initGPUArrays(const std::vector<std::shared_ptr<DEMClumpBatch>>& input_clump_batches,
                        const std::vector<unsigned int>& input_ext_obj_family,
                        const std::vector<unsigned int>& input_mesh_obj_family,
+                       const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                       const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                        const std::vector<unsigned int>& input_mesh_facet_owner,
                        const std::vector<bodyID_t>& input_mesh_facet_patch,
+                       const std::vector<bodyID_t>& input_mesh_facet_neighbor1,
+                       const std::vector<bodyID_t>& input_mesh_facet_neighbor2,
+                       const std::vector<bodyID_t>& input_mesh_facet_neighbor3,
                        const std::vector<DEMTriangle>& input_mesh_facets,
                        const std::vector<unsigned int>& ext_obj_comp_num,
                        const std::vector<notStupidBool_t>& family_mask_matrix,
@@ -345,8 +367,13 @@ class DEMKinematicThread {
     void updateClumpMeshArrays(const std::vector<std::shared_ptr<DEMClumpBatch>>& input_clump_batches,
                                const std::vector<unsigned int>& input_ext_obj_family,
                                const std::vector<unsigned int>& input_mesh_obj_family,
+                               const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                               const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                                const std::vector<unsigned int>& input_mesh_facet_owner,
                                const std::vector<bodyID_t>& input_mesh_facet_patch,
+                               const std::vector<bodyID_t>& input_mesh_facet_neighbor1,
+                               const std::vector<bodyID_t>& input_mesh_facet_neighbor2,
+                               const std::vector<bodyID_t>& input_mesh_facet_neighbor3,
                                const std::vector<DEMTriangle>& input_mesh_facets,
                                const std::vector<unsigned int>& ext_obj_comp_num,
                                const std::vector<notStupidBool_t>& family_mask_matrix,
@@ -356,6 +383,7 @@ class DEMKinematicThread {
                                size_t nExistingSpheres,
                                size_t nExistingTriMesh,
                                size_t nExistingFacets,
+                               size_t nExistingTriNeighbors,
                                size_t nExistingPatches,
                                unsigned int nExistingObj,
                                unsigned int nExistingAnalGM);

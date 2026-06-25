@@ -7,6 +7,7 @@
 #include "API.h"
 #include "Defines.h"
 #include "utils/HostSideHelpers.hpp"
+#include "utils/MeshUtils.hpp"
 
 #include <iostream>
 #include <fstream>
@@ -783,7 +784,17 @@ void DEMSolver::preprocessTriangleObjs() {
         m_input_mesh_obj_xyz.push_back(mesh_obj->init_pos);
         m_input_mesh_obj_rot.push_back(mesh_obj->init_oriQ);
         m_input_mesh_obj_family.push_back(mesh_obj->family_code);
+        m_input_mesh_obj_convex.push_back(mesh_obj->IsConvex() ? 1 : 0);
+        m_input_mesh_obj_never_winner.push_back(mesh_obj->IsNeverWinner() ? 1 : 0);
         m_mesh_facet_owner.insert(m_mesh_facet_owner.end(), mesh_obj->GetNumTriangles(), thisMeshObj);
+
+        const bodyID_t tri_offset = static_cast<bodyID_t>(m_mesh_facets.size());
+        std::vector<std::array<bodyID_t, 3>> local_neighbors;
+        if (mesh_obj->IsConvex() && mesh_obj->IsNeverWinner()) {
+            local_neighbors.assign(mesh_obj->GetNumTriangles(), {NULL_BODYID, NULL_BODYID, NULL_BODYID});
+        } else {
+            local_neighbors = buildTriangleEdgeNeighbors(mesh_obj->m_face_v_indices, mesh_obj->m_vertices);
+        }
 
         // Initialize patch IDs if not already set (default: all facets in patch 0)
         if (!mesh_obj->patches_explicitly_set && mesh_obj->m_patch_ids.empty()) {
@@ -829,6 +840,11 @@ void DEMSolver::preprocessTriangleObjs() {
                 }
             }
             m_mesh_facets.push_back(tri);
+
+            const auto& nb = local_neighbors[i];
+            m_mesh_facet_neighbor1.push_back(nb[0] == NULL_BODYID ? NULL_BODYID : nb[0] + tri_offset);
+            m_mesh_facet_neighbor2.push_back(nb[1] == NULL_BODYID ? NULL_BODYID : nb[1] + tri_offset);
+            m_mesh_facet_neighbor3.push_back(nb[2] == NULL_BODYID ? NULL_BODYID : nb[2] + tri_offset);
         }
         thisLoadPatchCount += mesh_obj->GetNumPatches();
 
@@ -1210,19 +1226,31 @@ void DEMSolver::setSimParams() {
 }
 
 void DEMSolver::allocateGPUArrays() {
+    size_t tri_neighbors = 0;
+    for (const auto& mesh_obj : cached_mesh_objs) {
+        if (!mesh_obj) {
+            continue;
+        }
+        if (!(mesh_obj->IsConvex() && mesh_obj->IsNeverWinner())) {
+            tri_neighbors += mesh_obj->GetNumTriangles();
+        }
+    }
+    nTriNeighbors = tri_neighbors;
+
     // Resize arrays based on the statistical data we have
     std::thread dThread = std::move(std::thread([this]() {
         this->dT->allocateGPUArrays(this->nOwnerBodies, this->nOwnerClumps, this->nExtObj, this->nTriMeshes,
-                                    this->nSpheresGM, this->nTriGM, this->nMeshPatches, this->nAnalGM,
-                                    this->nExtraContacts, this->nDistinctMassProperties,
+                                    this->nSpheresGM, this->nTriGM, this->nTriNeighbors, this->nMeshPatches,
+                                    this->nAnalGM, this->nExtraContacts, this->nDistinctMassProperties,
                                     this->nDistinctClumpBodyTopologies, this->nDistinctClumpComponents,
                                     this->nJitifiableClumpComponents, this->nMatTuples);
     }));
     std::thread kThread = std::move(std::thread([this]() {
         this->kT->allocateGPUArrays(this->nOwnerBodies, this->nOwnerClumps, this->nExtObj, this->nTriMeshes,
-                                    this->nSpheresGM, this->nTriGM, this->nAnalGM, this->nExtraContacts,
-                                    this->nDistinctMassProperties, this->nDistinctClumpBodyTopologies,
-                                    this->nDistinctClumpComponents, this->nJitifiableClumpComponents, this->nMatTuples);
+                                    this->nSpheresGM, this->nTriGM, this->nTriNeighbors, this->nAnalGM,
+                                    this->nExtraContacts, this->nDistinctMassProperties,
+                                    this->nDistinctClumpBodyTopologies, this->nDistinctClumpComponents,
+                                    this->nJitifiableClumpComponents, this->nMatTuples);
     }));
     dThread.join();
     kThread.join();
@@ -1240,8 +1268,9 @@ void DEMSolver::initializeGPUArrays() {
         // Analytical objects' initial stats
         m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
         // Meshed objects' initial stats
-        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_mesh_facet_owner,
-        m_mesh_facet_patch, m_mesh_facets, m_mesh_patch_owner, m_mesh_patch_materials,
+        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_input_mesh_obj_convex,
+        m_input_mesh_obj_never_winner, m_mesh_facet_owner, m_mesh_facet_patch, m_mesh_facet_neighbor1,
+        m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner, m_mesh_patch_materials,
         // Clump template name mapping
         m_template_number_name_map,
         // Clump template info (mass, sphere components, materials etc.)
@@ -1263,7 +1292,8 @@ void DEMSolver::initializeGPUArrays() {
         // Analytical objects' initial stats
         m_input_ext_obj_family,
         // Meshed objects' initial stats
-        m_input_mesh_obj_family, m_mesh_facet_owner, m_mesh_facet_patch, m_mesh_facets,
+        m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
+        m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
         // Analytical obj physics properties
         m_ext_obj_comp_num,
         // Family mask
@@ -1280,6 +1310,7 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
                                       size_t nSpheres,
                                       size_t nTriMesh,
                                       size_t nFacets,
+                                      size_t nTriNeighbors,
                                       size_t nMeshPatches,
                                       unsigned int nExtObj,
                                       unsigned int nAnalGM) {
@@ -1293,8 +1324,9 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
         // Analytical objects' initial stats
         m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
         // Meshed objects' initial stats
-        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_mesh_facet_owner,
-        m_mesh_facet_patch, m_mesh_facets, m_mesh_patch_owner, m_mesh_patch_materials,
+        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_input_mesh_obj_convex,
+        m_input_mesh_obj_never_winner, m_mesh_facet_owner, m_mesh_facet_patch, m_mesh_facet_neighbor1,
+        m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner, m_mesh_patch_materials,
         // Clump template info (mass, sphere components, materials etc.)
         flattened_clump_templates,
         // Analytical obj physics properties
@@ -1308,14 +1340,15 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
         // I/O and misc.
         m_no_output_families, m_tracked_objs,
         // Number of entities, old
-        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nMeshPatches, nExtObj, nAnalGM);
+        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
     kT->updateClumpMeshArrays(
         // Clump batchs' initial stats
         cached_input_clump_batches,
         // Analytical objects' initial stats
         m_input_ext_obj_family,
         // Meshed objects' initial stats
-        m_input_mesh_obj_family, m_mesh_facet_owner, m_mesh_facet_patch, m_mesh_facets,
+        m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
+        m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
         // Analytical obj physics properties
         m_ext_obj_comp_num,
         // Family mask
@@ -1323,7 +1356,7 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
         // Templates and misc.
         flattened_clump_templates,
         // Number of entities, old
-        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nMeshPatches, nExtObj, nAnalGM);
+        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
 }
 
 void DEMSolver::packDataPointers() {

@@ -279,13 +279,22 @@ class DEMDynamicThread {
     DualArray<bodyID_t> ownerClumpBody = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> ownerTriMesh = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> ownerAnalBody = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
-    // Mesh owner metadata used in shell and watertight contact checks.
+    // Mesh owner metadata used by shell, watertight, and contact-island checks.
+    DualArray<notStupidBool_t> ownerMeshConvex =
+        DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<notStupidBool_t> ownerMeshNeverWinner =
+        DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<notStupidBool_t> ownerMeshWatertight =
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float> ownerMeshShellHalfThickness = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Mesh patch information: each facet belongs to a patch, and each patch has material properties
     // Patch ID for each triangle facet (maps facet to patch)
     DualArray<bodyID_t> triPatchID = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Triangle edge neighbors (compact; index via triNeighborIndex)
+    DualArray<bodyID_t> triNeighborIndex = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> triNeighbor1 = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> triNeighbor2 = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> triNeighbor3 = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Mesh patch owner IDs (one per patch, flattened across all meshes)
     DualArray<bodyID_t> ownerPatchMesh = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
@@ -519,6 +528,7 @@ class DEMDynamicThread {
                            size_t nTriMeshes,
                            size_t nSpheresGM,
                            size_t nTriGM,
+                           size_t nTriNeighbors,
                            size_t nMeshPatches,
                            unsigned int nAnalGM,
                            size_t nExtraContacts,
@@ -545,8 +555,13 @@ class DEMDynamicThread {
                               const std::vector<float3>& input_mesh_obj_xyz,
                               const std::vector<float4>& input_mesh_obj_rot,
                               const std::vector<unsigned int>& input_mesh_obj_family,
+                              const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                              const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                               const std::vector<unsigned int>& mesh_facet_owner,
                               const std::vector<bodyID_t>& mesh_facet_patch,
+                              const std::vector<bodyID_t>& mesh_facet_neighbor1,
+                              const std::vector<bodyID_t>& mesh_facet_neighbor2,
+                              const std::vector<bodyID_t>& mesh_facet_neighbor3,
                               const std::vector<DEMTriangle>& mesh_facets,
                               const std::vector<bodyID_t>& mesh_patch_owner,
                               const std::vector<materialsOffset_t>& mesh_patch_materials,
@@ -559,7 +574,8 @@ class DEMDynamicThread {
                               size_t nExistOwners,
                               size_t nExistSpheres,
                               size_t nExistingFacets,
-                              size_t nExistingPatches);
+                              size_t nExistingPatches,
+                              size_t nExistingTriNeighbors);
     void registerPolicies(const std::unordered_map<unsigned int, std::string>& template_number_name_map,
                           const ClumpTemplateFlatten& clump_templates,
                           const std::vector<float>& ext_obj_mass_types,
@@ -579,8 +595,13 @@ class DEMDynamicThread {
                        const std::vector<float3>& input_mesh_obj_xyz,
                        const std::vector<float4>& input_mesh_obj_rot,
                        const std::vector<unsigned int>& input_mesh_obj_family,
+                       const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                       const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                        const std::vector<unsigned int>& mesh_facet_owner,
                        const std::vector<bodyID_t>& mesh_facet_patch,
+                       const std::vector<bodyID_t>& mesh_facet_neighbor1,
+                       const std::vector<bodyID_t>& mesh_facet_neighbor2,
+                       const std::vector<bodyID_t>& mesh_facet_neighbor3,
                        const std::vector<DEMTriangle>& mesh_facets,
                        const std::vector<bodyID_t>& mesh_patch_owner,
                        const std::vector<materialsOffset_t>& mesh_patch_materials,
@@ -606,8 +627,13 @@ class DEMDynamicThread {
                                const std::vector<float3>& input_mesh_obj_xyz,
                                const std::vector<float4>& input_mesh_obj_rot,
                                const std::vector<unsigned int>& input_mesh_obj_family,
+                               const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                               const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                                const std::vector<unsigned int>& mesh_facet_owner,
                                const std::vector<bodyID_t>& mesh_facet_patch,
+                               const std::vector<bodyID_t>& mesh_facet_neighbor1,
+                               const std::vector<bodyID_t>& mesh_facet_neighbor2,
+                               const std::vector<bodyID_t>& mesh_facet_neighbor3,
                                const std::vector<DEMTriangle>& mesh_facets,
                                const std::vector<bodyID_t>& mesh_patch_owner,
                                const std::vector<materialsOffset_t>& mesh_patch_materials,
@@ -626,6 +652,7 @@ class DEMDynamicThread {
                                size_t nExistingSpheres,
                                size_t nExistingTriMesh,
                                size_t nExistingFacets,
+                               size_t nExistingTriNeighbors,
                                size_t nExistingPatches,
                                unsigned int nExistingObj,
                                unsigned int nExistingAnalGM);

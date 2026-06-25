@@ -97,8 +97,14 @@ void DEMDynamicThread::packDataPointers() {
     ownerPatchMesh.bindDevicePointer(&(granData->ownerPatchMesh));
     triPatchID.bindDevicePointer(&(granData->triPatchID));
     ownerAnalBody.bindDevicePointer(&(granData->ownerAnalBody));
+    ownerMeshConvex.bindDevicePointer(&(granData->ownerMeshConvex));
+    ownerMeshNeverWinner.bindDevicePointer(&(granData->ownerMeshNeverWinner));
     ownerMeshWatertight.bindDevicePointer(&(granData->ownerMeshWatertight));
     ownerMeshShellHalfThickness.bindDevicePointer(&(granData->ownerMeshShellHalfThickness));
+    triNeighborIndex.bindDevicePointer(&(granData->triNeighborIndex));
+    triNeighbor1.bindDevicePointer(&(granData->triNeighbor1));
+    triNeighbor2.bindDevicePointer(&(granData->triNeighbor2));
+    triNeighbor3.bindDevicePointer(&(granData->triNeighbor3));
     relPosNode1.bindDevicePointer(&(granData->relPosNode1));
     relPosNode2.bindDevicePointer(&(granData->relPosNode2));
     relPosNode3.bindDevicePointer(&(granData->relPosNode3));
@@ -186,8 +192,14 @@ void DEMDynamicThread::migrateDataToDevice() {
     ownerPatchMesh.toDeviceAsync(streamInfo.stream);
     triPatchID.toDeviceAsync(streamInfo.stream);
     ownerAnalBody.toDeviceAsync(streamInfo.stream);
+    ownerMeshConvex.toDeviceAsync(streamInfo.stream);
+    ownerMeshNeverWinner.toDeviceAsync(streamInfo.stream);
     ownerMeshWatertight.toDeviceAsync(streamInfo.stream);
     ownerMeshShellHalfThickness.toDeviceAsync(streamInfo.stream);
+    triNeighborIndex.toDeviceAsync(streamInfo.stream);
+    triNeighbor1.toDeviceAsync(streamInfo.stream);
+    triNeighbor2.toDeviceAsync(streamInfo.stream);
+    triNeighbor3.toDeviceAsync(streamInfo.stream);
     relPosNode1.toDeviceAsync(streamInfo.stream);
     relPosNode2.toDeviceAsync(streamInfo.stream);
     relPosNode3.toDeviceAsync(streamInfo.stream);
@@ -463,6 +475,7 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
                                          size_t nTriMeshes,
                                          size_t nSpheresGM,
                                          size_t nTriGM,
+                                         size_t nTriNeighbors,
                                          size_t nMeshPatches,
                                          unsigned int nAnalGM,
                                          size_t nExtraContacts,
@@ -513,6 +526,8 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
     DEME_DUAL_ARRAY_RESIZE(alphaZ, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(accSpecified, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(angAccSpecified, nOwnerBodies, 0);
+    DEME_DUAL_ARRAY_RESIZE(ownerMeshConvex, nOwnerBodies, 0);
+    DEME_DUAL_ARRAY_RESIZE(ownerMeshNeverWinner, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshWatertight, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshShellHalfThickness, nOwnerBodies, 0);
 
@@ -546,6 +561,10 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
     DEME_DUAL_ARRAY_RESIZE(relPosNode2, nTriGM, make_float3(0));
     DEME_DUAL_ARRAY_RESIZE(relPosNode3, nTriGM, make_float3(0));
     DEME_DUAL_ARRAY_RESIZE(triPatchID, nTriGM, 0);
+    DEME_DUAL_ARRAY_RESIZE(triNeighborIndex, nTriGM, NULL_BODYID);
+    DEME_DUAL_ARRAY_RESIZE(triNeighbor1, nTriNeighbors, NULL_BODYID);
+    DEME_DUAL_ARRAY_RESIZE(triNeighbor2, nTriNeighbors, NULL_BODYID);
+    DEME_DUAL_ARRAY_RESIZE(triNeighbor3, nTriNeighbors, NULL_BODYID);
     DEME_DEVICE_ARRAY_RESIZE(maxTriTriPenetration, nTriGM);
     if (nTriGM > 0) {
         DEME_GPU_CALL(cudaMemset(maxTriTriPenetration.data(), 0, nTriGM * sizeof(float)));
@@ -716,8 +735,13 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
                                             const std::vector<float3>& input_mesh_obj_xyz,
                                             const std::vector<float4>& input_mesh_obj_rot,
                                             const std::vector<unsigned int>& input_mesh_obj_family,
+                                            const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                                            const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                                             const std::vector<unsigned int>& mesh_facet_owner,
                                             const std::vector<bodyID_t>& mesh_facet_patch,
+                                            const std::vector<bodyID_t>& mesh_facet_neighbor1,
+                                            const std::vector<bodyID_t>& mesh_facet_neighbor2,
+                                            const std::vector<bodyID_t>& mesh_facet_neighbor3,
                                             const std::vector<DEMTriangle>& mesh_facets,
                                             const std::vector<bodyID_t>& mesh_patch_owner,
                                             const std::vector<materialsOffset_t>& mesh_patch_materials,
@@ -730,7 +754,8 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
                                             size_t nExistOwners,
                                             size_t nExistSpheres,
                                             size_t nExistingFacets,
-                                            size_t nExistingMeshPatches) {
+                                            size_t nExistingMeshPatches,
+                                            size_t nExistingTriNeighbors) {
     // Load in clump components info (but only if instructed to use jitified clump templates). This step will be
     // repeated even if we are just adding some more clumps to system, not a complete re-initialization.
     size_t k = 0;
@@ -1020,12 +1045,15 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
     unsigned int offset_for_mesh_obj_mass_template = offset_for_ext_obj_mass_template + input_ext_obj_xyz.size();
     // k for indexing the triangle facets
     k = 0;
+    size_t neighbor_write = nExistingTriNeighbors;
     // p for indexing patches (flattened across all meshes)
     size_t p = 0;
     for (size_t i = 0; i < input_mesh_objs.size(); i++) {
         // If got here, it is a mesh
         const bodyID_t owner_id = i + owner_offset_for_mesh_obj;
         ownerTypes[owner_id] = OWNER_T_MESH;
+        ownerMeshConvex[owner_id] = input_mesh_obj_convex.at(i);
+        ownerMeshNeverWinner[owner_id] = input_mesh_obj_never_winner.at(i);
         ownerMeshWatertight[owner_id] = input_mesh_objs.at(i)->IsWatertight() ? 1 : 0;
         ownerMeshShellHalfThickness[owner_id] = std::max(input_mesh_objs.at(i)->GetShellHalfThickness(), 0.f);
 
@@ -1104,17 +1132,29 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         // Per-facet info
         //// TODO: This flatten-then-init approach is historical and too ugly.
         size_t this_facet_owner = mesh_facet_owner.at(k);
+        const bool mesh_needs_neighbors =
+            !(input_mesh_obj_convex.at(this_facet_owner) != 0 && input_mesh_obj_never_winner.at(this_facet_owner) != 0);
         for (; k < mesh_facet_owner.size(); k++) {
             // mesh_facet_owner run length is the num of facets in this mesh entity
             if (mesh_facet_owner.at(k) != this_facet_owner)
                 break;
-            ownerTriMesh[nExistingFacets + k] = owner_offset_for_mesh_obj + this_facet_owner;
+            const size_t global_tri = nExistingFacets + k;
+            ownerTriMesh[global_tri] = owner_offset_for_mesh_obj + this_facet_owner;
             // Tri's patch belonging needs to take into account those patches that are previously added
-            triPatchID[nExistingFacets + k] = nExistingMeshPatches + mesh_facet_patch.at(k);
+            triPatchID[global_tri] = nExistingMeshPatches + mesh_facet_patch.at(k);
+            if (mesh_needs_neighbors) {
+                triNeighborIndex[global_tri] = neighbor_write;
+                triNeighbor1[neighbor_write] = mesh_facet_neighbor1.at(k);
+                triNeighbor2[neighbor_write] = mesh_facet_neighbor2.at(k);
+                triNeighbor3[neighbor_write] = mesh_facet_neighbor3.at(k);
+                neighbor_write++;
+            } else {
+                triNeighborIndex[global_tri] = NULL_BODYID;
+            }
             DEMTriangle this_tri = mesh_facets.at(k);
-            relPosNode1[nExistingFacets + k] = this_tri.p1;
-            relPosNode2[nExistingFacets + k] = this_tri.p2;
-            relPosNode3[nExistingFacets + k] = this_tri.p3;
+            relPosNode1[global_tri] = this_tri.p1;
+            relPosNode2[global_tri] = this_tri.p2;
+            relPosNode3[global_tri] = this_tri.p3;
         }
 
         family_t this_family_num = input_mesh_obj_family.at(i);
@@ -1208,8 +1248,13 @@ void DEMDynamicThread::initGPUArrays(const std::vector<std::shared_ptr<DEMClumpB
                                      const std::vector<float3>& input_mesh_obj_xyz,
                                      const std::vector<float4>& input_mesh_obj_rot,
                                      const std::vector<unsigned int>& input_mesh_obj_family,
+                                     const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                                     const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                                      const std::vector<unsigned int>& mesh_facet_owner,
                                      const std::vector<bodyID_t>& mesh_facet_patch,
+                                     const std::vector<bodyID_t>& mesh_facet_neighbor1,
+                                     const std::vector<bodyID_t>& mesh_facet_neighbor2,
+                                     const std::vector<bodyID_t>& mesh_facet_neighbor3,
                                      const std::vector<DEMTriangle>& mesh_facets,
                                      const std::vector<bodyID_t>& mesh_patch_owner,
                                      const std::vector<materialsOffset_t>& mesh_patch_materials,
@@ -1233,9 +1278,10 @@ void DEMDynamicThread::initGPUArrays(const std::vector<std::shared_ptr<DEMClumpB
     // For initialization, owner array offset is 0
     populateEntityArrays(input_clump_batches, input_ext_obj_xyz, input_ext_obj_rot, input_ext_obj_family,
                          input_mesh_objs, input_mesh_obj_xyz, input_mesh_obj_rot, input_mesh_obj_family,
-                         mesh_facet_owner, mesh_facet_patch, mesh_facets, mesh_patch_owner, mesh_patch_materials,
-                         clump_templates, ext_obj_mass_types, ext_obj_moi_types, ext_obj_comp_num, mesh_obj_mass_types,
-                         mesh_obj_moi_types, 0, 0, 0, 0);
+                         input_mesh_obj_convex, input_mesh_obj_never_winner, mesh_facet_owner, mesh_facet_patch,
+                         mesh_facet_neighbor1, mesh_facet_neighbor2, mesh_facet_neighbor3, mesh_facets,
+                         mesh_patch_owner, mesh_patch_materials, clump_templates, ext_obj_mass_types, ext_obj_moi_types,
+                         ext_obj_comp_num, mesh_obj_mass_types, mesh_obj_moi_types, 0, 0, 0, 0, 0);
 
     buildTrackedObjs(input_clump_batches, ext_obj_comp_num, input_mesh_objs, tracked_objs, 0, 0, 0, 0);
 }
@@ -1248,8 +1294,13 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
                                              const std::vector<float3>& input_mesh_obj_xyz,
                                              const std::vector<float4>& input_mesh_obj_rot,
                                              const std::vector<unsigned int>& input_mesh_obj_family,
+                                             const std::vector<notStupidBool_t>& input_mesh_obj_convex,
+                                             const std::vector<notStupidBool_t>& input_mesh_obj_never_winner,
                                              const std::vector<unsigned int>& mesh_facet_owner,
                                              const std::vector<bodyID_t>& mesh_facet_patch,
+                                             const std::vector<bodyID_t>& mesh_facet_neighbor1,
+                                             const std::vector<bodyID_t>& mesh_facet_neighbor2,
+                                             const std::vector<bodyID_t>& mesh_facet_neighbor3,
                                              const std::vector<DEMTriangle>& mesh_facets,
                                              const std::vector<bodyID_t>& mesh_patch_owner,
                                              const std::vector<materialsOffset_t>& mesh_patch_materials,
@@ -1268,6 +1319,7 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
                                              size_t nExistingSpheres,
                                              size_t nExistingTriMesh,
                                              size_t nExistingFacets,
+                                             size_t nExistingTriNeighbors,
                                              size_t nExistingPatches,
                                              unsigned int nExistingObj,
                                              unsigned int nExistingAnalGM) {
@@ -1276,9 +1328,11 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
     // Analytical objects-related arrays should be empty
     populateEntityArrays(input_clump_batches, input_ext_obj_xyz, input_ext_obj_rot, input_ext_obj_family,
                          input_mesh_objs, input_mesh_obj_xyz, input_mesh_obj_rot, input_mesh_obj_family,
-                         mesh_facet_owner, mesh_facet_patch, mesh_facets, mesh_patch_owner, mesh_patch_materials,
-                         clump_templates, ext_obj_mass_types, ext_obj_moi_types, ext_obj_comp_num, mesh_obj_mass_types,
-                         mesh_obj_moi_types, nExistingOwners, nExistingSpheres, nExistingFacets, nExistingPatches);
+                         input_mesh_obj_convex, input_mesh_obj_never_winner, mesh_facet_owner, mesh_facet_patch,
+                         mesh_facet_neighbor1, mesh_facet_neighbor2, mesh_facet_neighbor3, mesh_facets,
+                         mesh_patch_owner, mesh_patch_materials, clump_templates, ext_obj_mass_types, ext_obj_moi_types,
+                         ext_obj_comp_num, mesh_obj_mass_types, mesh_obj_moi_types, nExistingOwners, nExistingSpheres,
+                         nExistingFacets, nExistingPatches, nExistingTriNeighbors);
 
     // Make changes to tracked objects (potentially add more)
     buildTrackedObjs(input_clump_batches, ext_obj_comp_num, input_mesh_objs, tracked_objs, nExistingOwners,
