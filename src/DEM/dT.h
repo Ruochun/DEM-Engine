@@ -87,6 +87,7 @@ class DEMDynamicThread {
     DeviceArray<bodyID_t> idPatchA_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
     DeviceArray<bodyID_t> idPatchB_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
     DeviceArray<contact_t> contactTypePatch_buffer = DeviceArray<contact_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<bodyID_t> contactPatchIsland_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
     DeviceArray<contactPairs_t> geomToPatchMap_buffer = DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed);
     DeviceArray<contactPairs_t> contactMapping_buffer = DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed);
 
@@ -217,6 +218,7 @@ class DEMDynamicThread {
     DualArray<bodyID_t> idPatchA = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<bodyID_t> idPatchB = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<contact_t> contactTypePatch = DualArray<contact_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> contactPatchIsland = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<contactPairs_t> geomToPatchMap =
         DualArray<contactPairs_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 

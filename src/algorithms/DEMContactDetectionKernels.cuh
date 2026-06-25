@@ -170,6 +170,12 @@ __global__ void markNewPatchPairGroups(patchIDPair_t* sortedPatchPairs, contactP
     }
 }
 
+__global__ void markFirstPatchPairGroup(contactPairs_t* isNewGroup, size_t n) {
+    if (n > 0) {
+        isNewGroup[0] = 1;
+    }
+}
+
 __global__ void lineNumbers(contactPairs_t* arr, size_t n) {
     contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
     if (myID < n) {

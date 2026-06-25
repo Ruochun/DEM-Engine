@@ -60,6 +60,7 @@ void DEMDynamicThread::packDataPointers() {
     idPatchA.bindDevicePointer(&(granData->idPatchA));
     idPatchB.bindDevicePointer(&(granData->idPatchB));
     contactTypePatch.bindDevicePointer(&(granData->contactTypePatch));
+    contactPatchIsland.bindDevicePointer(&(granData->contactPatchIsland));
 
     familyMaskMatrix.bindDevicePointer(&(granData->familyMasks));
     familyExtraMarginSize.bindDevicePointer(&(granData->familyExtraMarginSize));
@@ -160,6 +161,7 @@ void DEMDynamicThread::migrateDataToDevice() {
     contactTypePatch.toDeviceAsync(streamInfo.stream);
     idPatchA.toDeviceAsync(streamInfo.stream);
     idPatchB.toDeviceAsync(streamInfo.stream);
+    contactPatchIsland.toDeviceAsync(streamInfo.stream);
 
     familyMaskMatrix.toDeviceAsync(streamInfo.stream);
     familyExtraMarginSize.toDeviceAsync(streamInfo.stream);
@@ -267,6 +269,7 @@ void DEMDynamicThread::migrateContactInfoToHost() {
     contactTypePatch.toHost();
     idPatchA.toHost();
     idPatchB.toHost();
+    contactPatchIsland.toHost();
 
     // Contact results
     contactForces.toHost();
@@ -616,6 +619,7 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
         DEME_DUAL_ARRAY_RESIZE(idPatchA, cnt_arr_size, 0);
         DEME_DUAL_ARRAY_RESIZE(idPatchB, cnt_arr_size, 0);
         DEME_DUAL_ARRAY_RESIZE(contactTypePatch, cnt_arr_size, NOT_A_CONTACT);
+        DEME_DUAL_ARRAY_RESIZE(contactPatchIsland, cnt_arr_size, NULL_BODYID);
 
         // If there are meshes, then sph--mesh case always use force storage, no getting around; if no mesh, then if no
         // need to store forces, we can choose to not resize these arrays.
@@ -2274,6 +2278,7 @@ inline void DEMDynamicThread::contactPatchArrayResize(size_t nPatchPairs) {
     DEME_DUAL_ARRAY_RESIZE(idPatchA, nPatchPairs, 0);
     DEME_DUAL_ARRAY_RESIZE(idPatchB, nPatchPairs, 0);
     DEME_DUAL_ARRAY_RESIZE(contactTypePatch, nPatchPairs, NOT_A_CONTACT);
+    DEME_DUAL_ARRAY_RESIZE(contactPatchIsland, nPatchPairs, NULL_BODYID);
 
     // Re-packing pointers to device now is automatic
     // Sync pointers to device can be delayed... we'll only need to do that before kernel calls
@@ -2318,6 +2323,8 @@ inline void DEMDynamicThread::unpackMyBuffer() {
                              *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
     DEME_GPU_CALL(cudaMemcpy(granData->contactTypePatch, contactTypePatch_buffer.data(),
                              *solverScratchSpace.numContacts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->contactPatchIsland, contactPatchIsland_buffer.data(),
+                             *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
 
     if (!solverFlags.isHistoryless) {
         // Note we don't have to use dedicated memory space for unpacking contactMapping_buffer contents, because we

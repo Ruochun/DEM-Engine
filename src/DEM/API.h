@@ -376,6 +376,13 @@ class DEMSolver {
     /// @details Set this to true if you later will call MarkPersistentContact series of methods.
     void SetPersistentContact(bool use = true);
 
+    /// @brief Set whether to use simple patch ID-based triangle combination.
+    /// @param use If true, all triangles sharing the same patch ID pair are combined into one patch contact.
+    void SetSimplePatchCombination(bool use = true);
+
+    /// @brief Set whether flooded patch-island IDs should be stabilized across contact-detection steps.
+    void SetStablePatchIslandIDs(bool use = true);
+
     /// @brief Declare that all meshed particles in the simulation have a low polygon count.
     /// @param use If true, skip per-triangle mesh-mesh penetration-margin bookkeeping.
     /// @details Toggle this on only when mesh-mesh contacts are always SAT-traceable, i.e. no triangle from one mesh is

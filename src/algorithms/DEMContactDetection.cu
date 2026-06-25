@@ -55,11 +55,13 @@ inline void patchArraysResize(size_t nPatchInvolvedContacts,
                               DualArray<bodyID_t>& idA,
                               DualArray<bodyID_t>& idB,
                               DualArray<contact_t>& contactTypePatch,
+                              DualArray<bodyID_t>& contactPatchIsland,
                               DualStruct<DEMDataKT>& granData) {
     // Note these resizing are automatically on kT's device
     DEME_DUAL_ARRAY_RESIZE_NOVAL(idA, nPatchInvolvedContacts);
     DEME_DUAL_ARRAY_RESIZE_NOVAL(idB, nPatchInvolvedContacts);
     DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, nPatchInvolvedContacts);
+    DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, nPatchInvolvedContacts);
 
     // Re-packing pointers now is automatic
 
@@ -299,6 +301,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                       DualArray<bodyID_t>& previous_idPatchB,
                       DualArray<contact_t>& contactTypePatch,
                       DualArray<contact_t>& previous_contactTypePatch,
+                      DualArray<bodyID_t>& contactPatchIsland,
+                      DualArray<bodyID_t>& previous_contactPatchIsland,
                       ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPatchMap,
                       DualArray<contactPairs_t>& geomToPatchMap,
                       cudaStream_t& this_stream,
@@ -1387,6 +1391,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchA, newTotalSize);
                         DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchB, newTotalSize);
                         DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, newTotalSize);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, newTotalSize);
                         granData.toDevice();
                     }
 
@@ -1440,6 +1445,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                            this_stream>>>(granData->geomToPatchMap + prim_offset,
                                                           (contactPairs_t)totalUniquePatchPairs, count);
                         DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                    }
+
+                    if (numUniqueInSegment > 0) {
+                        markFirstPatchPairGroup<<<1, 1, 0, this_stream>>>(isNewGroup, count);
+                        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                        cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
+                            idA_sorted + prim_offset, granData->contactPatchIsland + totalUniquePatchPairs, isNewGroup,
+                            scratchPad.getDualStructDevice("numUniquePatchPairs"), count, this_stream, scratchPad);
                     }
 
                     scratchPad.finishUsingTempVector("isNewGroup");
@@ -1557,7 +1570,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             size_t patch_type_arr_bytes = (*scratchPad.numContacts) * sizeof(contact_t);
             if (*scratchPad.numContacts > previous_idPatchA.size()) {
                 patchArraysResize(*scratchPad.numContacts, previous_idPatchA, previous_idPatchB,
-                                  previous_contactTypePatch, granData);
+                                  previous_contactTypePatch, previous_contactPatchIsland, granData);
             }
             DEME_GPU_CALL(cudaMemcpy(granData->previous_idPatchA, granData->idPatchA, patch_id_arr_bytes,
                                      cudaMemcpyDeviceToDevice));
@@ -1565,6 +1578,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                      cudaMemcpyDeviceToDevice));
             DEME_GPU_CALL(cudaMemcpy(granData->previous_contactTypePatch, granData->contactTypePatch,
                                      patch_type_arr_bytes, cudaMemcpyDeviceToDevice));
+            DEME_GPU_CALL(cudaMemcpy(granData->previous_contactPatchIsland, granData->contactPatchIsland,
+                                     patch_id_arr_bytes, cudaMemcpyDeviceToDevice));
 
             // Currently only when using persistent contacts we need to store enduring primitive contact info
             if (solverFlags.hasPersistentContacts) {
@@ -1623,6 +1638,7 @@ void overwritePrevContactArrays(DualStruct<DEMDataKT>& kT_data,
                                 DualArray<bodyID_t>& previous_idPatchA,
                                 DualArray<bodyID_t>& previous_idPatchB,
                                 DualArray<contact_t>& previous_contactTypePatch,
+                                DualArray<bodyID_t>& previous_contactPatchIsland,
                                 ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPatchMap,
                                 DualStruct<DEMSimParams>& simParams,
                                 DEMSolverScratchData& scratchPad,
@@ -1630,7 +1646,8 @@ void overwritePrevContactArrays(DualStruct<DEMDataKT>& kT_data,
                                 size_t nContacts) {
     // Make sure the storage is large enough
     if (nContacts > previous_idPatchA.size()) {
-        patchArraysResize(nContacts, previous_idPatchA, previous_idPatchB, previous_contactTypePatch, kT_data);
+        patchArraysResize(nContacts, previous_idPatchA, previous_idPatchB, previous_contactTypePatch,
+                          previous_contactPatchIsland, kT_data);
     }
 
     // No sort, copy over
@@ -1640,6 +1657,8 @@ void overwritePrevContactArrays(DualStruct<DEMDataKT>& kT_data,
                              cudaMemcpyDeviceToDevice));
     DEME_GPU_CALL(cudaMemcpy(kT_data->previous_contactTypePatch, dT_data->contactTypePatch,
                              nContacts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(kT_data->previous_contactPatchIsland, dT_data->contactPatchIsland,
+                             nContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
 
     // Derive typeStartCountPatchMap from the loaded contact arrays
     // This is necessary for the persistent mapping process in the next contact detection step

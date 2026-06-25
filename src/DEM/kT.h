@@ -234,6 +234,9 @@ class DEMKinematicThread {
     DualArray<contact_t> contactTypePatch = DualArray<contact_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<contact_t> previous_contactTypePatch =
         DualArray<contact_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> contactPatchIsland = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<bodyID_t> previous_contactPatchIsland =
+        DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
     // Mapping array: maps from primitive-based pair index to patch-based pair index
     // Same length as primitive pair arrays (idPrimitiveA/B). For each primitive pair,

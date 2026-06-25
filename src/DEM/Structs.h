@@ -314,6 +314,10 @@ struct SolverFlags {
 
     // Whether there are contacts that can never be removed.
     bool hasPersistentContacts = false;
+    // Transitional mesh-particle path: keep RefBranch-style patch-ID grouping until the flooding route is enabled.
+    bool useSimplePatchCombination = true;
+    // Whether flooded patch-island IDs should be stabilized across contact-detection steps.
+    bool useStablePatchIslandIDs = true;
 };
 
 class DEMMaterial {
