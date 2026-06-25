@@ -170,6 +170,21 @@ __global__ void markNewPatchPairGroups(patchIDPair_t* sortedPatchPairs, contactP
     }
 }
 
+__global__ void lineNumbers(contactPairs_t* arr, size_t n) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < n) {
+        arr[myID] = myID;
+    }
+}
+
+template <typename T>
+__global__ void gatherByIndex(const T* in, T* out, const contactPairs_t* idx, size_t n) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < n) {
+        out[myID] = in[idx[myID]];
+    }
+}
+
 // Set NULL_MAPPING_PARTNER for contacts of a specific type segment.
 // Used when current step has contacts of this type but previous step does not.
 //
@@ -331,6 +346,42 @@ __global__ void buildPatchContactMapping(bodyID_t* curr_idPatchA,
         }
 
         contactMapping[myID] = my_partner;
+    }
+}
+
+// Build a sortable 64-bit key from (idB, contactType, persistency_preference).
+// If prefer_persistent is true, persistent contacts sort before non-persistent ones.
+__global__ void buildKeyBTypePersist(const bodyID_t* idB,
+                                     const contact_t* contactType,
+                                     const notStupidBool_t* persistency,
+                                     unsigned long long* keys,
+                                     size_t n,
+                                     bool prefer_persistent) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < n) {
+        const unsigned long long high = (static_cast<unsigned long long>(idB[myID]) << 32);
+        const unsigned long long type_part = (static_cast<unsigned long long>(contactType[myID]) << 1);
+        const unsigned long long persist_part =
+            prefer_persistent ? static_cast<unsigned long long>(persistency[myID] == CONTACT_NOT_PERSISTENT) : 0ull;
+        keys[myID] = high | type_part | persist_part;
+    }
+}
+
+// Mark (idA, idB, contactType) duplicates in a lexicographically sorted contact list.
+__global__ void markUniqueTriples(const bodyID_t* idA,
+                                  const bodyID_t* idB,
+                                  const contact_t* contactType,
+                                  notStupidBool_t* retain_flags,
+                                  size_t n) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < n) {
+        if (myID == 0) {
+            retain_flags[myID] = (notStupidBool_t)1;
+            return;
+        }
+        const bool is_dup = (idA[myID] == idA[myID - 1]) && (idB[myID] == idB[myID - 1]) &&
+                            (contactType[myID] == contactType[myID - 1]);
+        retain_flags[myID] = is_dup ? (notStupidBool_t)0 : (notStupidBool_t)1;
     }
 }
 
