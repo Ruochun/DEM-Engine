@@ -560,11 +560,11 @@ struct SolverFlags {
     // Whether there are contacts that can never be removed.
     bool hasPersistentContacts = false;
 
-    // Whether to use the simple patch ID-based triangle combination (RefBranch approach) instead of the default
-    // index-flooding-based approach. When true, all triangles sharing the same patch ID pair are combined into one
-    // patch contact without the connected-component flooding step.
-    bool useSimplePatchCombination = false;
-    // Whether the index-flooding patch-combination route remaps raw island labels to stable IDs across contact
+    // Whether to use the simple patch ID-based triangle combination (RefBranch approach). This is the default safe
+    // path because it preserves dT's expected per-contact-type, patch-pair sorted contact-history mapping invariant.
+    // Set false only to opt into the connected-component flooding route.
+    bool useSimplePatchCombination = true;
+    // Whether the opt-in index-flooding patch-combination route remaps raw island labels to stable IDs across contact
     // detection steps. This preserves contact history when the raw representative triangle changes.
     bool useStablePatchIslandIDs = true;
 };

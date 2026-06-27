@@ -1677,802 +1677,932 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     contactPatchPairs, granData->contactTypePrimitive, granData->idPrimitiveA, granData->idPrimitiveB,
                     granData->triPatchID, numTotalCnts);
                 DEME_GPU_DEBUG_SYNC(this_stream);
-                lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                    sort_indices, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
             }
 
-            // Sort by patch-pair first, then gather arrays into patch-pair order.
-            cubDEMSortByKeys<patchIDPair_t, contactPairs_t>(contactPatchPairs, patchPairs_sorted, sort_indices,
-                                                            sort_indices_sorted, numTotalCnts, this_stream, scratchPad);
+            if (solverFlags.useSimplePatchCombination) {
+                // ---- BEGIN SIMPLE (patch ID-based) PATH ----
+                // Safe RefBranch-style path: preserve the existing contact-type segments and sort/group patch pairs
+                // inside each segment. This keeps primitive order, geomToPatchMap, and patch-contact slots aligned with
+                // dT's patch-force and history-migration assumptions.
+                if (!primitiveContactArraysAreSortedByType) {
+                    if (blocks_needed_for_patch_ids > 0) {
+                        lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                      this_stream>>>(type_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+                    cubDEMSortByKeys<contact_t, contactPairs_t>(granData->contactTypePrimitive, contactType_sorted,
+                                                                type_indices, type_indices_sorted, numTotalCnts,
+                                                                this_stream, scratchPad);
+                    if (blocks_needed_for_patch_ids > 0) {
+                        gatherByIndex<bodyID_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->idPrimitiveA, idA_sorted, type_indices_sorted, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<bodyID_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->idPrimitiveB, idB_sorted, type_indices_sorted, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<notStupidBool_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->contactPersistency, contactPersistency_sorted, type_indices_sorted,
+                                numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<patchIDPair_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                contactPatchPairs, patchPairs_sorted, type_indices_sorted, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveA, idA_sorted, total_ids_bytes,
+                                                            cudaMemcpyDeviceToDevice, this_stream),
+                                            this_stream);
+                        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveB, idB_sorted, total_ids_bytes,
+                                                            cudaMemcpyDeviceToDevice, this_stream),
+                                            this_stream);
+                        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactTypePrimitive, contactType_sorted,
+                                                            type_arr_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                                            this_stream);
+                        DEME_GPU_CALL_ASYNC(
+                            cudaMemcpyAsync(granData->contactPersistency, contactPersistency_sorted,
+                                            total_persistency_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                            this_stream);
+                        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(contactPatchPairs, patchPairs_sorted, patch_arr_bytes,
+                                                            cudaMemcpyDeviceToDevice, this_stream),
+                                            this_stream);
+                    }
+                    primitiveContactArraysAreSortedByType = true;
+                }
 
-            if (blocks_needed_for_patch_ids > 0) {
-                gatherByIndex<bodyID_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        granData->idPrimitiveA, idA_sorted, sort_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-                gatherByIndex<bodyID_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        granData->idPrimitiveB, idB_sorted, sort_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-                gatherByIndex<contact_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        granData->contactTypePrimitive, contactType_sorted, sort_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-                gatherByIndex<notStupidBool_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        granData->contactPersistency, contactPersistency_sorted, sort_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-            }
+                contact_t* unique_types = (contact_t*)scratchPad.allocateTempVector(
+                    "simple_unique_types", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contact_t));
+                contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
+                    "simple_type_counts", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contactPairs_t));
+                scratchPad.allocateDualStruct("simple_numUniqueTypes");
+                cubDEMRunLengthEncode<contact_t, contactPairs_t>(
+                    granData->contactTypePrimitive, unique_types, type_counts,
+                    scratchPad.getDualStructDevice("simple_numUniqueTypes"), numTotalCnts, this_stream, scratchPad);
+                scratchPad.syncDualStructDeviceToHost("simple_numUniqueTypes");
+                size_t numTypes = *scratchPad.getDualStructHost("simple_numUniqueTypes");
 
-            if (blocks_needed_for_patch_ids > 0) {
-                lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                    type_indices, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-            }
+                contact_t* host_unique_types = nullptr;
+                contactPairs_t* host_type_counts = nullptr;
+                if (numTypes > 0) {
+                    host_unique_types = new contact_t[numTypes];
+                    host_type_counts = new contactPairs_t[numTypes];
+                    DEME_GPU_CALL(cudaMemcpy(host_unique_types, unique_types, numTypes * sizeof(contact_t),
+                                             cudaMemcpyDeviceToHost));
+                    DEME_GPU_CALL(cudaMemcpy(host_type_counts, type_counts, numTypes * sizeof(contactPairs_t),
+                                             cudaMemcpyDeviceToHost));
+                }
 
-            // Stable sort by contact type to preserve patch-pair order within each type segment.
-            cubDEMSortByKeys<contact_t, contactPairs_t>(contactType_sorted, granData->contactTypePrimitive,
-                                                        type_indices, type_indices_sorted, numTotalCnts, this_stream,
-                                                        scratchPad);
+                if (numTotalCnts > geomToPatchMap.size()) {
+                    DEME_DUAL_ARRAY_RESIZE_NOVAL(geomToPatchMap, numTotalCnts);
+                    granData.toDevice();
+                }
 
-            if (blocks_needed_for_patch_ids > 0) {
-                gatherByIndex<bodyID_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        idA_sorted, granData->idPrimitiveA, type_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-                gatherByIndex<bodyID_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        idB_sorted, granData->idPrimitiveB, type_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-                gatherByIndex<notStupidBool_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        contactPersistency_sorted, granData->contactPersistency, type_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-                gatherByIndex<patchIDPair_t>
-                    <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        patchPairs_sorted, contactPatchPairs, type_indices_sorted, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-            }
+                patchIDPair_t* unique_patch_pairs =
+                    (patchIDPair_t*)scratchPad.allocateTempVector("simple_unique_patch_pairs", patch_arr_bytes);
+                contactPairs_t* patch_pair_counts = (contactPairs_t*)scratchPad.allocateTempVector(
+                    "simple_patch_pair_counts", numTotalCnts * sizeof(contactPairs_t));
+                scratchPad.allocateDualStruct("simple_numUniquePatchPairs");
 
-            primitiveContactArraysAreSortedByType = true;
+                typeStartCountPatchMap_thisStep.SetAll({0, 0});
+                size_t totalUniquePatchPairs = 0;
+                size_t prim_offset = 0;
+                for (size_t i = 0; i < numTypes; i++) {
+                    const contact_t thisType = host_unique_types[i];
+                    const contactPairs_t count = host_type_counts[i];
+                    if (count == 0) {
+                        continue;
+                    }
 
-            // Ensure geomToPatchMap is sized to numPrimitiveContacts before building it.
-            if (numTotalCnts > geomToPatchMap.size()) {
-                DEME_DUAL_ARRAY_RESIZE_NOVAL(geomToPatchMap, numTotalCnts);
-                granData.toDevice();
-            }
+                    cubDEMSortByKeys<patchIDPair_t, bodyID_t>(
+                        contactPatchPairs + prim_offset, patchPairs_sorted + prim_offset,
+                        granData->idPrimitiveA + prim_offset, idA_sorted + prim_offset, count, this_stream, scratchPad);
+                    cubDEMSortByKeys<patchIDPair_t, bodyID_t>(
+                        contactPatchPairs + prim_offset, patchPairs_sorted + prim_offset,
+                        granData->idPrimitiveB + prim_offset, idB_sorted + prim_offset, count, this_stream, scratchPad);
+                    cubDEMSortByKeys<patchIDPair_t, contact_t>(
+                        contactPatchPairs + prim_offset, patchPairs_sorted + prim_offset,
+                        granData->contactTypePrimitive + prim_offset, contactType_sorted + prim_offset, count,
+                        this_stream, scratchPad);
+                    cubDEMSortByKeys<patchIDPair_t, notStupidBool_t>(
+                        contactPatchPairs + prim_offset, patchPairs_sorted + prim_offset,
+                        granData->contactPersistency + prim_offset, contactPersistency_sorted + prim_offset, count,
+                        this_stream, scratchPad);
 
-            contactPairs_t* isNewGroup =
-                (contactPairs_t*)scratchPad.allocateTempVector("isNewGroup", numTotalCnts * sizeof(contactPairs_t));
-            size_t blocks_needed_for_mark =
-                (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-            if (blocks_needed_for_mark > 0) {
-                markNewPatchPairGroupsByType<<<dim3(blocks_needed_for_mark), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                               this_stream>>>(contactPatchPairs, granData->contactTypePrimitive,
-                                                              isNewGroup, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-            }
+                    cubDEMRunLengthEncode<patchIDPair_t, contactPairs_t>(
+                        patchPairs_sorted + prim_offset, unique_patch_pairs, patch_pair_counts,
+                        scratchPad.getDualStructDevice("simple_numUniquePatchPairs"), count, this_stream, scratchPad);
+                    scratchPad.syncDualStructDeviceToHost("simple_numUniquePatchPairs");
+                    const size_t numUniqueInSegment = *scratchPad.getDualStructHost("simple_numUniquePatchPairs");
 
-            // Prefix scan gives 0-based group indices for each primitive contact (grouped by type + patch pair).
-            contactPairs_t* groupIndex =
-                (contactPairs_t*)scratchPad.allocateTempVector("groupIndex", numTotalCnts * sizeof(contactPairs_t));
-            cubDEMInclusiveScan<contactPairs_t, contactPairs_t>(isNewGroup, groupIndex, numTotalCnts, this_stream,
+                    const size_t newTotalSize = totalUniquePatchPairs + numUniqueInSegment;
+                    if (newTotalSize > idPatchA.size()) {
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchA, newTotalSize);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchB, newTotalSize);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, newTotalSize);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, newTotalSize);
+                        granData.toDevice();
+                    }
+
+                    contactPairs_t* isNewSegmentGroup = (contactPairs_t*)scratchPad.allocateTempVector(
+                        "simple_isNewSegmentGroup", count * sizeof(contactPairs_t));
+                    const size_t blocks_needed_for_mark =
+                        (count + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                    if (blocks_needed_for_mark > 0) {
+                        markNewPatchPairGroups<<<dim3(blocks_needed_for_mark), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                 this_stream>>>(patchPairs_sorted + prim_offset, isNewSegmentGroup,
+                                                                count);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+                    cubDEMInclusiveScan<contactPairs_t, contactPairs_t>(
+                        isNewSegmentGroup, granData->geomToPatchMap + prim_offset, count, this_stream, scratchPad);
+                    if (count > 0 && totalUniquePatchPairs > 0) {
+                        addOffsetToArray<<<dim3(blocks_needed_for_mark), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                           this_stream>>>(granData->geomToPatchMap + prim_offset,
+                                                          static_cast<contactPairs_t>(totalUniquePatchPairs), count);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+
+                    if (numUniqueInSegment > 0) {
+                        typeStartCountPatchMap_thisStep[thisType] = {static_cast<contactPairs_t>(totalUniquePatchPairs),
+                                                                     static_cast<contactPairs_t>(numUniqueInSegment)};
+                        const size_t blocks_needed_for_decode =
+                            (numUniqueInSegment + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        decodePatchPairsToSeparateArrays<<<dim3(blocks_needed_for_decode),
+                                                           dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            unique_patch_pairs, granData->idPatchA + totalUniquePatchPairs,
+                            granData->idPatchB + totalUniquePatchPairs, numUniqueInSegment);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        fillContactTypeArray<<<dim3(blocks_needed_for_decode), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                               this_stream>>>(granData->contactTypePatch + totalUniquePatchPairs,
+                                                              thisType, numUniqueInSegment);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+
+                        setFirstFlagToOne<<<1, 1, 0, this_stream>>>(isNewSegmentGroup, count);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
+                            idA_sorted + prim_offset, contactPatchIsland.data() + totalUniquePatchPairs,
+                            isNewSegmentGroup, scratchPad.getDualStructDevice("simple_numUniquePatchPairs"), count,
+                            this_stream, scratchPad);
+                    }
+
+                    scratchPad.finishUsingTempVector("simple_isNewSegmentGroup");
+                    totalUniquePatchPairs += numUniqueInSegment;
+                    prim_offset += count;
+                }
+
+                if (numTotalCnts > 0) {
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveA, idA_sorted, total_ids_bytes,
+                                                        cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveB, idB_sorted, total_ids_bytes,
+                                                        cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactTypePrimitive, contactType_sorted,
+                                                        type_arr_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactPersistency, contactPersistency_sorted,
+                                                        total_persistency_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(contactPatchPairs, patchPairs_sorted, patch_arr_bytes,
+                                                        cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                }
+
+                *scratchPad.numContacts = totalUniquePatchPairs;
+
+                scratchPad.finishUsingTempVector("simple_unique_patch_pairs");
+                scratchPad.finishUsingTempVector("simple_patch_pair_counts");
+                scratchPad.finishUsingDualStruct("simple_numUniquePatchPairs");
+                if (host_unique_types) {
+                    delete[] host_unique_types;
+                }
+                if (host_type_counts) {
+                    delete[] host_type_counts;
+                }
+                scratchPad.finishUsingTempVector("simple_unique_types");
+                scratchPad.finishUsingTempVector("simple_type_counts");
+                scratchPad.finishUsingDualStruct("simple_numUniqueTypes");
+            } else {
+                // ---- BEGIN COMPLEX (flooding-based) PATH ----
+                if (blocks_needed_for_patch_ids > 0) {
+                    lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                  this_stream>>>(sort_indices, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                }
+
+                // Sort by patch-pair first, then gather arrays into patch-pair order.
+                cubDEMSortByKeys<patchIDPair_t, contactPairs_t>(contactPatchPairs, patchPairs_sorted, sort_indices,
+                                                                sort_indices_sorted, numTotalCnts, this_stream,
                                                                 scratchPad);
 
-            // Flip the first element to 1 so it can be used for selection flags.
-            setFirstFlagToOne<<<1, 1, 0, this_stream>>>(isNewGroup, numTotalCnts);
-            DEME_GPU_DEBUG_SYNC(this_stream);
-
-            scratchPad.allocateDualStruct("numUniqueGroups");
-            cubDEMSum<contactPairs_t, size_t>(isNewGroup, scratchPad.getDualStructDevice("numUniqueGroups"),
-                                              numTotalCnts, this_stream, scratchPad);
-            scratchPad.syncDualStructDeviceToHost("numUniqueGroups");
-            size_t numGroups = *scratchPad.getDualStructHost("numUniqueGroups");
-
-            if (!solverFlags.useSimplePatchCombination) {
-                // ---- BEGIN COMPLEX (flooding-based) PATH ----
-                // Select group contact types (one per group).
-                contact_t* groupContactTypes = nullptr;
-                if (numGroups > 0) {
-                    groupContactTypes =
-                        (contact_t*)scratchPad.allocateTempVector("groupContactTypes", numGroups * sizeof(contact_t));
-                    cubDEMSelectFlagged<contact_t, contactPairs_t>(
-                        granData->contactTypePrimitive, groupContactTypes, isNewGroup,
-                        scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                }
-                // Select representative primitive IDs per group (first contact in each group).
-                bodyID_t* groupPrimA = nullptr;
-                bodyID_t* groupPrimB = nullptr;
-                if (numGroups > 0) {
-                    groupPrimA = (bodyID_t*)scratchPad.allocateTempVector("groupPrimA", numGroups * sizeof(bodyID_t));
-                    groupPrimB = (bodyID_t*)scratchPad.allocateTempVector("groupPrimB", numGroups * sizeof(bodyID_t));
-                    cubDEMSelectFlagged<bodyID_t, contactPairs_t>(granData->idPrimitiveA, groupPrimA, isNewGroup,
-                                                                  scratchPad.getDualStructDevice("numUniqueGroups"),
-                                                                  numTotalCnts, this_stream, scratchPad);
-                    cubDEMSelectFlagged<bodyID_t, contactPairs_t>(granData->idPrimitiveB, groupPrimB, isNewGroup,
-                                                                  scratchPad.getDualStructDevice("numUniqueGroups"),
-                                                                  numTotalCnts, this_stream, scratchPad);
-                }
-
-                // Count unique primitives per group on each side.
-                contactPairs_t* groupUniqueCountA = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "groupUniqueCountA", numGroups * sizeof(contactPairs_t));
-                contactPairs_t* groupUniqueCountB = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "groupUniqueCountB", numGroups * sizeof(contactPairs_t));
-                if (numGroups > 0) {
-                    DEME_GPU_CALL_ASYNC(
-                        cudaMemsetAsync(groupUniqueCountA, 0, numGroups * sizeof(contactPairs_t), this_stream),
-                        this_stream);
-                    DEME_GPU_CALL_ASYNC(
-                        cudaMemsetAsync(groupUniqueCountB, 0, numGroups * sizeof(contactPairs_t), this_stream),
-                        this_stream);
-                }
-
-                uint64_t* keyA =
-                    (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyA", numTotalCnts * sizeof(uint64_t));
-                uint64_t* keyA_sorted =
-                    (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyA_sorted", numTotalCnts * sizeof(uint64_t));
                 if (blocks_needed_for_patch_ids > 0) {
-                    buildGroupPrimitiveKeys<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                              this_stream>>>(groupIndex, granData->idPrimitiveA, keyA, numTotalCnts);
+                    gatherByIndex<bodyID_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            granData->idPrimitiveA, idA_sorted, sort_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    gatherByIndex<bodyID_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            granData->idPrimitiveB, idB_sorted, sort_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    gatherByIndex<contact_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            granData->contactTypePrimitive, contactType_sorted, sort_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    gatherByIndex<notStupidBool_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            granData->contactPersistency, contactPersistency_sorted, sort_indices_sorted, numTotalCnts);
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 }
-                cubDEMSortKeys<uint64_t>(keyA, keyA_sorted, numTotalCnts, this_stream, scratchPad);
 
-                uint64_t* uniqueKeyA =
-                    (uint64_t*)scratchPad.allocateTempVector("uniqueKeyA", numTotalCnts * sizeof(uint64_t));
-                scratchPad.allocateDualStruct("numUniqueKeyA");
-                cubDEMUnique<uint64_t>(keyA_sorted, uniqueKeyA, scratchPad.getDualStructDevice("numUniqueKeyA"),
-                                       numTotalCnts, this_stream, scratchPad);
-                scratchPad.syncDualStructDeviceToHost("numUniqueKeyA");
-                size_t numUniqueKeyA = *scratchPad.getDualStructHost("numUniqueKeyA");
-                if (numUniqueKeyA > 0) {
-                    contactPairs_t* uniqueGroupA = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "uniqueGroupA", numUniqueKeyA * sizeof(contactPairs_t));
-                    size_t blocks_needed_unique =
-                        (numUniqueKeyA + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    extractGroupIndexFromKey<<<dim3(blocks_needed_unique), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                               this_stream>>>(uniqueKeyA, uniqueGroupA, numUniqueKeyA);
+                if (blocks_needed_for_patch_ids > 0) {
+                    lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                  this_stream>>>(type_indices, numTotalCnts);
                     DEME_GPU_DEBUG_SYNC(this_stream);
+                }
 
-                    contactPairs_t* uniqueGroupsA = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "uniqueGroupsA", numUniqueKeyA * sizeof(contactPairs_t));
-                    contactPairs_t* countsA = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "uniqueCountsA", numUniqueKeyA * sizeof(contactPairs_t));
-                    scratchPad.allocateDualStruct("numGroupsA");
-                    cubDEMRunLengthEncode<contactPairs_t, contactPairs_t>(uniqueGroupA, uniqueGroupsA, countsA,
-                                                                          scratchPad.getDualStructDevice("numGroupsA"),
-                                                                          numUniqueKeyA, this_stream, scratchPad);
-                    scratchPad.syncDualStructDeviceToHost("numGroupsA");
-                    size_t numGroupsA = *scratchPad.getDualStructHost("numGroupsA");
-                    if (numGroupsA > 0) {
-                        size_t blocks_needed_groups =
-                            (numGroupsA + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                        scatterGroupCounts<<<dim3(blocks_needed_groups), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                             this_stream>>>(uniqueGroupsA, countsA, groupUniqueCountA, numGroupsA);
-                        DEME_GPU_DEBUG_SYNC(this_stream);
+                // Stable sort by contact type to preserve patch-pair order within each type segment. dT's patch-history
+                // migration relies on this invariant: patch contact IDs and geomToPatchMap are dense in type segments
+                // and ordered by patch pair inside each segment.
+                cubDEMSortByKeys<contact_t, contactPairs_t>(contactType_sorted, granData->contactTypePrimitive,
+                                                            type_indices, type_indices_sorted, numTotalCnts,
+                                                            this_stream, scratchPad);
+
+                if (blocks_needed_for_patch_ids > 0) {
+                    gatherByIndex<bodyID_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            idA_sorted, granData->idPrimitiveA, type_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    gatherByIndex<bodyID_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            idB_sorted, granData->idPrimitiveB, type_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    gatherByIndex<notStupidBool_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            contactPersistency_sorted, granData->contactPersistency, type_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    gatherByIndex<patchIDPair_t>
+                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            patchPairs_sorted, contactPatchPairs, type_indices_sorted, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                }
+
+                primitiveContactArraysAreSortedByType = true;
+
+                // Ensure geomToPatchMap is sized to numPrimitiveContacts before building it.
+                if (numTotalCnts > geomToPatchMap.size()) {
+                    DEME_DUAL_ARRAY_RESIZE_NOVAL(geomToPatchMap, numTotalCnts);
+                    granData.toDevice();
+                }
+
+                contactPairs_t* isNewGroup =
+                    (contactPairs_t*)scratchPad.allocateTempVector("isNewGroup", numTotalCnts * sizeof(contactPairs_t));
+                size_t blocks_needed_for_mark =
+                    (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                if (blocks_needed_for_mark > 0) {
+                    markNewPatchPairGroupsByType<<<dim3(blocks_needed_for_mark), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                   this_stream>>>(contactPatchPairs, granData->contactTypePrimitive,
+                                                                  isNewGroup, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                }
+
+                // Prefix scan gives 0-based group indices for each primitive contact (grouped by type + patch pair).
+                contactPairs_t* groupIndex =
+                    (contactPairs_t*)scratchPad.allocateTempVector("groupIndex", numTotalCnts * sizeof(contactPairs_t));
+                cubDEMInclusiveScan<contactPairs_t, contactPairs_t>(isNewGroup, groupIndex, numTotalCnts, this_stream,
+                                                                    scratchPad);
+
+                // Flip the first element to 1 so it can be used for selection flags.
+                setFirstFlagToOne<<<1, 1, 0, this_stream>>>(isNewGroup, numTotalCnts);
+                DEME_GPU_DEBUG_SYNC(this_stream);
+
+                scratchPad.allocateDualStruct("numUniqueGroups");
+                cubDEMSum<contactPairs_t, size_t>(isNewGroup, scratchPad.getDualStructDevice("numUniqueGroups"),
+                                                  numTotalCnts, this_stream, scratchPad);
+                scratchPad.syncDualStructDeviceToHost("numUniqueGroups");
+                size_t numGroups = *scratchPad.getDualStructHost("numUniqueGroups");
+
+                {
+                    // This route is opt-in. It starts from the same type/patch-pair sorted primitive arrays as the
+                    // simple path, then adds an island label as a secondary key so patch contacts remain type-segmented
+                    // and patch-pair ordered before history mapping. Select group contact types (one per group).
+                    contact_t* groupContactTypes = nullptr;
+                    if (numGroups > 0) {
+                        groupContactTypes = (contact_t*)scratchPad.allocateTempVector("groupContactTypes",
+                                                                                      numGroups * sizeof(contact_t));
+                        cubDEMSelectFlagged<contact_t, contactPairs_t>(
+                            granData->contactTypePrimitive, groupContactTypes, isNewGroup,
+                            scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
                     }
-                    scratchPad.finishUsingTempVector("uniqueGroupsA");
-                    scratchPad.finishUsingTempVector("uniqueCountsA");
-                    scratchPad.finishUsingDualStruct("numGroupsA");
-                    scratchPad.finishUsingTempVector("uniqueGroupA");
-                }
-                scratchPad.finishUsingTempVector("uniqueKeyA");
-                scratchPad.finishUsingDualStruct("numUniqueKeyA");
-                scratchPad.finishUsingTempVector("groupPrimKeyA_sorted");
-                scratchPad.finishUsingTempVector("groupPrimKeyA");
-
-                uint64_t* keyB =
-                    (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyB", numTotalCnts * sizeof(uint64_t));
-                uint64_t* keyB_sorted =
-                    (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyB_sorted", numTotalCnts * sizeof(uint64_t));
-                if (blocks_needed_for_patch_ids > 0) {
-                    buildGroupPrimitiveKeys<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                              this_stream>>>(groupIndex, granData->idPrimitiveB, keyB, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-                cubDEMSortKeys<uint64_t>(keyB, keyB_sorted, numTotalCnts, this_stream, scratchPad);
-
-                uint64_t* uniqueKeyB =
-                    (uint64_t*)scratchPad.allocateTempVector("uniqueKeyB", numTotalCnts * sizeof(uint64_t));
-                scratchPad.allocateDualStruct("numUniqueKeyB");
-                cubDEMUnique<uint64_t>(keyB_sorted, uniqueKeyB, scratchPad.getDualStructDevice("numUniqueKeyB"),
-                                       numTotalCnts, this_stream, scratchPad);
-                scratchPad.syncDualStructDeviceToHost("numUniqueKeyB");
-                size_t numUniqueKeyB = *scratchPad.getDualStructHost("numUniqueKeyB");
-                if (numUniqueKeyB > 0) {
-                    contactPairs_t* uniqueGroupB = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "uniqueGroupB", numUniqueKeyB * sizeof(contactPairs_t));
-                    size_t blocks_needed_unique =
-                        (numUniqueKeyB + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    extractGroupIndexFromKey<<<dim3(blocks_needed_unique), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                               this_stream>>>(uniqueKeyB, uniqueGroupB, numUniqueKeyB);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-
-                    contactPairs_t* uniqueGroupsB = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "uniqueGroupsB", numUniqueKeyB * sizeof(contactPairs_t));
-                    contactPairs_t* countsB = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "uniqueCountsB", numUniqueKeyB * sizeof(contactPairs_t));
-                    scratchPad.allocateDualStruct("numGroupsB");
-                    cubDEMRunLengthEncode<contactPairs_t, contactPairs_t>(uniqueGroupB, uniqueGroupsB, countsB,
-                                                                          scratchPad.getDualStructDevice("numGroupsB"),
-                                                                          numUniqueKeyB, this_stream, scratchPad);
-                    scratchPad.syncDualStructDeviceToHost("numGroupsB");
-                    size_t numGroupsB = *scratchPad.getDualStructHost("numGroupsB");
-                    if (numGroupsB > 0) {
-                        size_t blocks_needed_groups =
-                            (numGroupsB + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                        scatterGroupCounts<<<dim3(blocks_needed_groups), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                             this_stream>>>(uniqueGroupsB, countsB, groupUniqueCountB, numGroupsB);
-                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    // Select representative primitive IDs per group (first contact in each group).
+                    bodyID_t* groupPrimA = nullptr;
+                    bodyID_t* groupPrimB = nullptr;
+                    if (numGroups > 0) {
+                        groupPrimA =
+                            (bodyID_t*)scratchPad.allocateTempVector("groupPrimA", numGroups * sizeof(bodyID_t));
+                        groupPrimB =
+                            (bodyID_t*)scratchPad.allocateTempVector("groupPrimB", numGroups * sizeof(bodyID_t));
+                        cubDEMSelectFlagged<bodyID_t, contactPairs_t>(granData->idPrimitiveA, groupPrimA, isNewGroup,
+                                                                      scratchPad.getDualStructDevice("numUniqueGroups"),
+                                                                      numTotalCnts, this_stream, scratchPad);
+                        cubDEMSelectFlagged<bodyID_t, contactPairs_t>(granData->idPrimitiveB, groupPrimB, isNewGroup,
+                                                                      scratchPad.getDualStructDevice("numUniqueGroups"),
+                                                                      numTotalCnts, this_stream, scratchPad);
                     }
-                    scratchPad.finishUsingTempVector("uniqueGroupsB");
-                    scratchPad.finishUsingTempVector("uniqueCountsB");
-                    scratchPad.finishUsingDualStruct("numGroupsB");
-                    scratchPad.finishUsingTempVector("uniqueGroupB");
-                }
-                scratchPad.finishUsingTempVector("uniqueKeyB");
-                scratchPad.finishUsingDualStruct("numUniqueKeyB");
-                scratchPad.finishUsingTempVector("groupPrimKeyB_sorted");
-                scratchPad.finishUsingTempVector("groupPrimKeyB");
 
-                // Decide winner side per group.
-                notStupidBool_t* groupWinnerIsA = (notStupidBool_t*)scratchPad.allocateTempVector(
-                    "groupWinnerIsA", numGroups * sizeof(notStupidBool_t));
-                notStupidBool_t* groupWinnerIsTri = (notStupidBool_t*)scratchPad.allocateTempVector(
-                    "groupWinnerIsTri", numGroups * sizeof(notStupidBool_t));
-                notStupidBool_t* groupForceSingleIsland = (notStupidBool_t*)scratchPad.allocateTempVector(
-                    "groupForceSingleIsland", numGroups * sizeof(notStupidBool_t));
-                if (numGroups > 0) {
-                    size_t blocks_needed_groups =
-                        (numGroups + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    computeGroupWinners<<<dim3(blocks_needed_groups), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                          this_stream>>>(
-                        groupContactTypes, groupPrimA, groupPrimB, groupUniqueCountA, groupUniqueCountB,
-                        granData->ownerTriMesh, granData->ownerMeshConvex, granData->ownerMeshNeverWinner,
-                        groupWinnerIsA, groupWinnerIsTri, groupForceSingleIsland, numGroups);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                // Winner primitive per contact.
-                bodyID_t* winnerPrimitive =
-                    (bodyID_t*)scratchPad.allocateTempVector("winnerPrimitive", numTotalCnts * sizeof(bodyID_t));
-                notStupidBool_t* winnerIsTri = (notStupidBool_t*)scratchPad.allocateTempVector(
-                    "winnerIsTri", numTotalCnts * sizeof(notStupidBool_t));
-                if (blocks_needed_for_patch_ids > 0) {
-                    selectWinnerPrimitive<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                            this_stream>>>(groupIndex, granData->idPrimitiveA, granData->idPrimitiveB,
-                                                           groupWinnerIsA, groupWinnerIsTri, groupForceSingleIsland,
-                                                           winnerPrimitive, winnerIsTri, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                // Build active triangle keys and compact.
-                uint64_t* activeTriKeysAll =
-                    (uint64_t*)scratchPad.allocateTempVector("activeTriKeysAll", numTotalCnts * sizeof(uint64_t));
-                notStupidBool_t* activeTriFlags = winnerIsTri;  // reuse winnerIsTri as flags
-                if (blocks_needed_for_patch_ids > 0) {
-                    buildActiveTriKeys<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                         this_stream>>>(groupIndex, winnerPrimitive, activeTriFlags, activeTriKeysAll,
-                                                        activeTriFlags, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-                uint64_t* activeTriKeys =
-                    (uint64_t*)scratchPad.allocateTempVector("activeTriKeys", numTotalCnts * sizeof(uint64_t));
-                scratchPad.allocateDualStruct("numActiveTriKeys");
-                cubDEMSelectFlagged<uint64_t, notStupidBool_t>(activeTriKeysAll, activeTriKeys, activeTriFlags,
-                                                               scratchPad.getDualStructDevice("numActiveTriKeys"),
-                                                               numTotalCnts, this_stream, scratchPad);
-                scratchPad.syncDualStructDeviceToHost("numActiveTriKeys");
-                size_t numActiveTriKeys = *scratchPad.getDualStructHost("numActiveTriKeys");
-
-                uint64_t* activeTriKeysUnique = nullptr;
-                bodyID_t* activeLabelsA = nullptr;
-                bodyID_t* activeLabelsB = nullptr;
-                contactPairs_t* groupActiveCount = nullptr;
-                contactPairs_t* groupActiveStart = nullptr;
-                bodyID_t* finalActiveLabels = nullptr;
-                size_t numUniqueActiveTri = 0;
-
-                if (numActiveTriKeys > 0) {
-                    uint64_t* activeTriKeys_sorted = (uint64_t*)scratchPad.allocateTempVector(
-                        "activeTriKeys_sorted", numActiveTriKeys * sizeof(uint64_t));
-                    cubDEMSortKeys<uint64_t>(activeTriKeys, activeTriKeys_sorted, numActiveTriKeys, this_stream,
-                                             scratchPad);
-
-                    activeTriKeysUnique = (uint64_t*)scratchPad.allocateTempVector("activeTriKeys_unique",
-                                                                                   numActiveTriKeys * sizeof(uint64_t));
-                    scratchPad.allocateDualStruct("numUniqueActiveTri");
-                    cubDEMUnique<uint64_t>(activeTriKeys_sorted, activeTriKeysUnique,
-                                           scratchPad.getDualStructDevice("numUniqueActiveTri"), numActiveTriKeys,
-                                           this_stream, scratchPad);
-                    scratchPad.syncDualStructDeviceToHost("numUniqueActiveTri");
-                    numUniqueActiveTri = *scratchPad.getDualStructHost("numUniqueActiveTri");
-
-                    if (numUniqueActiveTri > 0) {
-                        activeLabelsA = (bodyID_t*)scratchPad.allocateTempVector("activeTriLabelsA",
-                                                                                 numUniqueActiveTri * sizeof(bodyID_t));
-                        activeLabelsB = (bodyID_t*)scratchPad.allocateTempVector("activeTriLabelsB",
-                                                                                 numUniqueActiveTri * sizeof(bodyID_t));
-                        size_t blocks_needed_active =
-                            (numUniqueActiveTri + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                        initActiveTriLabels<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                              this_stream>>>(activeTriKeysUnique, activeLabelsA, numUniqueActiveTri);
-                        DEME_GPU_DEBUG_SYNC(this_stream);
-                        initActiveTriLabels<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                              this_stream>>>(activeTriKeysUnique, activeLabelsB, numUniqueActiveTri);
-                        DEME_GPU_DEBUG_SYNC(this_stream);
-
-                        groupActiveCount = (contactPairs_t*)scratchPad.allocateTempVector(
-                            "groupActiveCount", numGroups * sizeof(contactPairs_t));
+                    // Count unique primitives per group on each side.
+                    contactPairs_t* groupUniqueCountA = (contactPairs_t*)scratchPad.allocateTempVector(
+                        "groupUniqueCountA", numGroups * sizeof(contactPairs_t));
+                    contactPairs_t* groupUniqueCountB = (contactPairs_t*)scratchPad.allocateTempVector(
+                        "groupUniqueCountB", numGroups * sizeof(contactPairs_t));
+                    if (numGroups > 0) {
                         DEME_GPU_CALL_ASYNC(
-                            cudaMemsetAsync(groupActiveCount, 0, numGroups * sizeof(contactPairs_t), this_stream),
+                            cudaMemsetAsync(groupUniqueCountA, 0, numGroups * sizeof(contactPairs_t), this_stream),
                             this_stream);
-                        countActiveTriPerGroup<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                                 this_stream>>>(activeTriKeysUnique, groupActiveCount,
-                                                                numUniqueActiveTri);
+                        DEME_GPU_CALL_ASYNC(
+                            cudaMemsetAsync(groupUniqueCountB, 0, numGroups * sizeof(contactPairs_t), this_stream),
+                            this_stream);
+                    }
+
+                    uint64_t* keyA =
+                        (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyA", numTotalCnts * sizeof(uint64_t));
+                    uint64_t* keyA_sorted = (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyA_sorted",
+                                                                                     numTotalCnts * sizeof(uint64_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        buildGroupPrimitiveKeys<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK),
+                                                  0, this_stream>>>(groupIndex, granData->idPrimitiveA, keyA,
+                                                                    numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+                    cubDEMSortKeys<uint64_t>(keyA, keyA_sorted, numTotalCnts, this_stream, scratchPad);
+
+                    uint64_t* uniqueKeyA =
+                        (uint64_t*)scratchPad.allocateTempVector("uniqueKeyA", numTotalCnts * sizeof(uint64_t));
+                    scratchPad.allocateDualStruct("numUniqueKeyA");
+                    cubDEMUnique<uint64_t>(keyA_sorted, uniqueKeyA, scratchPad.getDualStructDevice("numUniqueKeyA"),
+                                           numTotalCnts, this_stream, scratchPad);
+                    scratchPad.syncDualStructDeviceToHost("numUniqueKeyA");
+                    size_t numUniqueKeyA = *scratchPad.getDualStructHost("numUniqueKeyA");
+                    if (numUniqueKeyA > 0) {
+                        contactPairs_t* uniqueGroupA = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "uniqueGroupA", numUniqueKeyA * sizeof(contactPairs_t));
+                        size_t blocks_needed_unique =
+                            (numUniqueKeyA + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        extractGroupIndexFromKey<<<dim3(blocks_needed_unique), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                   this_stream>>>(uniqueKeyA, uniqueGroupA, numUniqueKeyA);
                         DEME_GPU_DEBUG_SYNC(this_stream);
 
-                        groupActiveStart = (contactPairs_t*)scratchPad.allocateTempVector(
-                            "groupActiveStart", numGroups * sizeof(contactPairs_t));
-                        if (numGroups > 0) {
-                            cubDEMPrefixScan<contactPairs_t, contactPairs_t>(groupActiveCount, groupActiveStart,
-                                                                             numGroups, this_stream, scratchPad);
+                        contactPairs_t* uniqueGroupsA = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "uniqueGroupsA", numUniqueKeyA * sizeof(contactPairs_t));
+                        contactPairs_t* countsA = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "uniqueCountsA", numUniqueKeyA * sizeof(contactPairs_t));
+                        scratchPad.allocateDualStruct("numGroupsA");
+                        cubDEMRunLengthEncode<contactPairs_t, contactPairs_t>(
+                            uniqueGroupA, uniqueGroupsA, countsA, scratchPad.getDualStructDevice("numGroupsA"),
+                            numUniqueKeyA, this_stream, scratchPad);
+                        scratchPad.syncDualStructDeviceToHost("numGroupsA");
+                        size_t numGroupsA = *scratchPad.getDualStructHost("numGroupsA");
+                        if (numGroupsA > 0) {
+                            size_t blocks_needed_groups =
+                                (numGroupsA + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                            scatterGroupCounts<<<dim3(blocks_needed_groups), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                 this_stream>>>(uniqueGroupsA, countsA, groupUniqueCountA, numGroupsA);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
                         }
+                        scratchPad.finishUsingTempVector("uniqueGroupsA");
+                        scratchPad.finishUsingTempVector("uniqueCountsA");
+                        scratchPad.finishUsingDualStruct("numGroupsA");
+                        scratchPad.finishUsingTempVector("uniqueGroupA");
+                    }
+                    scratchPad.finishUsingTempVector("uniqueKeyA");
+                    scratchPad.finishUsingDualStruct("numUniqueKeyA");
+                    scratchPad.finishUsingTempVector("groupPrimKeyA_sorted");
+                    scratchPad.finishUsingTempVector("groupPrimKeyA");
 
-                        // ---- Option B: Precompute active-triangle neighbor positions (in activeTriKeysUnique) once.
-                        // triNeighbor{1,2,3} are precomputed global edge-neighbor triangle IDs, but we still need a
-                        // per-step mapping "neighbor triID -> position in the ACTIVE list" to avoid per-iteration
-                        // binary searches.
-                        contactPairs_t* activeTriNeighborPos = (contactPairs_t*)scratchPad.allocateTempVector(
-                            "activeTriNeighborPos", numUniqueActiveTri * 3 * sizeof(contactPairs_t));
-                        buildActiveTriNeighborPos<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                                    this_stream>>>(
-                            activeTriKeysUnique, groupActiveStart, groupActiveCount, granData->triNeighborIndex,
-                            granData->triNeighbor1, granData->triNeighbor2, granData->triNeighbor3,
-                            activeTriNeighborPos, numUniqueActiveTri);
+                    uint64_t* keyB =
+                        (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyB", numTotalCnts * sizeof(uint64_t));
+                    uint64_t* keyB_sorted = (uint64_t*)scratchPad.allocateTempVector("groupPrimKeyB_sorted",
+                                                                                     numTotalCnts * sizeof(uint64_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        buildGroupPrimitiveKeys<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK),
+                                                  0, this_stream>>>(groupIndex, granData->idPrimitiveB, keyB,
+                                                                    numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+                    cubDEMSortKeys<uint64_t>(keyB, keyB_sorted, numTotalCnts, this_stream, scratchPad);
+
+                    uint64_t* uniqueKeyB =
+                        (uint64_t*)scratchPad.allocateTempVector("uniqueKeyB", numTotalCnts * sizeof(uint64_t));
+                    scratchPad.allocateDualStruct("numUniqueKeyB");
+                    cubDEMUnique<uint64_t>(keyB_sorted, uniqueKeyB, scratchPad.getDualStructDevice("numUniqueKeyB"),
+                                           numTotalCnts, this_stream, scratchPad);
+                    scratchPad.syncDualStructDeviceToHost("numUniqueKeyB");
+                    size_t numUniqueKeyB = *scratchPad.getDualStructHost("numUniqueKeyB");
+                    if (numUniqueKeyB > 0) {
+                        contactPairs_t* uniqueGroupB = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "uniqueGroupB", numUniqueKeyB * sizeof(contactPairs_t));
+                        size_t blocks_needed_unique =
+                            (numUniqueKeyB + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        extractGroupIndexFromKey<<<dim3(blocks_needed_unique), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                   this_stream>>>(uniqueKeyB, uniqueGroupB, numUniqueKeyB);
                         DEME_GPU_DEBUG_SYNC(this_stream);
 
-                        // ---- Option A: Adaptive label propagation (check for convergence every few iterations).
-                        // We check only the *last* iteration in a small batch (default: 4) to avoid host/device sync
-                        // each iteration. Worst-case wasted work is (batchSize-1) extra iterations.
-                        const int kCheckEvery = 4;
-                        const int kMaxLabelItersCap = 512;
-                        int maxIters = (int)numUniqueActiveTri;
-                        if (maxIters > kMaxLabelItersCap) {
-                            maxIters = kMaxLabelItersCap;
+                        contactPairs_t* uniqueGroupsB = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "uniqueGroupsB", numUniqueKeyB * sizeof(contactPairs_t));
+                        contactPairs_t* countsB = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "uniqueCountsB", numUniqueKeyB * sizeof(contactPairs_t));
+                        scratchPad.allocateDualStruct("numGroupsB");
+                        cubDEMRunLengthEncode<contactPairs_t, contactPairs_t>(
+                            uniqueGroupB, uniqueGroupsB, countsB, scratchPad.getDualStructDevice("numGroupsB"),
+                            numUniqueKeyB, this_stream, scratchPad);
+                        scratchPad.syncDualStructDeviceToHost("numGroupsB");
+                        size_t numGroupsB = *scratchPad.getDualStructHost("numGroupsB");
+                        if (numGroupsB > 0) {
+                            size_t blocks_needed_groups =
+                                (numGroupsB + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                            scatterGroupCounts<<<dim3(blocks_needed_groups), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                 this_stream>>>(uniqueGroupsB, countsB, groupUniqueCountB, numGroupsB);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
                         }
-                        scratchPad.allocateDualArray("activeTriLabelChanged", sizeof(contactPairs_t));
-                        auto* changedHostRaw = scratchPad.getDualArrayHost("activeTriLabelChanged");
-                        auto* changedDevRaw = scratchPad.getDualArrayDevice("activeTriLabelChanged");
-                        contactPairs_t* changedDev = reinterpret_cast<contactPairs_t*>(changedDevRaw);
+                        scratchPad.finishUsingTempVector("uniqueGroupsB");
+                        scratchPad.finishUsingTempVector("uniqueCountsB");
+                        scratchPad.finishUsingDualStruct("numGroupsB");
+                        scratchPad.finishUsingTempVector("uniqueGroupB");
+                    }
+                    scratchPad.finishUsingTempVector("uniqueKeyB");
+                    scratchPad.finishUsingDualStruct("numUniqueKeyB");
+                    scratchPad.finishUsingTempVector("groupPrimKeyB_sorted");
+                    scratchPad.finishUsingTempVector("groupPrimKeyB");
 
-                        bodyID_t* labelsIn = activeLabelsA;
-                        bodyID_t* labelsOut = activeLabelsB;
-                        int iter = 0;
-                        while (iter < maxIters) {
-                            int remaining = maxIters - iter;
-                            int batch = remaining < kCheckEvery ? remaining : kCheckEvery;
+                    // Decide winner side per group.
+                    notStupidBool_t* groupWinnerIsA = (notStupidBool_t*)scratchPad.allocateTempVector(
+                        "groupWinnerIsA", numGroups * sizeof(notStupidBool_t));
+                    notStupidBool_t* groupWinnerIsTri = (notStupidBool_t*)scratchPad.allocateTempVector(
+                        "groupWinnerIsTri", numGroups * sizeof(notStupidBool_t));
+                    notStupidBool_t* groupForceSingleIsland = (notStupidBool_t*)scratchPad.allocateTempVector(
+                        "groupForceSingleIsland", numGroups * sizeof(notStupidBool_t));
+                    if (numGroups > 0) {
+                        size_t blocks_needed_groups =
+                            (numGroups + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        computeGroupWinners<<<dim3(blocks_needed_groups), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                              this_stream>>>(
+                            groupContactTypes, groupPrimA, groupPrimB, groupUniqueCountA, groupUniqueCountB,
+                            granData->ownerTriMesh, granData->ownerMeshConvex, granData->ownerMeshNeverWinner,
+                            groupWinnerIsA, groupWinnerIsTri, groupForceSingleIsland, numGroups);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
 
-                            // Batch iterations except the last one: no convergence flag.
-                            for (int b = 0; b < batch - 1; ++b) {
+                    // Winner primitive per contact.
+                    bodyID_t* winnerPrimitive =
+                        (bodyID_t*)scratchPad.allocateTempVector("winnerPrimitive", numTotalCnts * sizeof(bodyID_t));
+                    notStupidBool_t* winnerIsTri = (notStupidBool_t*)scratchPad.allocateTempVector(
+                        "winnerIsTri", numTotalCnts * sizeof(notStupidBool_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        selectWinnerPrimitive<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                this_stream>>>(
+                            groupIndex, granData->idPrimitiveA, granData->idPrimitiveB, groupWinnerIsA,
+                            groupWinnerIsTri, groupForceSingleIsland, winnerPrimitive, winnerIsTri, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+
+                    // Build active triangle keys and compact.
+                    uint64_t* activeTriKeysAll =
+                        (uint64_t*)scratchPad.allocateTempVector("activeTriKeysAll", numTotalCnts * sizeof(uint64_t));
+                    notStupidBool_t* activeTriFlags = winnerIsTri;  // reuse winnerIsTri as flags
+                    if (blocks_needed_for_patch_ids > 0) {
+                        buildActiveTriKeys<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                             this_stream>>>(groupIndex, winnerPrimitive, activeTriFlags,
+                                                            activeTriKeysAll, activeTriFlags, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+                    uint64_t* activeTriKeys =
+                        (uint64_t*)scratchPad.allocateTempVector("activeTriKeys", numTotalCnts * sizeof(uint64_t));
+                    scratchPad.allocateDualStruct("numActiveTriKeys");
+                    cubDEMSelectFlagged<uint64_t, notStupidBool_t>(activeTriKeysAll, activeTriKeys, activeTriFlags,
+                                                                   scratchPad.getDualStructDevice("numActiveTriKeys"),
+                                                                   numTotalCnts, this_stream, scratchPad);
+                    scratchPad.syncDualStructDeviceToHost("numActiveTriKeys");
+                    size_t numActiveTriKeys = *scratchPad.getDualStructHost("numActiveTriKeys");
+
+                    uint64_t* activeTriKeysUnique = nullptr;
+                    bodyID_t* activeLabelsA = nullptr;
+                    bodyID_t* activeLabelsB = nullptr;
+                    contactPairs_t* groupActiveCount = nullptr;
+                    contactPairs_t* groupActiveStart = nullptr;
+                    bodyID_t* finalActiveLabels = nullptr;
+                    size_t numUniqueActiveTri = 0;
+
+                    if (numActiveTriKeys > 0) {
+                        uint64_t* activeTriKeys_sorted = (uint64_t*)scratchPad.allocateTempVector(
+                            "activeTriKeys_sorted", numActiveTriKeys * sizeof(uint64_t));
+                        cubDEMSortKeys<uint64_t>(activeTriKeys, activeTriKeys_sorted, numActiveTriKeys, this_stream,
+                                                 scratchPad);
+
+                        activeTriKeysUnique = (uint64_t*)scratchPad.allocateTempVector(
+                            "activeTriKeys_unique", numActiveTriKeys * sizeof(uint64_t));
+                        scratchPad.allocateDualStruct("numUniqueActiveTri");
+                        cubDEMUnique<uint64_t>(activeTriKeys_sorted, activeTriKeysUnique,
+                                               scratchPad.getDualStructDevice("numUniqueActiveTri"), numActiveTriKeys,
+                                               this_stream, scratchPad);
+                        scratchPad.syncDualStructDeviceToHost("numUniqueActiveTri");
+                        numUniqueActiveTri = *scratchPad.getDualStructHost("numUniqueActiveTri");
+
+                        if (numUniqueActiveTri > 0) {
+                            activeLabelsA = (bodyID_t*)scratchPad.allocateTempVector(
+                                "activeTriLabelsA", numUniqueActiveTri * sizeof(bodyID_t));
+                            activeLabelsB = (bodyID_t*)scratchPad.allocateTempVector(
+                                "activeTriLabelsB", numUniqueActiveTri * sizeof(bodyID_t));
+                            size_t blocks_needed_active =
+                                (numUniqueActiveTri + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                            initActiveTriLabels<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                  this_stream>>>(activeTriKeysUnique, activeLabelsA,
+                                                                 numUniqueActiveTri);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
+                            initActiveTriLabels<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                  this_stream>>>(activeTriKeysUnique, activeLabelsB,
+                                                                 numUniqueActiveTri);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
+
+                            groupActiveCount = (contactPairs_t*)scratchPad.allocateTempVector(
+                                "groupActiveCount", numGroups * sizeof(contactPairs_t));
+                            DEME_GPU_CALL_ASYNC(
+                                cudaMemsetAsync(groupActiveCount, 0, numGroups * sizeof(contactPairs_t), this_stream),
+                                this_stream);
+                            countActiveTriPerGroup<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                     this_stream>>>(activeTriKeysUnique, groupActiveCount,
+                                                                    numUniqueActiveTri);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
+
+                            groupActiveStart = (contactPairs_t*)scratchPad.allocateTempVector(
+                                "groupActiveStart", numGroups * sizeof(contactPairs_t));
+                            if (numGroups > 0) {
+                                cubDEMPrefixScan<contactPairs_t, contactPairs_t>(groupActiveCount, groupActiveStart,
+                                                                                 numGroups, this_stream, scratchPad);
+                            }
+
+                            // ---- Option B: Precompute active-triangle neighbor positions (in activeTriKeysUnique)
+                            // once. triNeighbor{1,2,3} are precomputed global edge-neighbor triangle IDs, but we still
+                            // need a per-step mapping "neighbor triID -> position in the ACTIVE list" to avoid
+                            // per-iteration binary searches.
+                            contactPairs_t* activeTriNeighborPos = (contactPairs_t*)scratchPad.allocateTempVector(
+                                "activeTriNeighborPos", numUniqueActiveTri * 3 * sizeof(contactPairs_t));
+                            buildActiveTriNeighborPos<<<dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                        this_stream>>>(
+                                activeTriKeysUnique, groupActiveStart, groupActiveCount, granData->triNeighborIndex,
+                                granData->triNeighbor1, granData->triNeighbor2, granData->triNeighbor3,
+                                activeTriNeighborPos, numUniqueActiveTri);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
+
+                            // ---- Option A: Adaptive label propagation (check for convergence every few iterations).
+                            // We check only the *last* iteration in a small batch (default: 4) to avoid host/device
+                            // sync each iteration. Worst-case wasted work is (batchSize-1) extra iterations.
+                            const int kCheckEvery = 4;
+                            const int kMaxLabelItersCap = 512;
+                            int maxIters = (int)numUniqueActiveTri;
+                            if (maxIters > kMaxLabelItersCap) {
+                                maxIters = kMaxLabelItersCap;
+                            }
+                            scratchPad.allocateDualArray("activeTriLabelChanged", sizeof(contactPairs_t));
+                            auto* changedHostRaw = scratchPad.getDualArrayHost("activeTriLabelChanged");
+                            auto* changedDevRaw = scratchPad.getDualArrayDevice("activeTriLabelChanged");
+                            contactPairs_t* changedDev = reinterpret_cast<contactPairs_t*>(changedDevRaw);
+
+                            bodyID_t* labelsIn = activeLabelsA;
+                            bodyID_t* labelsOut = activeLabelsB;
+                            int iter = 0;
+                            while (iter < maxIters) {
+                                int remaining = maxIters - iter;
+                                int batch = remaining < kCheckEvery ? remaining : kCheckEvery;
+
+                                // Batch iterations except the last one: no convergence flag.
+                                for (int b = 0; b < batch - 1; ++b) {
+                                    propagateActiveTriLabelsFromNeighborPos<<<
+                                        dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                        labelsIn, labelsOut, activeTriNeighborPos, nullptr, numUniqueActiveTri);
+                                    DEME_GPU_DEBUG_SYNC(this_stream);
+                                    bodyID_t* tmp = labelsIn;
+                                    labelsIn = labelsOut;
+                                    labelsOut = tmp;
+                                    ++iter;
+                                }
+
+                                // Last iteration in the batch: check if this iteration changes anything.
+                                DEME_GPU_CALL_ASYNC(cudaMemsetAsync(changedDev, 0, sizeof(contactPairs_t), this_stream),
+                                                    this_stream);
                                 propagateActiveTriLabelsFromNeighborPos<<<
                                     dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                                    labelsIn, labelsOut, activeTriNeighborPos, nullptr, numUniqueActiveTri);
+                                    labelsIn, labelsOut, activeTriNeighborPos, changedDev, numUniqueActiveTri);
                                 DEME_GPU_DEBUG_SYNC(this_stream);
                                 bodyID_t* tmp = labelsIn;
                                 labelsIn = labelsOut;
                                 labelsOut = tmp;
                                 ++iter;
-                            }
 
-                            // Last iteration in the batch: check if this iteration changes anything.
-                            DEME_GPU_CALL_ASYNC(cudaMemsetAsync(changedDev, 0, sizeof(contactPairs_t), this_stream),
-                                                this_stream);
-                            propagateActiveTriLabelsFromNeighborPos<<<
-                                dim3(blocks_needed_active), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                                labelsIn, labelsOut, activeTriNeighborPos, changedDev, numUniqueActiveTri);
-                            DEME_GPU_DEBUG_SYNC(this_stream);
-                            bodyID_t* tmp = labelsIn;
-                            labelsIn = labelsOut;
-                            labelsOut = tmp;
-                            ++iter;
-
-                            scratchPad.syncDualArrayDeviceToHost("activeTriLabelChanged");
-                            const contactPairs_t changed = *reinterpret_cast<contactPairs_t*>(changedHostRaw);
-                            if (changed == 0) {
-                                break;
+                                scratchPad.syncDualArrayDeviceToHost("activeTriLabelChanged");
+                                const contactPairs_t changed = *reinterpret_cast<contactPairs_t*>(changedHostRaw);
+                                if (changed == 0) {
+                                    break;
+                                }
                             }
+                            finalActiveLabels = labelsIn;
+
+                            scratchPad.finishUsingDualArray("activeTriLabelChanged");
+                            scratchPad.finishUsingTempVector("activeTriNeighborPos");
                         }
-                        finalActiveLabels = labelsIn;
 
-                        scratchPad.finishUsingDualArray("activeTriLabelChanged");
-                        scratchPad.finishUsingTempVector("activeTriNeighborPos");
+                        scratchPad.finishUsingTempVector("activeTriKeys_sorted");
+                        scratchPad.finishUsingDualStruct("numUniqueActiveTri");
                     }
 
-                    scratchPad.finishUsingTempVector("activeTriKeys_sorted");
-                    scratchPad.finishUsingDualStruct("numUniqueActiveTri");
-                }
+                    // Assign island label per contact (winner primitive label or propagated triangle label).
+                    bodyID_t* contactIslandLabel =
+                        (bodyID_t*)scratchPad.allocateTempVector("contactIslandLabel", numTotalCnts * sizeof(bodyID_t));
+                    if (numUniqueActiveTri > 0) {
+                        size_t blocks_needed_labels =
+                            (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        assignContactIslandLabel<<<dim3(blocks_needed_labels), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                   this_stream>>>(
+                            groupIndex, winnerPrimitive, winnerIsTri, activeTriKeysUnique, finalActiveLabels,
+                            groupActiveStart, groupActiveCount, contactIslandLabel, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    } else {
+                        size_t blocks_needed_labels =
+                            (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        if (blocks_needed_labels > 0) {
+                            copyBodyIDArray<<<dim3(blocks_needed_labels), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                              this_stream>>>(winnerPrimitive, contactIslandLabel, numTotalCnts);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
+                        }
+                    }
 
-                // Assign island label per contact (winner primitive label or propagated triangle label).
-                bodyID_t* contactIslandLabel =
-                    (bodyID_t*)scratchPad.allocateTempVector("contactIslandLabel", numTotalCnts * sizeof(bodyID_t));
-                if (numUniqueActiveTri > 0) {
-                    size_t blocks_needed_labels =
-                        (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    assignContactIslandLabel<<<dim3(blocks_needed_labels), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                               this_stream>>>(groupIndex, winnerPrimitive, winnerIsTri,
-                                                              activeTriKeysUnique, finalActiveLabels, groupActiveStart,
-                                                              groupActiveCount, contactIslandLabel, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                } else {
-                    size_t blocks_needed_labels =
-                        (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    if (blocks_needed_labels > 0) {
-                        copyBodyIDArray<<<dim3(blocks_needed_labels), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                          this_stream>>>(winnerPrimitive, contactIslandLabel, numTotalCnts);
+                    // Build composite key parts (primary + secondary) for island grouping.
+                    uint64_t* islandKeyHi =
+                        (uint64_t*)scratchPad.allocateTempVector("islandKeyHi", numTotalCnts * sizeof(uint64_t));
+                    uint64_t* islandKeyLo =
+                        (uint64_t*)scratchPad.allocateTempVector("islandKeyLo", numTotalCnts * sizeof(uint64_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        buildIslandCompositeKeyParts<<<dim3(blocks_needed_for_patch_ids),
+                                                       dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            contactPatchPairs, granData->contactTypePrimitive, contactIslandLabel, islandKeyHi,
+                            islandKeyLo, numTotalCnts);
                         DEME_GPU_DEBUG_SYNC(this_stream);
                     }
-                }
 
-                // Build composite key parts (primary + secondary) for island grouping.
-                uint64_t* islandKeyHi =
-                    (uint64_t*)scratchPad.allocateTempVector("islandKeyHi", numTotalCnts * sizeof(uint64_t));
-                uint64_t* islandKeyLo =
-                    (uint64_t*)scratchPad.allocateTempVector("islandKeyLo", numTotalCnts * sizeof(uint64_t));
-                if (blocks_needed_for_patch_ids > 0) {
-                    buildIslandCompositeKeyParts<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK),
-                                                   0, this_stream>>>(contactPatchPairs, granData->contactTypePrimitive,
-                                                                     contactIslandLabel, islandKeyHi, islandKeyLo,
-                                                                     numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                contactPairs_t* island_sort_indices =
-                    (contactPairs_t*)scratchPad.allocateTempVector("islandSortIndices", idx_arr_bytes);
-                contactPairs_t* island_sort_indices_sorted =
-                    (contactPairs_t*)scratchPad.allocateTempVector("islandSortIndices_sorted", idx_arr_bytes);
-                if (blocks_needed_for_patch_ids > 0) {
-                    lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                  this_stream>>>(island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                // Two-pass stable sort to avoid the CUDA 13/CUB compile error with ulonglong2 (128-bit) keys.
-                uint64_t* islandKeyLo_sorted =
-                    (uint64_t*)scratchPad.allocateTempVector("islandKeyLo_sorted", numTotalCnts * sizeof(uint64_t));
-                cubDEMSortByKeys<uint64_t, contactPairs_t>(islandKeyLo, islandKeyLo_sorted, island_sort_indices,
-                                                           island_sort_indices_sorted, numTotalCnts, this_stream,
-                                                           scratchPad);
-
-                uint64_t* islandKeyHi_by_lo =
-                    (uint64_t*)scratchPad.allocateTempVector("islandKeyHi_by_lo", numTotalCnts * sizeof(uint64_t));
-                if (blocks_needed_for_patch_ids > 0) {
-                    gatherByIndex<uint64_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            islandKeyHi, islandKeyHi_by_lo, island_sort_indices_sorted, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                uint64_t* islandKeyHi_sorted =
-                    (uint64_t*)scratchPad.allocateTempVector("islandKeyHi_sorted", numTotalCnts * sizeof(uint64_t));
-                // Stable sort by primary key (contactType + patchA), preserving low-key order.
-                cubDEMSortByKeys<uint64_t, contactPairs_t>(islandKeyHi_by_lo, islandKeyHi_sorted,
-                                                           island_sort_indices_sorted, island_sort_indices,
-                                                           numTotalCnts, this_stream, scratchPad);
-
-                // Reorder primitive arrays by island keys.
-                if (blocks_needed_for_patch_ids > 0) {
-                    gatherByIndex<bodyID_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            granData->idPrimitiveA, idA_sorted, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    gatherByIndex<bodyID_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            granData->idPrimitiveB, idB_sorted, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    gatherByIndex<contact_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            granData->contactTypePrimitive, contactType_sorted, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    gatherByIndex<notStupidBool_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            granData->contactPersistency, contactPersistency_sorted, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    gatherByIndex<patchIDPair_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            contactPatchPairs, patchPairs_sorted, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                bodyID_t* contactIslandLabel_sorted = (bodyID_t*)scratchPad.allocateTempVector(
-                    "contactIslandLabel_sorted", numTotalCnts * sizeof(bodyID_t));
-                if (blocks_needed_for_patch_ids > 0) {
-                    gatherByIndex<bodyID_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            contactIslandLabel, contactIslandLabel_sorted, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveA, idA_sorted, total_ids_bytes,
-                                                    cudaMemcpyDeviceToDevice, this_stream),
-                                    this_stream);
-                DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveB, idB_sorted, total_ids_bytes,
-                                                    cudaMemcpyDeviceToDevice, this_stream),
-                                    this_stream);
-                DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactTypePrimitive, contactType_sorted, type_arr_bytes,
-                                                    cudaMemcpyDeviceToDevice, this_stream),
-                                    this_stream);
-                DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactPersistency, contactPersistency_sorted,
-                                                    total_persistency_bytes, cudaMemcpyDeviceToDevice, this_stream),
-                                    this_stream);
-                DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(contactPatchPairs, patchPairs_sorted, patch_arr_bytes,
-                                                    cudaMemcpyDeviceToDevice, this_stream),
-                                    this_stream);
-
-                // Build final geomToPatchMap based on island keys.
-                contactPairs_t* isNewIslandGroup = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "isNewIslandGroup", numTotalCnts * sizeof(contactPairs_t));
-                if (blocks_needed_for_patch_ids > 0) {
-                    uint64_t* islandKeyLo_sorted_by_hi = (uint64_t*)scratchPad.allocateTempVector(
-                        "islandKeyLo_sorted_by_hi", numTotalCnts * sizeof(uint64_t));
-                    gatherByIndex<uint64_t>
-                        <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            islandKeyLo, islandKeyLo_sorted_by_hi, island_sort_indices, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    markNewCompositeGroups64<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
-                                               this_stream>>>(islandKeyHi_sorted, islandKeyLo_sorted_by_hi,
-                                                              isNewIslandGroup, numTotalCnts);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    scratchPad.finishUsingTempVector("islandKeyLo_sorted_by_hi");
-                }
-                cubDEMInclusiveScan<contactPairs_t, contactPairs_t>(isNewIslandGroup, granData->geomToPatchMap,
-                                                                    numTotalCnts, this_stream, scratchPad);
-                setFirstFlagToOne<<<1, 1, 0, this_stream>>>(isNewIslandGroup, numTotalCnts);
-                DEME_GPU_DEBUG_SYNC(this_stream);
-
-                scratchPad.allocateDualStruct("numUniqueIslands");
-                cubDEMSum<contactPairs_t, size_t>(isNewIslandGroup, scratchPad.getDualStructDevice("numUniqueIslands"),
-                                                  numTotalCnts, this_stream, scratchPad);
-                scratchPad.syncDualStructDeviceToHost("numUniqueIslands");
-                size_t numUniqueIslands = *scratchPad.getDualStructHost("numUniqueIslands");
-
-                if (numUniqueIslands > idPatchA.size()) {
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchA, numUniqueIslands);
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchB, numUniqueIslands);
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, numUniqueIslands);
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, numUniqueIslands);
-                    granData.toDevice();
-                }
-
-                patchIDPair_t* unique_patch_pairs = nullptr;
-                if (numUniqueIslands > 0) {
-                    unique_patch_pairs = (patchIDPair_t*)scratchPad.allocateTempVector(
-                        "unique_patch_pairs", numUniqueIslands * sizeof(patchIDPair_t));
-                    cubDEMSelectFlagged<patchIDPair_t, contactPairs_t>(
-                        contactPatchPairs, unique_patch_pairs, isNewIslandGroup,
-                        scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts, this_stream, scratchPad);
-                    cubDEMSelectFlagged<contact_t, contactPairs_t>(
-                        granData->contactTypePrimitive, granData->contactTypePatch, isNewIslandGroup,
-                        scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts, this_stream, scratchPad);
-                    cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
-                        contactIslandLabel_sorted, contactPatchIsland.data(), isNewIslandGroup,
-                        scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts, this_stream, scratchPad);
-                    size_t blocks_needed_for_decode =
-                        (numUniqueIslands + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    decodePatchPairsToSeparateArrays<<<dim3(blocks_needed_for_decode), dim3(DEME_MAX_THREADS_PER_BLOCK),
-                                                       0, this_stream>>>(unique_patch_pairs, granData->idPatchA,
-                                                                         granData->idPatchB, numUniqueIslands);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                }
-
-                *scratchPad.numContacts = numUniqueIslands;
-
-                if (solverFlags.useStablePatchIslandIDs) {
-                    // The flooding result is already grouped by raw island labels. When enabled, rewrite only
-                    // contactPatchIsland to a previous-step stable label selected by primitive-overlap voting.
-                    stabilizeFloodedPatchIslandIDs(granData, previous_primitivePatchIsland, numTotalCnts,
-                                                   numUniqueIslands, *scratchPad.numPrevPrimitiveContacts, this_stream,
-                                                   scratchPad);
-                }
-
-                // Build per-type start/count map for patch contacts.
-                typeStartCountPatchMap_thisStep.SetAll({0, 0});
-                if (numUniqueIslands > 0) {
-                    const size_t type_buf_len = DEME_MAX((size_t)1, numUniqueIslands);
-                    contact_t* unique_types =
-                        (contact_t*)scratchPad.allocateTempVector("unique_types", type_buf_len * sizeof(contact_t));
-                    contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "type_counts", type_buf_len * sizeof(contactPairs_t));
-                    scratchPad.allocateDualStruct("numUniqueTypes");
-
-                    cubDEMRunLengthEncode<contact_t, contactPairs_t>(
-                        granData->contactTypePatch, unique_types, type_counts,
-                        scratchPad.getDualStructDevice("numUniqueTypes"), numUniqueIslands, this_stream, scratchPad);
-                    scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
-                    size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
-                    if (numTypes > type_buf_len) {
-                        DEME_ERROR("Patch contact type run-length output (%zu) exceeds allocated buffer (%zu).",
-                                   numTypes, type_buf_len);
+                    contactPairs_t* island_sort_indices =
+                        (contactPairs_t*)scratchPad.allocateTempVector("islandSortIndices", idx_arr_bytes);
+                    contactPairs_t* island_sort_indices_sorted =
+                        (contactPairs_t*)scratchPad.allocateTempVector("islandSortIndices_sorted", idx_arr_bytes);
+                    if (blocks_needed_for_patch_ids > 0) {
+                        lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                      this_stream>>>(island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
                     }
 
-                    if (numTypes > 0) {
-                        contact_t* host_unique_types = new contact_t[numTypes];
-                        contactPairs_t* host_type_counts = new contactPairs_t[numTypes];
-                        DEME_GPU_CALL(cudaMemcpy(host_unique_types, unique_types, numTypes * sizeof(contact_t),
-                                                 cudaMemcpyDeviceToHost));
-                        DEME_GPU_CALL(cudaMemcpy(host_type_counts, type_counts, numTypes * sizeof(contactPairs_t),
-                                                 cudaMemcpyDeviceToHost));
+                    // Two-pass stable sort to avoid the CUDA 13/CUB compile error with ulonglong2 (128-bit) keys.
+                    uint64_t* islandKeyLo_sorted =
+                        (uint64_t*)scratchPad.allocateTempVector("islandKeyLo_sorted", numTotalCnts * sizeof(uint64_t));
+                    cubDEMSortByKeys<uint64_t, contactPairs_t>(islandKeyLo, islandKeyLo_sorted, island_sort_indices,
+                                                               island_sort_indices_sorted, numTotalCnts, this_stream,
+                                                               scratchPad);
 
-                        contactPairs_t offset = 0;
-                        for (size_t i = 0; i < numTypes; i++) {
-                            const contact_t type = host_unique_types[i];
-                            const contactPairs_t cnt = host_type_counts[i];
-                            if (isSupportedContactType(type) && cnt > 0) {
-                                typeStartCountPatchMap_thisStep[type] = {offset, cnt};
-                            }
-                            offset += host_type_counts[i];
+                    uint64_t* islandKeyHi_by_lo =
+                        (uint64_t*)scratchPad.allocateTempVector("islandKeyHi_by_lo", numTotalCnts * sizeof(uint64_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        gatherByIndex<uint64_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                islandKeyHi, islandKeyHi_by_lo, island_sort_indices_sorted, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+
+                    uint64_t* islandKeyHi_sorted =
+                        (uint64_t*)scratchPad.allocateTempVector("islandKeyHi_sorted", numTotalCnts * sizeof(uint64_t));
+                    // Stable sort by primary key (contactType + patchA), preserving low-key order.
+                    cubDEMSortByKeys<uint64_t, contactPairs_t>(islandKeyHi_by_lo, islandKeyHi_sorted,
+                                                               island_sort_indices_sorted, island_sort_indices,
+                                                               numTotalCnts, this_stream, scratchPad);
+
+                    // Reorder primitive arrays by island keys.
+                    if (blocks_needed_for_patch_ids > 0) {
+                        gatherByIndex<bodyID_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->idPrimitiveA, idA_sorted, island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<bodyID_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->idPrimitiveB, idB_sorted, island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<contact_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->contactTypePrimitive, contactType_sorted, island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<notStupidBool_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                granData->contactPersistency, contactPersistency_sorted, island_sort_indices,
+                                numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        gatherByIndex<patchIDPair_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                contactPatchPairs, patchPairs_sorted, island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+
+                    bodyID_t* contactIslandLabel_sorted = (bodyID_t*)scratchPad.allocateTempVector(
+                        "contactIslandLabel_sorted", numTotalCnts * sizeof(bodyID_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        gatherByIndex<bodyID_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                contactIslandLabel, contactIslandLabel_sorted, island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveA, idA_sorted, total_ids_bytes,
+                                                        cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveB, idB_sorted, total_ids_bytes,
+                                                        cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactTypePrimitive, contactType_sorted,
+                                                        type_arr_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactPersistency, contactPersistency_sorted,
+                                                        total_persistency_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+                    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(contactPatchPairs, patchPairs_sorted, patch_arr_bytes,
+                                                        cudaMemcpyDeviceToDevice, this_stream),
+                                        this_stream);
+
+                    // Build final geomToPatchMap based on island keys.
+                    contactPairs_t* isNewIslandGroup = (contactPairs_t*)scratchPad.allocateTempVector(
+                        "isNewIslandGroup", numTotalCnts * sizeof(contactPairs_t));
+                    if (blocks_needed_for_patch_ids > 0) {
+                        uint64_t* islandKeyLo_sorted_by_hi = (uint64_t*)scratchPad.allocateTempVector(
+                            "islandKeyLo_sorted_by_hi", numTotalCnts * sizeof(uint64_t));
+                        gatherByIndex<uint64_t>
+                            <<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                                islandKeyLo, islandKeyLo_sorted_by_hi, island_sort_indices, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        markNewCompositeGroups64<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK),
+                                                   0, this_stream>>>(islandKeyHi_sorted, islandKeyLo_sorted_by_hi,
+                                                                     isNewIslandGroup, numTotalCnts);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                        scratchPad.finishUsingTempVector("islandKeyLo_sorted_by_hi");
+                    }
+                    cubDEMInclusiveScan<contactPairs_t, contactPairs_t>(isNewIslandGroup, granData->geomToPatchMap,
+                                                                        numTotalCnts, this_stream, scratchPad);
+                    setFirstFlagToOne<<<1, 1, 0, this_stream>>>(isNewIslandGroup, numTotalCnts);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+
+                    scratchPad.allocateDualStruct("numUniqueIslands");
+                    cubDEMSum<contactPairs_t, size_t>(isNewIslandGroup,
+                                                      scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts,
+                                                      this_stream, scratchPad);
+                    scratchPad.syncDualStructDeviceToHost("numUniqueIslands");
+                    size_t numUniqueIslands = *scratchPad.getDualStructHost("numUniqueIslands");
+
+                    if (numUniqueIslands > idPatchA.size()) {
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchA, numUniqueIslands);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchB, numUniqueIslands);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, numUniqueIslands);
+                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, numUniqueIslands);
+                        granData.toDevice();
+                    }
+
+                    patchIDPair_t* unique_patch_pairs = nullptr;
+                    if (numUniqueIslands > 0) {
+                        unique_patch_pairs = (patchIDPair_t*)scratchPad.allocateTempVector(
+                            "unique_patch_pairs", numUniqueIslands * sizeof(patchIDPair_t));
+                        cubDEMSelectFlagged<patchIDPair_t, contactPairs_t>(
+                            contactPatchPairs, unique_patch_pairs, isNewIslandGroup,
+                            scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts, this_stream, scratchPad);
+                        cubDEMSelectFlagged<contact_t, contactPairs_t>(
+                            granData->contactTypePrimitive, granData->contactTypePatch, isNewIslandGroup,
+                            scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts, this_stream, scratchPad);
+                        cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
+                            contactIslandLabel_sorted, contactPatchIsland.data(), isNewIslandGroup,
+                            scratchPad.getDualStructDevice("numUniqueIslands"), numTotalCnts, this_stream, scratchPad);
+                        size_t blocks_needed_for_decode =
+                            (numUniqueIslands + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        decodePatchPairsToSeparateArrays<<<dim3(blocks_needed_for_decode),
+                                                           dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                            unique_patch_pairs, granData->idPatchA, granData->idPatchB, numUniqueIslands);
+                        DEME_GPU_DEBUG_SYNC(this_stream);
+                    }
+
+                    *scratchPad.numContacts = numUniqueIslands;
+
+                    if (solverFlags.useStablePatchIslandIDs) {
+                        // The flooding result is already grouped by raw island labels. When enabled, rewrite only
+                        // contactPatchIsland to a previous-step stable label selected by primitive-overlap voting.
+                        stabilizeFloodedPatchIslandIDs(granData, previous_primitivePatchIsland, numTotalCnts,
+                                                       numUniqueIslands, *scratchPad.numPrevPrimitiveContacts,
+                                                       this_stream, scratchPad);
+                    }
+
+                    // Build per-type start/count map for patch contacts.
+                    typeStartCountPatchMap_thisStep.SetAll({0, 0});
+                    if (numUniqueIslands > 0) {
+                        const size_t type_buf_len = DEME_MAX((size_t)1, numUniqueIslands);
+                        contact_t* unique_types =
+                            (contact_t*)scratchPad.allocateTempVector("unique_types", type_buf_len * sizeof(contact_t));
+                        contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "type_counts", type_buf_len * sizeof(contactPairs_t));
+                        scratchPad.allocateDualStruct("numUniqueTypes");
+
+                        cubDEMRunLengthEncode<contact_t, contactPairs_t>(
+                            granData->contactTypePatch, unique_types, type_counts,
+                            scratchPad.getDualStructDevice("numUniqueTypes"), numUniqueIslands, this_stream,
+                            scratchPad);
+                        scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
+                        size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
+                        if (numTypes > type_buf_len) {
+                            DEME_ERROR("Patch contact type run-length output (%zu) exceeds allocated buffer (%zu).",
+                                       numTypes, type_buf_len);
                         }
-                        delete[] host_unique_types;
-                        delete[] host_type_counts;
-                    }
 
-                    scratchPad.finishUsingTempVector("unique_types");
-                    scratchPad.finishUsingTempVector("type_counts");
-                    scratchPad.finishUsingDualStruct("numUniqueTypes");
-                }
+                        if (numTypes > 0) {
+                            contact_t* host_unique_types = new contact_t[numTypes];
+                            contactPairs_t* host_type_counts = new contactPairs_t[numTypes];
+                            DEME_GPU_CALL(cudaMemcpy(host_unique_types, unique_types, numTypes * sizeof(contact_t),
+                                                     cudaMemcpyDeviceToHost));
+                            DEME_GPU_CALL(cudaMemcpy(host_type_counts, type_counts, numTypes * sizeof(contactPairs_t),
+                                                     cudaMemcpyDeviceToHost));
 
-                if (unique_patch_pairs) {
-                    scratchPad.finishUsingTempVector("unique_patch_pairs");
-                }
-                scratchPad.finishUsingTempVector("contactIslandLabel_sorted");
-                if (groupContactTypes) {
-                    scratchPad.finishUsingTempVector("groupContactTypes");
-                }
-                if (groupPrimA) {
-                    scratchPad.finishUsingTempVector("groupPrimA");
-                }
-                if (groupPrimB) {
-                    scratchPad.finishUsingTempVector("groupPrimB");
-                }
-                scratchPad.finishUsingTempVector("groupUniqueCountA");
-                scratchPad.finishUsingTempVector("groupUniqueCountB");
-                scratchPad.finishUsingTempVector("groupWinnerIsA");
-                scratchPad.finishUsingTempVector("groupWinnerIsTri");
-                scratchPad.finishUsingTempVector("groupForceSingleIsland");
-                scratchPad.finishUsingTempVector("winnerPrimitive");
-                scratchPad.finishUsingTempVector("winnerIsTri");
-                scratchPad.finishUsingTempVector("activeTriKeysAll");
-                scratchPad.finishUsingTempVector("activeTriKeys");
-                scratchPad.finishUsingDualStruct("numActiveTriKeys");
-                if (activeTriKeysUnique) {
-                    scratchPad.finishUsingTempVector("activeTriKeys_unique");
-                }
-                if (activeLabelsA) {
-                    scratchPad.finishUsingTempVector("activeTriLabelsA");
-                }
-                if (activeLabelsB) {
-                    scratchPad.finishUsingTempVector("activeTriLabelsB");
-                }
-                if (groupActiveCount) {
-                    scratchPad.finishUsingTempVector("groupActiveCount");
-                }
-                if (groupActiveStart) {
-                    scratchPad.finishUsingTempVector("groupActiveStart");
-                }
-                scratchPad.finishUsingTempVector("contactIslandLabel");
-                scratchPad.finishUsingTempVector("islandKeyHi");
-                scratchPad.finishUsingTempVector("islandKeyLo");
-                scratchPad.finishUsingTempVector("islandKeyLo_sorted");
-                scratchPad.finishUsingTempVector("islandKeyHi_by_lo");
-                scratchPad.finishUsingTempVector("islandKeyHi_sorted");
-                scratchPad.finishUsingTempVector("islandSortIndices");
-                scratchPad.finishUsingTempVector("islandSortIndices_sorted");
-                scratchPad.finishUsingTempVector("isNewIslandGroup");
-                scratchPad.finishUsingDualStruct("numUniqueIslands");
-                // ---- END COMPLEX (flooding-based) PATH ----
-            } else {
-                // ---- BEGIN SIMPLE (patch ID-based) PATH ----
-                // Each unique (type, patchPair) group becomes exactly one patch contact.
-                // groupIndex already holds 0-based group IDs and isNewGroup has 1s at group boundaries
-                // (both were set up in the shared preamble above).
-                size_t numUniqueIslands = numGroups;
-
-                // Copy groupIndex to geomToPatchMap so each primitive contact maps to its patch group.
-                if (numTotalCnts > geomToPatchMap.size()) {
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(geomToPatchMap, numTotalCnts);
-                    granData.toDevice();
-                }
-                if (numTotalCnts > 0) {
-                    DEME_GPU_CALL_ASYNC(
-                        cudaMemcpyAsync(granData->geomToPatchMap, groupIndex, numTotalCnts * sizeof(contactPairs_t),
-                                        cudaMemcpyDeviceToDevice, this_stream),
-                        this_stream);
-                }
-
-                if (numUniqueIslands > idPatchA.size()) {
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchA, numUniqueIslands);
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchB, numUniqueIslands);
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, numUniqueIslands);
-                    DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, numUniqueIslands);
-                    granData.toDevice();
-                }
-
-                patchIDPair_t* unique_patch_pairs_simple = nullptr;
-                if (numUniqueIslands > 0) {
-                    unique_patch_pairs_simple = (patchIDPair_t*)scratchPad.allocateTempVector(
-                        "unique_patch_pairs_simple", numUniqueIslands * sizeof(patchIDPair_t));
-                    cubDEMSelectFlagged<patchIDPair_t, contactPairs_t>(
-                        contactPatchPairs, unique_patch_pairs_simple, isNewGroup,
-                        scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                    cubDEMSelectFlagged<contact_t, contactPairs_t>(
-                        granData->contactTypePrimitive, granData->contactTypePatch, isNewGroup,
-                        scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                    // Use the first primitive A ID of each group as the island label for contact history matching.
-                    cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
-                        granData->idPrimitiveA, contactPatchIsland.data(), isNewGroup,
-                        scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                    size_t blocks_needed_for_decode =
-                        (numUniqueIslands + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                    decodePatchPairsToSeparateArrays<<<dim3(blocks_needed_for_decode), dim3(DEME_MAX_THREADS_PER_BLOCK),
-                                                       0, this_stream>>>(unique_patch_pairs_simple, granData->idPatchA,
-                                                                         granData->idPatchB, numUniqueIslands);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    scratchPad.finishUsingTempVector("unique_patch_pairs_simple");
-                }
-
-                *scratchPad.numContacts = numUniqueIslands;
-
-                // Build per-type start/count map for patch contacts (same logic as complex path).
-                typeStartCountPatchMap_thisStep.SetAll({0, 0});
-                if (numUniqueIslands > 0) {
-                    const size_t type_buf_len = DEME_MAX((size_t)1, numUniqueIslands);
-                    contact_t* unique_types_simple = (contact_t*)scratchPad.allocateTempVector(
-                        "unique_types_simple", type_buf_len * sizeof(contact_t));
-                    contactPairs_t* type_counts_simple = (contactPairs_t*)scratchPad.allocateTempVector(
-                        "type_counts_simple", type_buf_len * sizeof(contactPairs_t));
-                    scratchPad.allocateDualStruct("numUniqueTypes_simple");
-
-                    cubDEMRunLengthEncode<contact_t, contactPairs_t>(
-                        granData->contactTypePatch, unique_types_simple, type_counts_simple,
-                        scratchPad.getDualStructDevice("numUniqueTypes_simple"), numUniqueIslands, this_stream,
-                        scratchPad);
-                    scratchPad.syncDualStructDeviceToHost("numUniqueTypes_simple");
-                    size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes_simple");
-
-                    if (numTypes > 0) {
-                        contact_t* host_unique_types = new contact_t[numTypes];
-                        contactPairs_t* host_type_counts = new contactPairs_t[numTypes];
-                        DEME_GPU_CALL(cudaMemcpy(host_unique_types, unique_types_simple, numTypes * sizeof(contact_t),
-                                                 cudaMemcpyDeviceToHost));
-                        DEME_GPU_CALL(cudaMemcpy(host_type_counts, type_counts_simple,
-                                                 numTypes * sizeof(contactPairs_t), cudaMemcpyDeviceToHost));
-
-                        contactPairs_t offset = 0;
-                        for (size_t i = 0; i < numTypes; i++) {
-                            const contact_t type = host_unique_types[i];
-                            const contactPairs_t cnt = host_type_counts[i];
-                            if (isSupportedContactType(type) && cnt > 0) {
-                                typeStartCountPatchMap_thisStep[type] = {offset, cnt};
+                            contactPairs_t offset = 0;
+                            for (size_t i = 0; i < numTypes; i++) {
+                                const contact_t type = host_unique_types[i];
+                                const contactPairs_t cnt = host_type_counts[i];
+                                if (isSupportedContactType(type) && cnt > 0) {
+                                    typeStartCountPatchMap_thisStep[type] = {offset, cnt};
+                                }
+                                offset += host_type_counts[i];
                             }
-                            offset += cnt;
+                            delete[] host_unique_types;
+                            delete[] host_type_counts;
                         }
-                        delete[] host_unique_types;
-                        delete[] host_type_counts;
+
+                        scratchPad.finishUsingTempVector("unique_types");
+                        scratchPad.finishUsingTempVector("type_counts");
+                        scratchPad.finishUsingDualStruct("numUniqueTypes");
                     }
 
-                    scratchPad.finishUsingTempVector("unique_types_simple");
-                    scratchPad.finishUsingTempVector("type_counts_simple");
-                    scratchPad.finishUsingDualStruct("numUniqueTypes_simple");
+                    if (unique_patch_pairs) {
+                        scratchPad.finishUsingTempVector("unique_patch_pairs");
+                    }
+                    scratchPad.finishUsingTempVector("contactIslandLabel_sorted");
+                    if (groupContactTypes) {
+                        scratchPad.finishUsingTempVector("groupContactTypes");
+                    }
+                    if (groupPrimA) {
+                        scratchPad.finishUsingTempVector("groupPrimA");
+                    }
+                    if (groupPrimB) {
+                        scratchPad.finishUsingTempVector("groupPrimB");
+                    }
+                    scratchPad.finishUsingTempVector("groupUniqueCountA");
+                    scratchPad.finishUsingTempVector("groupUniqueCountB");
+                    scratchPad.finishUsingTempVector("groupWinnerIsA");
+                    scratchPad.finishUsingTempVector("groupWinnerIsTri");
+                    scratchPad.finishUsingTempVector("groupForceSingleIsland");
+                    scratchPad.finishUsingTempVector("winnerPrimitive");
+                    scratchPad.finishUsingTempVector("winnerIsTri");
+                    scratchPad.finishUsingTempVector("activeTriKeysAll");
+                    scratchPad.finishUsingTempVector("activeTriKeys");
+                    scratchPad.finishUsingDualStruct("numActiveTriKeys");
+                    if (activeTriKeysUnique) {
+                        scratchPad.finishUsingTempVector("activeTriKeys_unique");
+                    }
+                    if (activeLabelsA) {
+                        scratchPad.finishUsingTempVector("activeTriLabelsA");
+                    }
+                    if (activeLabelsB) {
+                        scratchPad.finishUsingTempVector("activeTriLabelsB");
+                    }
+                    if (groupActiveCount) {
+                        scratchPad.finishUsingTempVector("groupActiveCount");
+                    }
+                    if (groupActiveStart) {
+                        scratchPad.finishUsingTempVector("groupActiveStart");
+                    }
+                    scratchPad.finishUsingTempVector("contactIslandLabel");
+                    scratchPad.finishUsingTempVector("islandKeyHi");
+                    scratchPad.finishUsingTempVector("islandKeyLo");
+                    scratchPad.finishUsingTempVector("islandKeyLo_sorted");
+                    scratchPad.finishUsingTempVector("islandKeyHi_by_lo");
+                    scratchPad.finishUsingTempVector("islandKeyHi_sorted");
+                    scratchPad.finishUsingTempVector("islandSortIndices");
+                    scratchPad.finishUsingTempVector("islandSortIndices_sorted");
+                    scratchPad.finishUsingTempVector("isNewIslandGroup");
+                    scratchPad.finishUsingDualStruct("numUniqueIslands");
+                    // ---- END COMPLEX (flooding-based) PATH ----
                 }
-                // ---- END SIMPLE (patch ID-based) PATH ----
             }
 
             // Shared cleanup for arrays allocated before the complex/simple branch.
-            scratchPad.finishUsingTempVector("groupIndex");
-            scratchPad.finishUsingTempVector("isNewGroup");
-            scratchPad.finishUsingDualStruct("numUniqueGroups");
+            if (!solverFlags.useSimplePatchCombination) {
+                scratchPad.finishUsingTempVector("groupIndex");
+                scratchPad.finishUsingTempVector("isNewGroup");
+                scratchPad.finishUsingDualStruct("numUniqueGroups");
+            }
             scratchPad.finishUsingTempVector("contactPatchPairs");
             scratchPad.finishUsingTempVector("patchPairs_sorted");
             scratchPad.finishUsingTempVector("contactSortIndices");

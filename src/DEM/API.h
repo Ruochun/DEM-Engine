@@ -393,14 +393,13 @@ class DEMSolver {
     /// @details Set this to true if you later will call MarkPersistentContact series of methods.
     void SetPersistentContact(bool use = true);
 
-    /// @brief Set whether to use the simple patch ID-based triangle combination instead of the default
-    /// index-flooding-based approach.
+    /// @brief Set whether to use the simple patch ID-based triangle combination.
     /// @param use If true, all triangles that share the same patch ID pair are combined into a single patch contact
-    /// (the simple RefBranch-style approach). If false (default), the more complex connected-component flooding method
-    /// is used to identify islands of touching triangles and combine them into patch contacts.
-    /// @details The simple approach is faster and may be preferable when the patch ID assignment already captures the
-    /// desired contact grouping (e.g., all triangles in a mesh share one patch ID by default). The flooding approach
-    /// can produce multiple patch contacts per patch-ID pair when the touching region is geometrically disconnected.
+    /// (the default safe RefBranch-style approach). If false, the more complex connected-component flooding method is
+    /// used to identify islands of touching triangles and combine them into patch contacts.
+    /// @details The simple approach preserves dT's expected per-contact-type, patch-pair sorted history mapping
+    /// invariant. The flooding approach can produce multiple patch contacts per patch-ID pair when the touching region
+    /// is geometrically disconnected; when enabled, stable patch-island IDs should generally remain enabled too.
     void SetSimplePatchCombination(bool use = true);
 
     /// @brief Set whether flooded patch-island IDs should be stabilized across contact-detection steps.
