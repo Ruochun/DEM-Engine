@@ -115,6 +115,16 @@ constexpr contact_t SPHERE_ANALYTICAL_CONTACT = encodeType(GEO_T_SPHERE, GEO_T_A
 constexpr contact_t TRIANGLE_TRIANGLE_CONTACT = encodeType(GEO_T_TRIANGLE, GEO_T_TRIANGLE);
 constexpr contact_t TRIANGLE_ANALYTICAL_CONTACT = encodeType(GEO_T_TRIANGLE, GEO_T_ANALYTICAL);
 constexpr contact_t NUM_SUPPORTED_CONTACT_TYPES = 5;
+inline __host__ __device__ constexpr bool isSupportedContactType(contact_t type) {
+    return type == SPHERE_SPHERE_CONTACT || type == SPHERE_TRIANGLE_CONTACT || type == SPHERE_ANALYTICAL_CONTACT ||
+           type == TRIANGLE_TRIANGLE_CONTACT || type == TRIANGLE_ANALYTICAL_CONTACT;
+}
+// Stable flooded-island history currently applies only to mesh-related contacts. SS and SA patch IDs are already
+// determined unambiguously by their primitive IDs, so rewriting their island labels adds work without improving
+// identity. If sphere/clump-side patching is introduced later, extend this predicate to opt those types back in.
+inline __host__ __device__ constexpr bool usesStablePatchIslandHistory(contact_t type) {
+    return type == SPHERE_TRIANGLE_CONTACT || type == TRIANGLE_TRIANGLE_CONTACT || type == TRIANGLE_ANALYTICAL_CONTACT;
+}
 constexpr contact_t ALL_CONTACT_TYPES[NUM_SUPPORTED_CONTACT_TYPES] = {
     SPHERE_SPHERE_CONTACT, SPHERE_TRIANGLE_CONTACT, SPHERE_ANALYTICAL_CONTACT, TRIANGLE_TRIANGLE_CONTACT,
     TRIANGLE_ANALYTICAL_CONTACT};
