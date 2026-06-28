@@ -821,6 +821,8 @@ class DEMDynamicThread {
     std::shared_ptr<JitHelper::CachedProgram> integrator_kernels;
     // std::shared_ptr<JitHelper::CachedProgram> quarry_stats_kernels;
     std::shared_ptr<JitHelper::CachedProgram> mod_kernels;
+    // Instantiate common dT kernels during initialization so first-use JIT costs are paid before time stepping.
+    void prewarmKernels();
 
     // Adjuster for update freq
     class AccumStepUpdater {

@@ -38,7 +38,7 @@ void markOwnerToChange(notStupidBool_t* idBool,
     if (blocks_needed > 0) {
         markOwnerToChange_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(idBool, ownerFactors,
                                                                                               dIDs, dFactors, n);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -66,7 +66,7 @@ void modifyComponents(DEMData* granData, notStupidBool_t* idBool, float* factors
     if (blocks_needed > 0) {
         modifyComponents_impl<DEMData>
             <<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(granData, idBool, factors, n);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 template void modifyComponents<DEMDataDT>(DEMDataDT* granData,
@@ -103,18 +103,20 @@ void fillMarginValues(DEMSimParams* simParams,
     if (blocks_needed > 0) {
         fillMarginValues_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             simParams, granData, granData->marginSizeSphere, granData->ownerClumpBody, nSphere);
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
     blocks_needed = (nTri + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
     if (blocks_needed > 0) {
         fillMarginValues_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             simParams, granData, granData->marginSizeTriangle, granData->ownerTriMesh, nTri);
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
     blocks_needed = (nAnal + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
     if (blocks_needed > 0) {
         fillMarginValues_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             simParams, granData, granData->marginSizeAnalytical, granData->ownerAnalBody, nAnal);
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
-    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
 }
 
 }  // namespace deme

@@ -1114,6 +1114,7 @@ void DEMKinematicThread::jitifyKernels(const std::unordered_map<std::string, std
         misc_kernels = std::make_shared<JitHelper::CachedProgram>(std::move(JitHelper::buildProgram(
             "DEMKinematicMisc", JitHelper::KERNEL_DIR / "DEMKinematicMisc.cu", Subs, JitifyOptions)));
     }
+    prewarmKernels();
 }
 
 void DEMKinematicThread::initAllocation() {
@@ -1151,6 +1152,35 @@ void DEMKinematicThread::updateTriNodeRelPos(size_t start, const std::vector<DEM
     relPosNode2.toDeviceAsync(streamInfo.stream, start, updates.size());
     relPosNode3.toDeviceAsync(streamInfo.stream, start, updates.size());
     syncMemoryTransfer();
+}
+
+void DEMKinematicThread::prewarmKernels() {
+    // Prewarming compiles or loads cached kT kernels during initialization. This keeps the first contact-detection pass
+    // from paying a surprise JIT cost when a particular contact family appears for the first time.
+    if (bin_sphere_kernels) {
+        bin_sphere_kernels->kernel("getNumberOfBinsEachSphereTouches").instantiate();
+        bin_sphere_kernels->kernel("populateBinSphereTouchingPairs").instantiate();
+    }
+    if (sphere_contact_kernels) {
+        sphere_contact_kernels->kernel("getNumberOfSphereContactsEachBin").instantiate();
+        sphere_contact_kernels->kernel("populateSphereContactPairsEachBin").instantiate();
+    }
+    if (bin_triangle_kernels) {
+        bin_triangle_kernels->kernel("makeTriangleSandwich").instantiate();
+        bin_triangle_kernels->kernel("precomputeMeshOwnerPose").instantiate();
+        bin_triangle_kernels->kernel("precomputeTriangleSandwichData").instantiate();
+        bin_triangle_kernels->kernel("getNumberOfBinsEachTriangleTouches").instantiate();
+        bin_triangle_kernels->kernel("populateBinTriangleTouchingPairs").instantiate();
+    }
+    if (sphTri_contact_kernels) {
+        sphTri_contact_kernels->kernel("getNumberOfTriangleContactsEachBin").instantiate();
+        sphTri_contact_kernels->kernel("populateTriangleContactsEachBin").instantiate();
+    }
+    if (misc_kernels) {
+        misc_kernels->kernel("computeMarginFromAbsv_implSph").instantiate();
+        misc_kernels->kernel("computeMarginFromAbsv_implTri").instantiate();
+        misc_kernels->kernel("computeMarginFromAbsv_implAnal").instantiate();
+    }
 }
 
 }  // namespace deme

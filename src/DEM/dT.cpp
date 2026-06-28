@@ -3208,6 +3208,34 @@ void DEMDynamicThread::jitifyKernels(const std::unordered_map<std::string, std::
         {cal_patch_force_kernels, "calculatePatchContactForces_TriTri"}};
     contactTypePatchKernelMap[TRIANGLE_ANALYTICAL_CONTACT] = {
         {cal_patch_force_kernels, "calculatePatchContactForces_TriAnal"}};
+    prewarmKernels();
+}
+
+void DEMDynamicThread::prewarmKernels() {
+    // Prewarm force, integration, and moderation kernels so cached JIT artifacts are loaded before the first dynamics
+    // step. This is especially noticeable for mesh contacts, whose primitive and patch kernels may otherwise compile at
+    // first contact.
+    if (cal_force_kernels) {
+        cal_force_kernels->kernel("calculatePrimitiveContactForces_SphSph").instantiate();
+        cal_force_kernels->kernel("calculatePrimitiveContactForces_SphTri").instantiate();
+        cal_force_kernels->kernel("calculatePrimitiveContactForces_SphAnal").instantiate();
+        cal_force_kernels->kernel("calculatePrimitiveContactForces_TriTri").instantiate();
+        cal_force_kernels->kernel("calculatePrimitiveContactForces_TriAnal").instantiate();
+    }
+    if (cal_patch_force_kernels) {
+        cal_patch_force_kernels->kernel("calculatePatchContactForces_SphTri").instantiate();
+        cal_patch_force_kernels->kernel("calculatePatchContactForces_TriTri").instantiate();
+        cal_patch_force_kernels->kernel("calculatePatchContactForces_TriAnal").instantiate();
+    }
+    if (collect_force_kernels) {
+        collect_force_kernels->kernel("forceToAcc").instantiate();
+    }
+    if (integrator_kernels) {
+        integrator_kernels->kernel("integrateOwners").instantiate();
+    }
+    if (mod_kernels && solverFlags.canFamilyChangeOnDevice) {
+        mod_kernels->kernel("applyFamilyChanges").instantiate();
+    }
 }
 
 float* DEMDynamicThread::inspectCall(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,

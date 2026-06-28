@@ -497,6 +497,8 @@ class DEMKinematicThread {
     std::shared_ptr<JitHelper::CachedProgram> sphTri_contact_kernels;
     std::shared_ptr<JitHelper::CachedProgram> sphere_contact_kernels;
     std::shared_ptr<JitHelper::CachedProgram> misc_kernels;
+    // Instantiate commonly used kT kernels up front so JIT cache misses do not interrupt the first contact step.
+    void prewarmKernels();
 
     // Adjuster for bin size
     class AccumTimer {
