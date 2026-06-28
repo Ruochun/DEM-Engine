@@ -70,7 +70,6 @@ void DEMDynamicThread::packDataPointers() {
     contactNormals.bindDevicePointer(&(granData->contactNormals));
     contactPointGeometryA.bindDevicePointer(&(granData->contactPointGeometryA));
     contactPointGeometryB.bindDevicePointer(&(granData->contactPointGeometryB));
-    contactPatchDirectionRespected.bindDevicePointer(&(granData->contactPatchDirectionRespected));
     // granData->contactHistory = contactHistory.data();
     // granData->contactDuration = contactDuration.data();
 
@@ -614,7 +613,6 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
         DEME_DUAL_ARRAY_RESIZE(idPrimitiveB, cnt_arr_size, 0);
         DEME_DUAL_ARRAY_RESIZE(contactTypePrimitive, cnt_arr_size, NOT_A_CONTACT);
         DEME_DUAL_ARRAY_RESIZE(geomToPatchMap, cnt_arr_size, 0);
-        DEME_DUAL_ARRAY_RESIZE(contactPatchDirectionRespected, cnt_arr_size, 0);
 
         DEME_DUAL_ARRAY_RESIZE(idPatchA, cnt_arr_size, 0);
         DEME_DUAL_ARRAY_RESIZE(idPatchB, cnt_arr_size, 0);
@@ -2262,8 +2260,6 @@ inline void DEMDynamicThread::contactPrimitivesArraysResize(size_t nContactPairs
         if (simParams->storeNormal) {
             DEME_DUAL_ARRAY_RESIZE(contactNormals, nContactPairs, make_float3(0));
         }
-        // NEW: Resize SAT satisfaction array for tracking tri-tri physical contact
-        DEME_DUAL_ARRAY_RESIZE(contactPatchDirectionRespected, nContactPairs, 0);
     }
 
     // Re-packing pointers now is automatic

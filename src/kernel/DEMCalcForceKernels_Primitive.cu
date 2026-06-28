@@ -57,9 +57,6 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     float extraMarginSize = 0.;
     // Triangle A's three points are defined outside, as may be reused in B's acquisition and penetration calc.
     double3 triANode1, triANode2, triANode3;
-    // Mesh's patch location may be needed for testing if this primitive contact respects the patch's general spatial
-    // direction
-    float3 triPatchPosA;
     // Then allocate the optional quantities that will be needed in the force model (note: this one can't be in a
     // curly bracket, obviously...)
     _forceModelIngredientDefinition_;
@@ -80,7 +77,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     // Based on A's type, equip info
     // ----------------------------------------------------------------
     if constexpr (AType == deme::GEO_T_SPHERE) {
-        deme::bodyID_t sphereID = granData->idPrimitiveA[myPrimitiveContactID];
+        deme::bodyID_t sphereID = idA_raw;
         deme::bodyID_t myOwner = granData->ownerClumpBody[sphereID];
         ownerA = myOwner;
         // Clump sphere's patch ID is just the sphereID itself
@@ -113,7 +110,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         bodyAMatType = granData->sphereMaterialOffset[myPatchID];
         extraMarginSize = granData->familyExtraMarginSize[AOwnerFamily];
     } else if constexpr (AType == deme::GEO_T_TRIANGLE) {
-        deme::bodyID_t triID = granData->idPrimitiveA[myPrimitiveContactID];
+        deme::bodyID_t triID = idA_raw;
         deme::bodyID_t myOwner = granData->ownerTriMesh[triID];
         ownerA = myOwner;
         //// TODO: Is this OK?
@@ -122,7 +119,6 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         deme::bodyID_t myPatchID = granData->triPatchID[triID];
         bodyAMatType = granData->patchMaterialOffset[myPatchID];
         extraMarginSize = granData->familyExtraMarginSize[AOwnerFamily];
-        float3 relPosPatch = granData->relPosPatch[myPatchID];
 
         triANode1 = to_double3(granData->relPosNode1[triID]);
         triANode2 = to_double3(granData->relPosNode2[triID]);
@@ -143,16 +139,12 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         equipOwnerPosRot(simParams, granData, myOwner, triANode1, AOwnerPos, bodyAPos, AOriQ);
         triANode1 = bodyAPos;
         // Do this to node 2 and 3 as well
-        applyOriQToVector3(triANode2.x, triANode2.y, triANode2.z, AOriQ.w, AOriQ.x, AOriQ.y, AOriQ.z);
+        applyOriQToVector3(triANode2, AOriQ);
         triANode2 += AOwnerPos;
-        applyOriQToVector3(triANode3.x, triANode3.y, triANode3.z, AOriQ.w, AOriQ.x, AOriQ.y, AOriQ.z);
+        applyOriQToVector3(triANode3, AOriQ);
         triANode3 += AOwnerPos;
         // Assign the correct bodyAPos
         bodyAPos = triangleCentroid<double3>(triANode1, triANode2, triANode3);
-
-        // Get triPatchPosA ready
-        applyOriQToVector3(relPosPatch.x, relPosPatch.y, relPosPatch.z, AOriQ.w, AOriQ.x, AOriQ.y, AOriQ.z);
-        triPatchPosA = relPosPatch + to_float3(AOwnerPos);
     } else {
         // Currently, we only support sphere and mesh for body A
         ContactType = deme::NOT_A_CONTACT;
@@ -162,7 +154,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     // Then B, location and velocity, depending on type
     // ----------------------------------------------------------------
     if constexpr (BType == deme::GEO_T_SPHERE) {
-        deme::bodyID_t sphereID = granData->idPrimitiveB[myPrimitiveContactID];
+        deme::bodyID_t sphereID = idB_raw;
         deme::bodyID_t myOwner = granData->ownerClumpBody[sphereID];
         ownerB = myOwner;
         // Clump sphere's patch ID is just the sphereID itself
@@ -209,7 +201,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         }
 
     } else if constexpr (BType == deme::GEO_T_TRIANGLE) {
-        deme::bodyID_t triID = granData->idPrimitiveB[myPrimitiveContactID];
+        deme::bodyID_t triID = idB_raw;
         deme::bodyID_t myOwner = granData->ownerTriMesh[triID];
         ownerB = myOwner;
         //// TODO: Is this OK?
@@ -217,7 +209,6 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         // If this is a triangle then it has a patch ID
         deme::bodyID_t myPatchID = granData->triPatchID[triID];
         bodyBMatType = granData->patchMaterialOffset[myPatchID];
-        float3 relPosPatch = granData->relPosPatch[myPatchID];
 
         // As the grace margin, the distance (negative overlap) just needs to be within the grace margin. So we pick
         // the larger of the 2 familyExtraMarginSize.
@@ -248,26 +239,23 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         equipOwnerPosRot(simParams, granData, myOwner, triBNode1, BOwnerPos, bodyBPos, BOriQ);
         triBNode1 = bodyBPos;
         // Do this to node 2 and 3 as well
-        applyOriQToVector3(triBNode2.x, triBNode2.y, triBNode2.z, BOriQ.w, BOriQ.x, BOriQ.y, BOriQ.z);
+        applyOriQToVector3(triBNode2, BOriQ);
         triBNode2 += BOwnerPos;
-        applyOriQToVector3(triBNode3.x, triBNode3.y, triBNode3.z, BOriQ.w, BOriQ.x, BOriQ.y, BOriQ.z);
+        applyOriQToVector3(triBNode3, BOriQ);
         triBNode3 += BOwnerPos;
         // Assign the correct bodyBPos
         bodyBPos = triangleCentroid<double3>(triBNode1, triBNode2, triBNode3);
-        // Get triPatchPosB ready
-        applyOriQToVector3(relPosPatch.x, relPosPatch.y, relPosPatch.z, BOriQ.w, BOriQ.x, BOriQ.y, BOriQ.z);
-        float3 triPatchPosB = relPosPatch + to_float3(BOwnerPos);
 
         // If B is a triangle, then A can be a sphere or a triangle.
         if constexpr (AType == deme::GEO_T_SPHERE) {
             double3 contact_normal;
+            const double shellInflatedRadius = static_cast<double>(ARadius) + static_cast<double>(shell_half_B);
             // Note checkTriSphereOverlap gives positive number for overlapping cases.
             // Using checkTriSphereOverlap rather than the directional version is effectively saying if the overlap is
             // more than 2R, we don't want it; this is useful in preventing contact being detection from the other side
             // of a thin mesh.
             bool in_contact =
-                checkTriSphereOverlap<double3, double>(triBNode1, triBNode2, triBNode3, bodyAPos,
-                                                       static_cast<double>(ARadius) + static_cast<double>(shell_half_B),
+                checkTriSphereOverlap<double3, double>(triBNode1, triBNode2, triBNode3, bodyAPos, shellInflatedRadius,
                                                        contact_normal, overlapDepth, overlapArea, contactPnt);
             B2A = to_float3(contact_normal);
 
@@ -290,6 +278,8 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
             if (in_contact) {
                 overlapDepth += shellDepthAdd;
             } else if (shellDepthAdd > DEME_TINY_FLOAT) {
+                // Shell fallback for non-intersecting triangles:
+                // use closest feature distance and a shell-thickness skin model to obtain a stable normal/depth.
                 double3 closestA, closestB;
                 const double sep_dist = closestPtTriTriDistance<double3, double>(
                     triANode1, triANode2, triANode3, triBNode1, triBNode2, triBNode3, closestA, closestB);
@@ -303,38 +293,60 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
                     contactPnt = (closestA + closestB) * 0.5;
                     if (overlapDepth > 0.0) {
                         shell_contact_candidate = true;
+                        // Non-zero area regularization for shell-edge/vertex contacts (important for Hertzian
+                        // variants).
                         const double effR = fmax(shellDepthAdd * 0.5, 1e-12);
                         const double dcap = fmin(overlapDepth, 2.0 * effR);
-                        const double area = static_cast<double>(deme::PI) * (2.0 * effR * dcap - dcap * dcap);
-                        overlapArea = fmax(area, 0.0);
+                        const double a = static_cast<double>(deme::PI) * (2.0 * effR * dcap - dcap * dcap);
+                        overlapArea = fmax(a, 0.0);
                     } else {
                         overlapArea = 0.0;
                     }
                 }
             }
 
-            // We require that in the tri--tri case, the contact also respects the patch--patch general direction. This
-            // is because if the contact margin is very large, the algorithm can detect remote fake `submerge' cases
-            // which involve the triangles of the wrong sides of the mesh particles. But in this case, the direction of
-            // this contact is almost always opposite to the general direction of the 2 patches (in terms of B2A).
-            float dotProd = dot(B2A, triPatchPosA - triPatchPosB);
-            granData->contactPatchDirectionRespected[myPrimitiveContactID] = (dotProd > 0.f) ? 1 : 0;
-
-            // Reject suspicious back-face false pairings when the penetration is too large relative to the distance
-            // from the contact point to either patch center. A negative ratio disables this guard.
-            if ((in_contact || shell_contact_candidate) && simParams->triTriContactRejectionRatio >= 0.f) {
+            // Remove suspicious back-face false pairings: reject the contact if the penetration depth is too
+            // large relative to the distance between the contact point and a triangle's patch center.
+            // We use triPatchID[triangleID] to look up the mesh-defined patch center from relPosPatch, because
+            // idPatchA/B in the contact array represents island-merged synthetic group IDs in the complex flooding
+            // path and does not directly index relPosPatch; only the triangle-derived patch ID is reliable here.
+            // For non-watertight meshes the patch center is not representative, so the corresponding half of the
+            // guard is skipped. The check for the watertight side is still applied.
+            if ((in_contact || shell_contact_candidate) && simParams->triTriContactRejectionRatio >= 0.f &&
+                granData->relPosPatch && granData->triPatchID) {
                 const double ratio = (double)simParams->triTriContactRejectionRatio;
-                const double distA = length(contactPnt - to_double3(triPatchPosA));
-                const double distB = length(contactPnt - to_double3(triPatchPosB));
-                const bool checkA = !granData->ownerMeshWatertight || granData->ownerMeshWatertight[ownerA];
-                const bool checkB = !granData->ownerMeshWatertight || granData->ownerMeshWatertight[ownerB];
-                if ((checkA && overlapDepth > ratio * distA) || (checkB && overlapDepth > ratio * distB)) {
+                bool reject = false;
+                // Check mesh A side only if mesh A's owner is watertight
+                const deme::bodyID_t patchA = granData->triPatchID[idA_raw];
+                const deme::bodyID_t patchOwnerA = granData->ownerPatchMesh[patchA];
+                if (!granData->ownerMeshWatertight || granData->ownerMeshWatertight[patchOwnerA]) {
+                    float3 relPatchCenterA = granData->relPosPatch[patchA];
+                    applyOriQToVector3(relPatchCenterA, AOriQ);
+                    const double3 patchCenterA = AOwnerPos + to_double3(relPatchCenterA);
+                    const double distA = length(contactPnt - patchCenterA);
+                    if (overlapDepth > ratio * distA) {
+                        reject = true;
+                    }
+                }
+                // Check mesh B side only if mesh B's owner is watertight
+                if (!reject) {
+                    const deme::bodyID_t patchB = granData->triPatchID[idB_raw];
+                    const deme::bodyID_t patchOwnerB = granData->ownerPatchMesh[patchB];
+                    if (!granData->ownerMeshWatertight || granData->ownerMeshWatertight[patchOwnerB]) {
+                        float3 relPatchCenterB = granData->relPosPatch[patchB];
+                        applyOriQToVector3(relPatchCenterB, BOriQ);
+                        const double3 patchCenterB = BOwnerPos + to_double3(relPatchCenterB);
+                        const double distB = length(contactPnt - patchCenterB);
+                        if (overlapDepth > ratio * distB) {
+                            reject = true;
+                        }
+                    }
+                }
+                if (reject) {
                     in_contact = false;
                     shell_contact_candidate = false;
-                    ContactType = deme::NOT_A_CONTACT;
                     overlapDepth = -DEME_HUGE_FLOAT;
                     overlapArea = 0.0;
-                    granData->contactPatchDirectionRespected[myPrimitiveContactID] = 0;
                 }
             }
 
@@ -380,7 +392,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         bodyBRot.x = objRotX[analyticalID];
         bodyBRot.y = objRotY[analyticalID];
         bodyBRot.z = objRotZ[analyticalID];
-        applyOriQToVector3<float, deme::oriQ_t>(bodyBRot.x, bodyBRot.y, bodyBRot.z, BOriQ.w, BOriQ.x, BOriQ.y, BOriQ.z);
+        applyOriQToVector3(bodyBRot, BOriQ);
 
         // If B is an analytical entity, then A can be a sphere or a triangle.
         if constexpr (AType == deme::GEO_T_SPHERE) {
@@ -416,9 +428,10 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         float3 locCPA = to_float3(contactPnt - AOwnerPos);
         float3 locCPB = to_float3(contactPnt - BOwnerPos);
         // Now map this contact point location to bodies' local ref
-        applyOriQToVector3<float, deme::oriQ_t>(locCPA.x, locCPA.y, locCPA.z, AOriQ.w, -AOriQ.x, -AOriQ.y, -AOriQ.z);
-        applyOriQToVector3<float, deme::oriQ_t>(locCPB.x, locCPB.y, locCPB.z, BOriQ.w, -BOriQ.x, -BOriQ.y, -BOriQ.z);
+        applyOriQToVector3(locCPA, make_float4(-AOriQ.x, -AOriQ.y, -AOriQ.z, AOriQ.w));
+        applyOriQToVector3(locCPB, make_float4(-BOriQ.x, -BOriQ.y, -BOriQ.z, BOriQ.w));
 
+        // Force model execution (or skip for inactive periodic candidate)
         if (ContactType != deme::NOT_A_CONTACT) {
             // The following part, the force model, is user-specifiable
             // NOTE!! "force" and all wildcards must be properly set by this piece of code
@@ -427,16 +440,19 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
             // If force model modifies owner wildcards, write them back here
             _forceModelOwnerWildcardWrite_;
         } else {
-            // The contact is no longer active, so we need to destroy its contact history recording
+            // No contribution from this candidate in this step.
+            // Note in DEME3, we do not clear force array anymore in each timestep, so always writing back force and
+            // contact points, even for zero-force non-contacts, is needed (unless of course, the user instructed no
+            // force record). This design has implications in our new two-step patch-based force calculation algorithm,
+            // as we re-use some force-storing arrays for intermediate values.
+            force = make_float3(0.f, 0.f, 0.f);
+            torque_only_force = make_float3(0.f, 0.f, 0.f);
+            locCPA = make_float3(0.f, 0.f, 0.f);
+            locCPB = make_float3(0.f, 0.f, 0.f);
             _forceModelContactWildcardDestroy_;
         }
 
-        // Note in DEME3, we do not clear force array anymore in each timestep, so always writing back force and contact
-        // points, even for zero-force non-contacts, is needed (unless of course, the user instructed no force record).
-        // This design has implications in our new two-step patch-based force calculation algorithm, as we re-use some
-        // force-storing arrays for intermediate values.
-
-        // Write contact location values back to global memory
+        // Write contact location values back to global memory (after periodic wrap correction).
         _contactInfoWrite_;
 
         // Optionally, the forces can be reduced to acc right here (may be faster)
@@ -451,9 +467,14 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         // store the (double) contact penetration. contactPointGeometryB is used to store the (double) contact area
         // contactTorque_convToForce is used to store the contact point position (cast from double3 to float3)
 
-        // For tri-tri contacts, update each triangle's own shallowest fully-submerged depth so kT can keep deeply
-        // penetrating surface triangles inside the broad-phase margin. Non-negative floats preserve ordering when
-        // reinterpreted as unsigned ints, so atomicMax works on their bit representation.
+        // For tri-tri contacts, atomically update the per-triangle shallowest-penetration array so kT can size its
+        // contact-detection margins. Each triangle receives its own shallowest (minimum) vertex penetration depth,
+        // independent of which projection direction supplied the contact force geometry. A non-zero value means that
+        // triangle is completely submerged in the other triangle's plane direction and needs at least this margin to
+        // remain traceable. Other contact pairs may contribute larger values through atomicMax. Non-negative floats
+        // maintain IEEE 754 bit-ordering under unsigned int reinterpretation, so atomicMax on their unsigned int bit
+        // representation gives the correct result.
+        // Skipped when meshParticlesLowPoly is enabled (the array is not used by kT in that mode).
         if constexpr (CONTACT_TYPE == deme::TRIANGLE_TRIANGLE_CONTACT) {
             if (!simParams->meshParticlesLowPoly && ContactType != deme::NOT_A_CONTACT) {
                 if (minDepthA > 0.0) {
@@ -488,30 +509,30 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
 }
 
 // 5 specialized kernels for different contact types
-__global__ void calculatePrimitiveContactForces_SphSph(deme::DEMSimParams* simParams,
-                                                       deme::DEMDataDT* granData,
-                                                       deme::contactPairs_t startOffset,
-                                                       deme::contactPairs_t nContactPairs) {
+DEME_KERNEL void calculatePrimitiveContactForces_SphSph(deme::DEMSimParams* simParams,
+                                                        deme::DEMDataDT* granData,
+                                                        deme::contactPairs_t startOffset,
+                                                        deme::contactPairs_t nContactPairs) {
     deme::contactPairs_t myPrimitiveContactID = startOffset + blockIdx.x * blockDim.x + threadIdx.x;
     if (myPrimitiveContactID < startOffset + nContactPairs) {
         calculatePrimitiveContactForces_impl<deme::SPHERE_SPHERE_CONTACT>(simParams, granData, myPrimitiveContactID);
     }
 }
 
-__global__ void calculatePrimitiveContactForces_SphTri(deme::DEMSimParams* simParams,
-                                                       deme::DEMDataDT* granData,
-                                                       deme::contactPairs_t startOffset,
-                                                       deme::contactPairs_t nContactPairs) {
+DEME_KERNEL void calculatePrimitiveContactForces_SphTri(deme::DEMSimParams* simParams,
+                                                        deme::DEMDataDT* granData,
+                                                        deme::contactPairs_t startOffset,
+                                                        deme::contactPairs_t nContactPairs) {
     deme::contactPairs_t myPrimitiveContactID = startOffset + blockIdx.x * blockDim.x + threadIdx.x;
     if (myPrimitiveContactID < startOffset + nContactPairs) {
         calculatePrimitiveContactForces_impl<deme::SPHERE_TRIANGLE_CONTACT>(simParams, granData, myPrimitiveContactID);
     }
 }
 
-__global__ void calculatePrimitiveContactForces_SphAnal(deme::DEMSimParams* simParams,
-                                                        deme::DEMDataDT* granData,
-                                                        deme::contactPairs_t startOffset,
-                                                        deme::contactPairs_t nContactPairs) {
+DEME_KERNEL void calculatePrimitiveContactForces_SphAnal(deme::DEMSimParams* simParams,
+                                                         deme::DEMDataDT* granData,
+                                                         deme::contactPairs_t startOffset,
+                                                         deme::contactPairs_t nContactPairs) {
     deme::contactPairs_t myPrimitiveContactID = startOffset + blockIdx.x * blockDim.x + threadIdx.x;
     if (myPrimitiveContactID < startOffset + nContactPairs) {
         calculatePrimitiveContactForces_impl<deme::SPHERE_ANALYTICAL_CONTACT>(simParams, granData,
@@ -519,10 +540,10 @@ __global__ void calculatePrimitiveContactForces_SphAnal(deme::DEMSimParams* simP
     }
 }
 
-__global__ void calculatePrimitiveContactForces_TriTri(deme::DEMSimParams* simParams,
-                                                       deme::DEMDataDT* granData,
-                                                       deme::contactPairs_t startOffset,
-                                                       deme::contactPairs_t nContactPairs) {
+DEME_KERNEL void calculatePrimitiveContactForces_TriTri(deme::DEMSimParams* simParams,
+                                                        deme::DEMDataDT* granData,
+                                                        deme::contactPairs_t startOffset,
+                                                        deme::contactPairs_t nContactPairs) {
     deme::contactPairs_t myPrimitiveContactID = startOffset + blockIdx.x * blockDim.x + threadIdx.x;
     if (myPrimitiveContactID < startOffset + nContactPairs) {
         calculatePrimitiveContactForces_impl<deme::TRIANGLE_TRIANGLE_CONTACT>(simParams, granData,
@@ -530,10 +551,10 @@ __global__ void calculatePrimitiveContactForces_TriTri(deme::DEMSimParams* simPa
     }
 }
 
-__global__ void calculatePrimitiveContactForces_TriAnal(deme::DEMSimParams* simParams,
-                                                        deme::DEMDataDT* granData,
-                                                        deme::contactPairs_t startOffset,
-                                                        deme::contactPairs_t nContactPairs) {
+DEME_KERNEL void calculatePrimitiveContactForces_TriAnal(deme::DEMSimParams* simParams,
+                                                         deme::DEMDataDT* granData,
+                                                         deme::contactPairs_t startOffset,
+                                                         deme::contactPairs_t nContactPairs) {
     deme::contactPairs_t myPrimitiveContactID = startOffset + blockIdx.x * blockDim.x + threadIdx.x;
     if (myPrimitiveContactID < startOffset + nContactPairs) {
         calculatePrimitiveContactForces_impl<deme::TRIANGLE_ANALYTICAL_CONTACT>(simParams, granData,
