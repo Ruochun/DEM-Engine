@@ -2337,8 +2337,8 @@ inline void DEMDynamicThread::unpackMyBuffer() {
         // std::cout << "Unpacked contactMapping: " << std::endl;
         // displayDeviceArray<contactPairs_t>(granData->contactMapping, *solverScratchSpace.numContacts);
     }
-    // Prepare for kernel calls immediately after
-    granData.toDevice();
+    // Prepare for kernel calls immediately after; queue this pointer-bundle refresh after the unpack copies.
+    granData.toDeviceAsync(streamInfo.stream);
 }
 
 inline void DEMDynamicThread::sendToTheirBuffer() {
@@ -2484,8 +2484,9 @@ inline void DEMDynamicThread::migrateEnduringContacts() {
     solverScratchSpace.finishUsingTempVector("newWildcards");
     solverScratchSpace.finishUsingTempVector("contactSentry");
 
-    // granData may have changed in some of the earlier steps
-    granData.toDevice();
+    // granData may have changed in some of the earlier steps. Queue the pointer-bundle refresh before the following
+    // kernels instead of forcing a host barrier here.
+    granData.toDeviceAsync(streamInfo.stream);
 }
 
 // The argument is two maps: contact type -> (start offset, count), contact type -> list of [(program bundle name,
@@ -2524,7 +2525,7 @@ inline void DEMDynamicThread::dispatchPrimitiveForceKernels(
             }
         }
     }
-    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 }
 
 inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
@@ -2724,8 +2725,7 @@ inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
                         }
                     }
                 }
-                DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
-
+                DEME_GPU_DEBUG_SYNC(streamInfo.stream);
                 // Final clean up
                 solverScratchSpace.finishUsingTempVector("totalWeights");
                 solverScratchSpace.finishUsingTempVector("primitiveWeights");
@@ -2792,7 +2792,7 @@ void DEMDynamicThread::calculateForces() {
                 .instantiate()
                 .configure(dim3(blocks_needed_for_contacts), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
                 .launch(&granData, nContactPairs);
-            DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+            DEME_GPU_DEBUG_SYNC(streamInfo.stream);
             // displayDeviceArray<float>(granData->aZ, simParams->nOwnerBodies);
             // displayDeviceFloat3(granData->contactForces, nContactPairs);
             // std::cout << nContactPairs << std::endl;
@@ -2808,7 +2808,7 @@ inline void DEMDynamicThread::integrateOwnerMotions() {
         .instantiate()
         .configure(dim3(blocks_needed_for_clumps), dim3(DEME_NUM_BODIES_PER_BLOCK), 0, streamInfo.stream)
         .launch(&simParams, &granData);
-    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 }
 
 inline void DEMDynamicThread::routineChecks() {
@@ -2819,7 +2819,7 @@ inline void DEMDynamicThread::routineChecks() {
             .instantiate()
             .configure(dim3(blocks_needed_for_clumps), dim3(DEME_NUM_MODERATORS_PER_BLOCK), 0, streamInfo.stream)
             .launch(&simParams, &granData, simParams->nOwnerBodies);
-        DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+        DEME_GPU_DEBUG_SYNC(streamInfo.stream);
     }
 }
 
@@ -3102,10 +3102,8 @@ void DEMDynamicThread::workerThread() {
 
             //// TODO: make changes for variable time step size cases
             simParams->dyn.timeElapsed += (double)simParams->dyn.h;
-            // timeElapsed needs to be updated to the device each time step
-            // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, dyn) +
-            //                                      offsetof(DEMSimParamsDynamic, timeElapsed));
-            simParams.toDevice();
+            simParams.syncMemberToDeviceAsync<double>(
+                offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, timeElapsed), streamInfo.stream);
 
             DEME_DEBUG_PRINTF("Completed step %zu, time %.9g", nTotalSteps, simParams->dyn.timeElapsed);
         }
@@ -3285,7 +3283,7 @@ float* DEMDynamicThread::inspectCall(const std::shared_ptr<JitHelper::CachedProg
         .instantiate()
         .configure(dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
         .launch(&granData, &simParams, resArr, boolArrExclude, n, owner_type);
-    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 
     if (all_domain) {
         switch (reduce_flavor) {
@@ -3395,9 +3393,8 @@ double DEMDynamicThread::getSimTime() const {
 
 void DEMDynamicThread::setSimTime(double time) {
     simParams->dyn.timeElapsed = time;
-    // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, dyn) +
-    //                                      offsetof(DEMSimParamsDynamic, timeElapsed));
-    simParams.toDevice();
+    simParams.syncMemberToDeviceAsync<double>(offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, timeElapsed),
+                                              streamInfo.stream);
 }
 
 float DEMDynamicThread::getUpdateFreq() const {

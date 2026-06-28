@@ -114,9 +114,9 @@ void DEMKinematicThread::calibrateParams() {
         }
         DEME_DEBUG_PRINTF("kT runtime per step: %.7gs", CDAccumTimer.GetPrevTime());
     }
-    // binSize is now calculated, we need to migrate that to device
-    // simParams.syncMemberToDevice<double>(offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, binSize));
-    simParams.toDevice();
+    // binSize is now calculated; queue the device refresh on kT's stream so the next kernel sees it without forcing a
+    // host-side barrier.
+    simParams.toDeviceAsync(streamInfo.stream);
 }
 
 inline void DEMKinematicThread::computeMarginFromAbsv(float* absVel_owner, float* absAngVel_owner) {
@@ -145,7 +145,7 @@ inline void DEMKinematicThread::computeMarginFromAbsv(float* absVel_owner, float
             .launch(&simParams, &granData, absVel_owner, absAngVel_owner, &(stateParams.ts), &(stateParams.maxDrift),
                     (size_t)simParams->nAnalGM);
     }
-    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 }
 
 inline void DEMKinematicThread::unpackMyBuffer() {
