@@ -259,11 +259,15 @@ __host__ __device__ void HamiltonProduct(T1& A,
 
 // Compute the binID for a point in space
 template <typename T1>
-__host__ __device__ T1
-getPointBinID(const double& X, const double& Y, const double& Z, const double& binSize, const T1& nbX, const T1& nbY) {
-    T1 binIDX = X / binSize;
-    T1 binIDY = Y / binSize;
-    T1 binIDZ = Z / binSize;
+__host__ __device__ T1 getPointBinID(const double& X,
+                                     const double& Y,
+                                     const double& Z,
+                                     const double& inv_binSize,
+                                     const T1& nbX,
+                                     const T1& nbY) {
+    T1 binIDX = X * inv_binSize;
+    T1 binIDY = Y * inv_binSize;
+    T1 binIDZ = Z * inv_binSize;
     return binIDX + binIDY * nbX + binIDZ * nbX * nbY;
 }
 

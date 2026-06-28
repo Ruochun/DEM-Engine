@@ -130,6 +130,32 @@ bool __device__ tri_cyl_penetration(const T1** tri,
     return false;
 }
 
+// Used by the fast kT triangle--cylinder overlap checks. For contact-detection counting we only need a
+// conservative yes/no plane proxy, not full contact point/depth output.
+template <typename T1>
+inline __host__ __device__ bool planar_cyl_plane_from_ref(const T1& ref,
+                                                          const T1& entityLoc,
+                                                          const float3& entityDir,
+                                                          const float& radius,
+                                                          const float& normal_sign,
+                                                          T1& plane_point,
+                                                          float3& plane_normal) {
+    T1 radial_vec = cylRadialDistanceVec<T1>(ref, entityLoc, entityDir);
+    const auto dist = length(radial_vec);
+    if (dist <= (decltype(dist))DEME_TINY_FLOAT) {
+        return false;
+    }
+    const T1 radial_dir = radial_vec / dist;
+    const float dist_plane = normal_sign * (radius - (float)dist);
+    if (dist_plane < 0) {
+        return false;
+    }
+    plane_normal = to_real3<T1, float3>(-normal_sign * radial_dir);
+    const T1 axis_point = ref - radial_vec;
+    plane_point = axis_point + radial_dir * radius;
+    return true;
+}
+
 // Check only, no contact point, depth, area output
 template <typename T1>
 __host__ __device__ deme::contact_t checkTriEntityOverlap(const T1& A,
@@ -169,6 +195,53 @@ __host__ __device__ deme::contact_t checkTriEntityOverlap(const T1& A,
                 double signed_dist = (entitySize1 - length(vec)) * normal_sign;
                 if (signed_dist <= beta4Entity)
                     return deme::TRIANGLE_ANALYTICAL_CONTACT;
+            }
+            return deme::NOT_A_CONTACT;
+        }
+        default:
+            return deme::NOT_A_CONTACT;
+    }
+}
+
+// Fast FP32-only overlap check for kT contact detection (no penetration/area outputs).
+template <typename T1>
+__host__ __device__ deme::contact_t checkTriEntityOverlapFP32(const T1& A,
+                                                              const T1& B,
+                                                              const T1& C,
+                                                              const deme::objType_t& typeB,
+                                                              const T1& entityLoc,
+                                                              const float3& entityDir,
+                                                              const float& entitySize1,
+                                                              const float& entitySize2,
+                                                              const float& entitySize3,
+                                                              const float& normal_sign,
+                                                              const float& beta4Entity) {
+    const T1* tri[] = {&A, &B, &C};
+    switch (typeB) {
+        case (deme::ANAL_OBJ_TYPE_PLANE): {
+            for (const T1*& v : tri) {
+                const float d = planeSignedDistance<float>(*v, entityLoc, entityDir);
+                const float overlapDepth = beta4Entity - d;
+                if (overlapDepth >= 0.0f) {
+                    return deme::TRIANGLE_ANALYTICAL_CONTACT;
+                }
+            }
+            return deme::NOT_A_CONTACT;
+        }
+        case (deme::ANAL_OBJ_TYPE_CYL_INF): {
+            T1 centroid = (A + B + C) / 3.0f;
+            T1 plane_point;
+            float3 plane_normal;
+            if (!planar_cyl_plane_from_ref(centroid, entityLoc, entityDir, entitySize1, normal_sign, plane_point,
+                                           plane_normal)) {
+                return deme::NOT_A_CONTACT;
+            }
+            for (const T1*& v : tri) {
+                const float d = planeSignedDistance<float>(*v, plane_point, plane_normal);
+                const float overlapDepth = beta4Entity - d;
+                if (overlapDepth >= 0.0f) {
+                    return deme::TRIANGLE_ANALYTICAL_CONTACT;
+                }
             }
             return deme::NOT_A_CONTACT;
         }

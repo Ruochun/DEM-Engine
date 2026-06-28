@@ -3,6 +3,22 @@
 #include <DEMCollisionKernels_SphTri_TriTri.cuh>
 _kernelIncludes_;
 
+inline __device__ float triRadiusFromNodes(const float3& center,
+                                           const float3& a1,
+                                           const float3& a2,
+                                           const float3& a3,
+                                           const float3& b1,
+                                           const float3& b2,
+                                           const float3& b3) {
+    float r2 = dot(a1 - center, a1 - center);
+    r2 = fmaxf(r2, dot(a2 - center, a2 - center));
+    r2 = fmaxf(r2, dot(a3 - center, a3 - center));
+    r2 = fmaxf(r2, dot(b1 - center, b1 - center));
+    r2 = fmaxf(r2, dot(b2 - center, b2 - center));
+    r2 = fmaxf(r2, dot(b3 - center, b3 - center));
+    return sqrtf(r2);
+}
+
 // #include <cub/block/block_load.cuh>
 // #include <cub/block/block_store.cuh>
 // #include <cub/block/block_reduce.cuh>
@@ -15,67 +31,52 @@ _clumpTemplateDefs_;
 inline __device__ void fillSharedMemTriangles(deme::DEMSimParams* simParams,
                                               deme::DEMDataKT* granData,
                                               const deme::spheresBinTouches_t& myThreadID,
-                                              const deme::bodyID_t& triID,
+                                              const deme::bodyID_t& triID_in,
                                               deme::bodyID_t* triOwnerIDs,
                                               deme::bodyID_t* triIDs,
                                               deme::family_t* triOwnerFamilies,
-                                              float3* sandwichANode1,
-                                              float3* sandwichANode2,
-                                              float3* sandwichANode3,
-                                              float3* sandwichBNode1,
-                                              float3* sandwichBNode2,
-                                              float3* sandwichBNode3,
+                                              const float3* tri_vA1_all,
+                                              const float3* tri_vB1_all,
+                                              const float3* tri_vC1_all,
+                                              const float3* tri_shift_all,
                                               float3* triANode1,
                                               float3* triANode2,
                                               float3* triANode3,
                                               float3* triBNode1,
                                               float3* triBNode2,
-                                              float3* triBNode3) {
-    deme::bodyID_t ownerID = granData->ownerTriMesh[triID];
-    triIDs[myThreadID] = triID;
+                                              float3* triBNode3,
+                                              float3* triCenters) {
+    deme::bodyID_t tri_id = triID_in;
+
+    const deme::bodyID_t ownerID = granData->ownerTriMesh[tri_id];
+    triIDs[myThreadID] = tri_id;
     triOwnerIDs[myThreadID] = ownerID;
     triOwnerFamilies[myThreadID] = granData->familyID[ownerID];
-    double3 ownerXYZ;
-    float3 node1, node2, node3;
 
-    voxelIDToPosition<double, deme::voxelID_t, deme::subVoxelPos_t>(
-        ownerXYZ.x, ownerXYZ.y, ownerXYZ.z, granData->voxelID[ownerID], granData->locX[ownerID],
-        granData->locY[ownerID], granData->locZ[ownerID], _nvXp2_, _nvYp2_, _voxelSize_, _l_);
-    float myOriQw = granData->oriQw[ownerID];
-    float myOriQx = granData->oriQx[ownerID];
-    float myOriQy = granData->oriQy[ownerID];
-    float myOriQz = granData->oriQz[ownerID];
+    // Load precomputed world-space A-face and shift.
+    float3 A1 = tri_vA1_all[tri_id];
+    float3 A2 = tri_vB1_all[tri_id];
+    float3 A3 = tri_vC1_all[tri_id];
+    float3 sh = tri_shift_all[tri_id];
 
-    // These locations does not include the LBF offset, which is fine since we only care about relative positions here
-    {
-        node1 = sandwichANode1[triID];
-        node2 = sandwichANode2[triID];
-        node3 = sandwichANode3[triID];
-        applyOriQToVector3<float, deme::oriQ_t>(node1.x, node1.y, node1.z, myOriQw, myOriQx, myOriQy, myOriQz);
-        applyOriQToVector3<float, deme::oriQ_t>(node2.x, node2.y, node2.z, myOriQw, myOriQx, myOriQy, myOriQz);
-        applyOriQToVector3<float, deme::oriQ_t>(node3.x, node3.y, node3.z, myOriQw, myOriQx, myOriQy, myOriQz);
-        triANode1[myThreadID] = ownerXYZ + node1;
-        triANode2[myThreadID] = ownerXYZ + node2;
-        triANode3[myThreadID] = ownerXYZ + node3;
-    }
-    {
-        node1 = sandwichBNode1[triID];
-        node2 = sandwichBNode2[triID];
-        node3 = sandwichBNode3[triID];
-        applyOriQToVector3<float, deme::oriQ_t>(node1.x, node1.y, node1.z, myOriQw, myOriQx, myOriQy, myOriQz);
-        applyOriQToVector3<float, deme::oriQ_t>(node2.x, node2.y, node2.z, myOriQw, myOriQx, myOriQy, myOriQz);
-        applyOriQToVector3<float, deme::oriQ_t>(node3.x, node3.y, node3.z, myOriQw, myOriQx, myOriQy, myOriQz);
-        triBNode1[myThreadID] = ownerXYZ + node1;
-        triBNode2[myThreadID] = ownerXYZ + node2;
-        triBNode3[myThreadID] = ownerXYZ + node3;
-    }
+    triANode1[myThreadID] = A1;
+    triANode2[myThreadID] = A2;
+    triANode3[myThreadID] = A3;
+
+    // Reconstruct B-face (opposite normal) from A-face + shift; swap nodes 2<->3.
+    triBNode1[myThreadID] = A1 + sh;
+    triBNode2[myThreadID] = A3 + sh;
+    triBNode3[myThreadID] = A2 + sh;
+
+    triCenters[myThreadID] =
+        triangleCentroid<float3>(triANode1[myThreadID], triANode2[myThreadID], triANode3[myThreadID]);
 }
 
 template <typename T1, typename T2>
 inline __device__ void fillSharedMemSpheres(deme::DEMSimParams* simParams,
                                             deme::DEMDataKT* granData,
                                             const deme::spheresBinTouches_t& myThreadID,
-                                            const deme::bodyID_t& sphereID,
+                                            const deme::bodyID_t& sphereID_in,
                                             deme::bodyID_t* ownerIDs,
                                             deme::bodyID_t* bodyIDs,
                                             deme::family_t* ownerFamilies,
@@ -83,11 +84,14 @@ inline __device__ void fillSharedMemSpheres(deme::DEMSimParams* simParams,
                                             T2* bodyX,
                                             T2* bodyY,
                                             T2* bodyZ) {
+    // Keep a local `sphereID` for component acquisition macros.
+    deme::bodyID_t sphereID = sphereID_in;
+
     deme::bodyID_t ownerID = granData->ownerClumpBody[sphereID];
     bodyIDs[myThreadID] = sphereID;
     ownerIDs[myThreadID] = ownerID;
     ownerFamilies[myThreadID] = granData->familyID[ownerID];
-    double ownerX, ownerY, ownerZ;
+    float ownerX, ownerY, ownerZ;
     float myRadius;
     float3 myRelPos;
 
@@ -100,17 +104,18 @@ inline __device__ void fillSharedMemSpheres(deme::DEMSimParams* simParams,
     }
 
     // These locations does not include the LBF offset
-    voxelIDToPosition<double, deme::voxelID_t, deme::subVoxelPos_t>(
+    voxelIDToPosition<float, deme::voxelID_t, deme::subVoxelPos_t>(
         ownerX, ownerY, ownerZ, granData->voxelID[ownerID], granData->locX[ownerID], granData->locY[ownerID],
         granData->locZ[ownerID], _nvXp2_, _nvYp2_, _voxelSize_, _l_);
-    float myOriQw = granData->oriQw[ownerID];
-    float myOriQx = granData->oriQx[ownerID];
-    float myOriQy = granData->oriQy[ownerID];
-    float myOriQz = granData->oriQz[ownerID];
-    applyOriQToVector3<float, deme::oriQ_t>(myRelPos.x, myRelPos.y, myRelPos.z, myOriQw, myOriQx, myOriQy, myOriQz);
-    bodyX[myThreadID] = ownerX + (double)myRelPos.x;
-    bodyY[myThreadID] = ownerY + (double)myRelPos.y;
-    bodyZ[myThreadID] = ownerZ + (double)myRelPos.z;
+    float4 myOriQ;
+    myOriQ.w = granData->oriQw[ownerID];
+    myOriQ.x = granData->oriQx[ownerID];
+    myOriQ.y = granData->oriQy[ownerID];
+    myOriQ.z = granData->oriQz[ownerID];
+    applyOriQToVector3(myRelPos, myOriQ);
+    bodyX[myThreadID] = ownerX + myRelPos.x;
+    bodyY[myThreadID] = ownerY + myRelPos.y;
+    bodyZ[myThreadID] = ownerZ + myRelPos.z;
     radii[myThreadID] = myRadius;
 }
 
@@ -134,27 +139,25 @@ inline __device__ bool checkPrismPrismContact(deme::DEMSimParams* simParams,
     return in_contact;
 }
 
-__global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams,
-                                                   deme::DEMDataKT* granData,
-                                                   deme::bodyID_t* sphereIDsEachBinTouches_sorted,
-                                                   deme::binID_t* activeBinIDs,
-                                                   deme::spheresBinTouches_t* numSpheresBinTouches,
-                                                   deme::binSphereTouchPairs_t* sphereIDsLookUpTable,
-                                                   deme::binID_t* mapTriActBinToSphActBin,
-                                                   deme::bodyID_t* triIDsEachBinTouches_sorted,
-                                                   deme::binID_t* activeBinIDsForTri,
-                                                   deme::trianglesBinTouches_t* numTrianglesBinTouches,
-                                                   deme::binsTriangleTouchPairs_t* triIDsLookUpTable,
-                                                   deme::binContactPairs_t* numTriSphContactsInEachBin,
-                                                   deme::binContactPairs_t* numTriTriContactsInEachBin,
-                                                   float3* sandwichANode1,
-                                                   float3* sandwichANode2,
-                                                   float3* sandwichANode3,
-                                                   float3* sandwichBNode1,
-                                                   float3* sandwichBNode2,
-                                                   float3* sandwichBNode3,
-                                                   size_t nActiveBinsForTri,
-                                                   bool meshUniversalContact) {
+DEME_KERNEL void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams,
+                                                    deme::DEMDataKT* granData,
+                                                    deme::bodyID_t* sphereIDsEachBinTouches_sorted,
+                                                    deme::binID_t* activeBinIDs,
+                                                    deme::spheresBinTouches_t* numSpheresBinTouches,
+                                                    deme::binSphereTouchPairs_t* sphereIDsLookUpTable,
+                                                    deme::binID_t* mapTriActBinToSphActBin,
+                                                    deme::bodyID_t* triIDsEachBinTouches_sorted,
+                                                    deme::binID_t* activeBinIDsForTri,
+                                                    deme::trianglesBinTouches_t* numTrianglesBinTouches,
+                                                    deme::binsTriangleTouchPairs_t* triIDsLookUpTable,
+                                                    deme::binContactPairs_t* numTriSphContactsInEachBin,
+                                                    deme::binContactPairs_t* numTriTriContactsInEachBin,
+                                                    const float3* tri_vA1_all,
+                                                    const float3* tri_vB1_all,
+                                                    const float3* tri_vC1_all,
+                                                    const float3* tri_shift_all,
+                                                    size_t nActiveBinsForTri,
+                                                    bool meshUniversalContact) {
     // Shared storage for bodies involved in this bin. Pre-allocated so that each threads can easily use.
     __shared__ deme::bodyID_t triOwnerIDs[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ deme::bodyID_t triIDs[DEME_NUM_TRIANGLES_PER_CD_BATCH];
@@ -164,6 +167,7 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
     __shared__ float3 triBNode1[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ float3 triBNode2[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ float3 triBNode3[DEME_NUM_TRIANGLES_PER_CD_BATCH];
+    __shared__ float3 triCenters[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ deme::family_t triOwnerFamilies[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ deme::binContactPairs_t blockSphTriPairCnt, blockTriTriPairCnt;
 
@@ -218,8 +222,8 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
         if (myThreadID < this_batch_active_count) {
             deme::bodyID_t triID = triIDsEachBinTouches_sorted[thisTriTableEntry + processed_count + myThreadID];
             fillSharedMemTriangles(simParams, granData, myThreadID, triID, triOwnerIDs, triIDs, triOwnerFamilies,
-                                   sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1, sandwichBNode2,
-                                   sandwichBNode3, triANode1, triANode2, triANode3, triBNode1, triBNode2, triBNode3);
+                                   tri_vA1_all, tri_vB1_all, tri_vC1_all, tri_shift_all, triANode1, triANode2,
+                                   triANode3, triBNode1, triBNode2, triBNode3, triCenters);
         }
         __syncthreads();
 
@@ -238,7 +242,6 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
                 // Borrow it from another kernel file...
                 fillSharedMemSpheres<float, float>(simParams, granData, 0, sphereID, &ownerID, &sphereID, &ownerFamily,
                                                    &myRadius, &sphXYZ.x, &sphXYZ.y, &sphXYZ.z);
-
                 // Test contact with each triangle in shared memory
                 for (deme::trianglesBinTouches_t ind = 0; ind < this_batch_active_count; ind++) {
                     // A mesh facet and a sphere may have the same owner... although it is not possible with the current
@@ -283,7 +286,7 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
                     if (in_contact_A || in_contact_B) {
                         snap_to_face(triANode1[ind], triANode2[ind], triANode3[ind], sphXYZ, cntPnt);
                         deme::binID_t contactPntBin = getPointBinID<deme::binID_t>(
-                            cntPnt.x, cntPnt.y, cntPnt.z, simParams->dyn.binSize, simParams->nbX, simParams->nbY);
+                            cntPnt.x, cntPnt.y, cntPnt.z, simParams->dyn.inv_binSize, simParams->nbX, simParams->nbY);
                         if (contactPntBin == binID) {
                             atomicAdd(&blockSphTriPairCnt, 1);
                         }
@@ -313,7 +316,6 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
                 // double-counting), and they do not belong to the same clump
                 if (triOwnerIDs[bodyA] == triOwnerIDs[bodyB])
                     continue;
-
                 // Grab family number from memory (not jitified: b/c family number can change frequently in a sim)
                 unsigned int bodyAFamily = triOwnerFamilies[bodyA];
                 unsigned int bodyBFamily = triOwnerFamilies[bodyB];
@@ -334,9 +336,9 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
                     unsigned int ZZ = binID/(simParams->nbX*simParams->nbY);
                     unsigned int YY = binID%(simParams->nbX*simParams->nbY)/simParams->nbX;
                     unsigned int XX = binID%(simParams->nbX*simParams->nbY)%simParams->nbX;
-                    double binLocX = (XX + 0.5) * simParams->dyn.binSize;
-                    double binLocY = (YY + 0.5) * simParams->dyn.binSize;
-                    double binLocZ = (ZZ + 0.5) * simParams->dyn.binSize;
+                    double binLocX = (XX + 0.5) * simParams->binSize;
+                    double binLocY = (YY + 0.5) * simParams->binSize;
+                    double binLocZ = (ZZ + 0.5) * simParams->binSize;
                     printf("binLoc: %f, %f, %f\n", binLocX, binLocY, binLocZ);
                     printf("triANode1A: %f, %f, %f\n", triANode1[bodyA].x, triANode1[bodyA].y, triANode1[bodyA].z);
                 }
@@ -352,6 +354,7 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
                 for (deme::trianglesBinTouches_t i = 0; i < leftover_count; i++) {
                     deme::bodyID_t cur_ownerID, cur_bodyID;
                     float3 cur_triANode1, cur_triANode2, cur_triANode3, cur_triBNode1, cur_triBNode2, cur_triBNode3;
+                    float3 cur_triCenter;
                     deme::family_t cur_ownerFamily;
                     {
                         const deme::trianglesBinTouches_t cur_ind =
@@ -361,15 +364,13 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
                         // fast. And it's not really shared mem filling, just using that function to get the info.
                         deme::bodyID_t cur_triID = triIDsEachBinTouches_sorted[thisTriTableEntry + cur_ind];
                         fillSharedMemTriangles(simParams, granData, 0, cur_triID, &cur_ownerID, &cur_bodyID,
-                                               &cur_ownerFamily, sandwichANode1, sandwichANode2, sandwichANode3,
-                                               sandwichBNode1, sandwichBNode2, sandwichBNode3, &cur_triANode1,
-                                               &cur_triANode2, &cur_triANode3, &cur_triBNode1, &cur_triBNode2,
-                                               &cur_triBNode3);
+                                               &cur_ownerFamily, tri_vA1_all, tri_vB1_all, tri_vC1_all, tri_shift_all,
+                                               &cur_triANode1, &cur_triANode2, &cur_triANode3, &cur_triBNode1,
+                                               &cur_triBNode2, &cur_triBNode3, &cur_triCenter);
                     }
                     // Then each in-shared-mem sphere compares against it. But first, check if same owner...
                     if (triOwnerIDs[myThreadID] == cur_ownerID)
                         continue;
-
                     // Grab family number from memory (not jitified: b/c family number can change frequently in a sim)
                     unsigned int bodyAFamily = triOwnerFamilies[myThreadID];
                     unsigned int maskMatID = locateMaskPair<unsigned int>(bodyAFamily, cur_ownerFamily);
@@ -402,33 +403,31 @@ __global__ void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParams
     }
 }
 
-__global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
-                                                deme::DEMDataKT* granData,
-                                                deme::bodyID_t* sphereIDsEachBinTouches_sorted,
-                                                deme::binID_t* activeBinIDs,
-                                                deme::spheresBinTouches_t* numSpheresBinTouches,
-                                                deme::binSphereTouchPairs_t* sphereIDsLookUpTable,
-                                                deme::binID_t* mapTriActBinToSphActBin,
-                                                deme::bodyID_t* triIDsEachBinTouches_sorted,
-                                                deme::binID_t* activeBinIDsForTri,
-                                                deme::trianglesBinTouches_t* numTrianglesBinTouches,
-                                                deme::binsTriangleTouchPairs_t* triIDsLookUpTable,
-                                                deme::contactPairs_t* triSphContactReportOffsets,
-                                                deme::contactPairs_t* triTriContactReportOffsets,
-                                                deme::bodyID_t* idSphA_sm,
-                                                deme::bodyID_t* idTriB_sm,
-                                                deme::contact_t* dType_sm,
-                                                deme::bodyID_t* idTriA_mm,
-                                                deme::bodyID_t* idTriB_mm,
-                                                deme::contact_t* dType_mm,
-                                                float3* sandwichANode1,
-                                                float3* sandwichANode2,
-                                                float3* sandwichANode3,
-                                                float3* sandwichBNode1,
-                                                float3* sandwichBNode2,
-                                                float3* sandwichBNode3,
-                                                size_t nActiveBinsForTri,
-                                                bool meshUniversalContact) {
+DEME_KERNEL void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
+                                                 deme::DEMDataKT* granData,
+                                                 deme::bodyID_t* sphereIDsEachBinTouches_sorted,
+                                                 deme::binID_t* activeBinIDs,
+                                                 deme::spheresBinTouches_t* numSpheresBinTouches,
+                                                 deme::binSphereTouchPairs_t* sphereIDsLookUpTable,
+                                                 deme::binID_t* mapTriActBinToSphActBin,
+                                                 deme::bodyID_t* triIDsEachBinTouches_sorted,
+                                                 deme::binID_t* activeBinIDsForTri,
+                                                 deme::trianglesBinTouches_t* numTrianglesBinTouches,
+                                                 deme::binsTriangleTouchPairs_t* triIDsLookUpTable,
+                                                 deme::contactPairs_t* triSphContactReportOffsets,
+                                                 deme::contactPairs_t* triTriContactReportOffsets,
+                                                 deme::bodyID_t* idSphA_sm,
+                                                 deme::bodyID_t* idTriB_sm,
+                                                 deme::contact_t* dType_sm,
+                                                 deme::bodyID_t* idTriA_mm,
+                                                 deme::bodyID_t* idTriB_mm,
+                                                 deme::contact_t* dType_mm,
+                                                 const float3* tri_vA1_all,
+                                                 const float3* tri_vB1_all,
+                                                 const float3* tri_vC1_all,
+                                                 const float3* tri_shift_all,
+                                                 size_t nActiveBinsForTri,
+                                                 bool meshUniversalContact) {
     // Shared storage for bodies involved in this bin. Pre-allocated so that each threads can easily use.
     __shared__ deme::bodyID_t triOwnerIDs[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ deme::bodyID_t triIDs[DEME_NUM_TRIANGLES_PER_CD_BATCH];
@@ -438,6 +437,7 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
     __shared__ float3 triBNode1[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ float3 triBNode2[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ float3 triBNode3[DEME_NUM_TRIANGLES_PER_CD_BATCH];
+    __shared__ float3 triCenters[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ deme::family_t triOwnerFamilies[DEME_NUM_TRIANGLES_PER_CD_BATCH];
     __shared__ deme::binContactPairs_t blockSphTriPairCnt, blockTriTriPairCnt;
 
@@ -488,8 +488,8 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
         if (myThreadID < this_batch_active_count) {
             deme::bodyID_t triID = triIDsEachBinTouches_sorted[thisTriTableEntry + processed_count + myThreadID];
             fillSharedMemTriangles(simParams, granData, myThreadID, triID, triOwnerIDs, triIDs, triOwnerFamilies,
-                                   sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1, sandwichBNode2,
-                                   sandwichBNode3, triANode1, triANode2, triANode3, triBNode1, triBNode2, triBNode3);
+                                   tri_vA1_all, tri_vB1_all, tri_vC1_all, tri_shift_all, triANode1, triANode2,
+                                   triANode3, triBNode1, triBNode2, triBNode3, triCenters);
         }
         __syncthreads();
 
@@ -508,7 +508,6 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                 // Borrow it from another kernel file...
                 fillSharedMemSpheres<float, float>(simParams, granData, 0, sphereID, &ownerID, &sphereID, &ownerFamily,
                                                    &myRadius, &sphXYZ.x, &sphXYZ.y, &sphXYZ.z);
-
                 // Test contact with each triangle in shared memory
                 for (deme::trianglesBinTouches_t ind = 0; ind < this_batch_active_count; ind++) {
                     // A mesh facet and a sphere may have the same owner... although it is not possible with the current
@@ -553,7 +552,7 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                     if (in_contact_A || in_contact_B) {
                         snap_to_face(triANode1[ind], triANode2[ind], triANode3[ind], sphXYZ, cntPnt);
                         deme::binID_t contactPntBin = getPointBinID<deme::binID_t>(
-                            cntPnt.x, cntPnt.y, cntPnt.z, simParams->dyn.binSize, simParams->nbX, simParams->nbY);
+                            cntPnt.x, cntPnt.y, cntPnt.z, simParams->dyn.inv_binSize, simParams->nbX, simParams->nbY);
                         if (contactPntBin == binID) {
                             deme::contactPairs_t inBlockOffset = smReportOffset + atomicAdd(&blockSphTriPairCnt, 1);
                             if (inBlockOffset < smReportOffset_end) {
@@ -588,7 +587,6 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                 // double-counting), and they do not belong to the same clump
                 if (triOwnerIDs[bodyA] == triOwnerIDs[bodyB])
                     continue;
-
                 // Grab family number from memory (not jitified: b/c family number can change frequently in a sim)
                 unsigned int bodyAFamily = triOwnerFamilies[bodyA];
                 unsigned int bodyBFamily = triOwnerFamilies[bodyB];
@@ -619,19 +617,16 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                         // in these processes could affect the ordering, so I added this superfluous check to be
                         // future-proof.
                         // ----------------------------------------------------------------------------
-                        deme::bodyID_t triA_ID, triB_ID;
-                        if (triIDs[bodyA] <= triIDs[bodyB]) {
-                            // This branch will be reached, always
-                            triA_ID = triIDs[bodyA];
-                            triB_ID = triIDs[bodyB];
-                            idTriA_mm[inBlockOffset] = triA_ID;
-                            idTriB_mm[inBlockOffset] = triB_ID;
-                        } else {
-                            triA_ID = triIDs[bodyB];
-                            triB_ID = triIDs[bodyA];
-                            idTriA_mm[inBlockOffset] = triA_ID;
-                            idTriB_mm[inBlockOffset] = triB_ID;
+                        const deme::bodyID_t triA_ID = triIDs[bodyA];
+                        const deme::bodyID_t triB_ID = triIDs[bodyB];
+                        deme::bodyID_t outA = triA_ID;
+                        deme::bodyID_t outB = triB_ID;
+                        if (triA_ID > triB_ID) {
+                            outA = triB_ID;
+                            outB = triA_ID;
                         }
+                        idTriA_mm[inBlockOffset] = outA;
+                        idTriB_mm[inBlockOffset] = outB;
                         dType_mm[inBlockOffset] = deme::TRIANGLE_TRIANGLE_CONTACT;
                     }
                 }
@@ -642,6 +637,7 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                 for (deme::trianglesBinTouches_t i = 0; i < leftover_count; i++) {
                     deme::bodyID_t cur_ownerID, cur_bodyID;
                     float3 cur_triANode1, cur_triANode2, cur_triANode3, cur_triBNode1, cur_triBNode2, cur_triBNode3;
+                    float3 cur_triCenter;
                     deme::family_t cur_ownerFamily;
                     {
                         const deme::trianglesBinTouches_t cur_ind =
@@ -651,15 +647,13 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                         // fast. And it's not really shared mem filling, just using that function to get the info.
                         deme::bodyID_t cur_triID = triIDsEachBinTouches_sorted[thisTriTableEntry + cur_ind];
                         fillSharedMemTriangles(simParams, granData, 0, cur_triID, &cur_ownerID, &cur_bodyID,
-                                               &cur_ownerFamily, sandwichANode1, sandwichANode2, sandwichANode3,
-                                               sandwichBNode1, sandwichBNode2, sandwichBNode3, &cur_triANode1,
-                                               &cur_triANode2, &cur_triANode3, &cur_triBNode1, &cur_triBNode2,
-                                               &cur_triBNode3);
+                                               &cur_ownerFamily, tri_vA1_all, tri_vB1_all, tri_vC1_all, tri_shift_all,
+                                               &cur_triANode1, &cur_triANode2, &cur_triANode3, &cur_triBNode1,
+                                               &cur_triBNode2, &cur_triBNode3, &cur_triCenter);
                     }
                     // Then each in-shared-mem sphere compares against it. But first, check if same owner...
                     if (triOwnerIDs[myThreadID] == cur_ownerID)
                         continue;
-
                     // Grab family number from memory (not jitified: b/c family number can change frequently in a sim)
                     unsigned int bodyAFamily = triOwnerFamilies[myThreadID];
                     unsigned int maskMatID = locateMaskPair<unsigned int>(bodyAFamily, cur_ownerFamily);
@@ -679,19 +673,16 @@ __global__ void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                         // The chance of offset going out-of-bound is very low, lower than sph--bin CD step, but I put
                         // it here anyway
                         if (inBlockOffset < mmReportOffset_end) {
-                            deme::bodyID_t triA_ID, triB_ID;
-                            if (triIDs[myThreadID] <= cur_bodyID) {
-                                // This branch will be reached, always
-                                triA_ID = triIDs[myThreadID];
-                                triB_ID = cur_bodyID;
-                                idTriA_mm[inBlockOffset] = triA_ID;
-                                idTriB_mm[inBlockOffset] = triB_ID;
-                            } else {
-                                triA_ID = cur_bodyID;
-                                triB_ID = triIDs[myThreadID];
-                                idTriA_mm[inBlockOffset] = triA_ID;
-                                idTriB_mm[inBlockOffset] = triB_ID;
+                            const deme::bodyID_t triA_ID = triIDs[myThreadID];
+                            const deme::bodyID_t triB_ID = cur_bodyID;
+                            deme::bodyID_t outA = triA_ID;
+                            deme::bodyID_t outB = triB_ID;
+                            if (triA_ID > triB_ID) {
+                                outA = triB_ID;
+                                outB = triA_ID;
                             }
+                            idTriA_mm[inBlockOffset] = outA;
+                            idTriB_mm[inBlockOffset] = outB;
                             dType_mm[inBlockOffset] = deme::TRIANGLE_TRIANGLE_CONTACT;
                         }
                     }

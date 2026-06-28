@@ -699,7 +699,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         bodyID_t* triIDsEachBinTouches_sorted;
         trianglesBinTouches_t* numTrianglesBinTouches;
         binsTriangleTouchPairs_t* triIDsLookUpTable;
-        float3 *sandwichANode1, *sandwichANode2, *sandwichANode3, *sandwichBNode1, *sandwichBNode2, *sandwichBNode3;
+        float3 *tri_vA1 = nullptr, *tri_vB1 = nullptr, *tri_vC1 = nullptr, *tri_shift = nullptr;
+        float3 *sandwichANode1, *sandwichANode2, *sandwichANode3, *sandwichBNode1;
         // The following two pointers are device pointers, as outside this (simParams->nTriGM > 0) block, they are only
         // used as read-only ingredients in kernels. But their data is stored using DualArray, as the data need at some
         // point be processed on host.
@@ -713,17 +714,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             sandwichANode1 = (float3*)scratchPad.allocateTempVector("sandwichANode1", CD_temp_arr_bytes);
             sandwichANode2 = sandwichANode1 + simParams->nTriGM;
             sandwichANode3 = sandwichANode2 + simParams->nTriGM;
-            sandwichBNode1 = (float3*)scratchPad.allocateTempVector("sandwichBNode1", CD_temp_arr_bytes);
-            sandwichBNode2 = sandwichBNode1 + simParams->nTriGM;
-            sandwichBNode3 = sandwichBNode2 + simParams->nTriGM;
+            sandwichBNode1 =
+                (float3*)scratchPad.allocateTempVector("sandwichBNode1", simParams->nTriGM * sizeof(float3));
             size_t blocks_needed_for_tri =
                 (simParams->nTriGM + DEME_NUM_TRIANGLE_PER_BLOCK - 1) / DEME_NUM_TRIANGLE_PER_BLOCK;
             bin_triangle_kernels->kernel("makeTriangleSandwich")
                 .instantiate()
                 .configure(dim3(blocks_needed_for_tri), dim3(DEME_NUM_TRIANGLE_PER_BLOCK), 0, this_stream)
-                .launch(&simParams, &granData, sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1,
-                        sandwichBNode2, sandwichBNode3);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                .launch(&simParams, &granData, sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1);
 
             // 1st step: register the number of triangle--bin touching pairs for each triangle for further processing.
             // We also use the opportunity to find how many analytical objects each triangle touches.
@@ -736,13 +734,63 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 numAnalGeoTriTouches =
                     (objID_t*)scratchPad.allocateTempVector("numAnalGeoTriTouches", CD_temp_arr_bytes);
             }
+
+            // Triangle prepass: compute world vertices/bounds/shift once, reuse in both sweeps.
+            CD_temp_arr_bytes = simParams->nTriGM * sizeof(float3);
+            tri_vA1 = (float3*)scratchPad.allocateTempVector("tri_vA1", CD_temp_arr_bytes);
+            tri_vB1 = (float3*)scratchPad.allocateTempVector("tri_vB1", CD_temp_arr_bytes);
+            tri_vC1 = (float3*)scratchPad.allocateTempVector("tri_vC1", CD_temp_arr_bytes);
+            tri_shift = (float3*)scratchPad.allocateTempVector("tri_shift", CD_temp_arr_bytes);
+
+            CD_temp_arr_bytes = simParams->nTriGM * sizeof(int3);
+            int3* tri_L1 = (int3*)scratchPad.allocateTempVector("tri_L1", CD_temp_arr_bytes);
+            int3* tri_U1 = (int3*)scratchPad.allocateTempVector("tri_U1", CD_temp_arr_bytes);
+            int3* tri_L2 = (int3*)scratchPad.allocateTempVector("tri_L2", CD_temp_arr_bytes);
+            int3* tri_U2 = (int3*)scratchPad.allocateTempVector("tri_U2", CD_temp_arr_bytes);
+
+            CD_temp_arr_bytes = simParams->nTriGM * sizeof(uint8_t);
+            uint8_t* tri_ok1 = (uint8_t*)scratchPad.allocateTempVector("tri_ok1", CD_temp_arr_bytes);
+            uint8_t* tri_ok2 = (uint8_t*)scratchPad.allocateTempVector("tri_ok2", CD_temp_arr_bytes);
+
+            // Precompute mesh-owner pose (position + rotation matrix rows) once per step (mesh owners only).
+            float3 *meshOwnerPos = nullptr, *meshR1 = nullptr, *meshR2 = nullptr, *meshR3 = nullptr;
+            if (simParams->nTriMeshes > 0) {
+                CD_temp_arr_bytes = simParams->nTriMeshes * sizeof(float3);
+                meshOwnerPos = (float3*)scratchPad.allocateTempVector("meshOwnerPos", CD_temp_arr_bytes);
+                meshR1 = (float3*)scratchPad.allocateTempVector("meshR1", CD_temp_arr_bytes);
+                meshR2 = (float3*)scratchPad.allocateTempVector("meshR2", CD_temp_arr_bytes);
+                meshR3 = (float3*)scratchPad.allocateTempVector("meshR3", CD_temp_arr_bytes);
+                size_t blocks_needed_for_mesh_owner =
+                    (simParams->nTriMeshes + DEME_NUM_TRIANGLE_PER_BLOCK - 1) / DEME_NUM_TRIANGLE_PER_BLOCK;
+                bin_triangle_kernels->kernel("precomputeMeshOwnerPose")
+                    .instantiate()
+                    .configure(dim3(blocks_needed_for_mesh_owner), dim3(DEME_NUM_TRIANGLE_PER_BLOCK), 0, this_stream)
+                    .launch(&simParams, &granData, meshOwnerPos, meshR1, meshR2, meshR3);
+            }
+
+            bin_triangle_kernels->kernel("precomputeTriangleSandwichData")
+                .instantiate()
+                .configure(dim3(blocks_needed_for_tri), dim3(DEME_NUM_TRIANGLE_PER_BLOCK), 0, this_stream)
+                .launch(&simParams, &granData, tri_vA1, tri_vB1, tri_vC1, tri_shift, tri_L1, tri_U1, tri_L2, tri_U2,
+                        tri_ok1, tri_ok2, meshOwnerPos, meshR1, meshR2, meshR3, sandwichANode1, sandwichANode2,
+                        sandwichANode3, sandwichBNode1);
+
+            if (meshOwnerPos) {
+                scratchPad.finishUsingTempVector("meshOwnerPos");
+                scratchPad.finishUsingTempVector("meshR1");
+                scratchPad.finishUsingTempVector("meshR2");
+                scratchPad.finishUsingTempVector("meshR3");
+            }
+
+            // Sandwich nodes are no longer needed beyond prepass.
+            scratchPad.finishUsingTempVector("sandwichANode1");
+            scratchPad.finishUsingTempVector("sandwichBNode1");
+
             bin_triangle_kernels->kernel("getNumberOfBinsEachTriangleTouches")
                 .instantiate()
                 .configure(dim3(blocks_needed_for_tri), dim3(DEME_NUM_TRIANGLE_PER_BLOCK), 0, this_stream)
-                .launch(&simParams, &granData, numBinsTriTouches, numAnalGeoTriTouches, sandwichANode1, sandwichANode2,
-                        sandwichANode3, sandwichBNode1, sandwichBNode2, sandwichBNode3,
-                        solverFlags.meshUniversalContact);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                .launch(&simParams, &granData, numBinsTriTouches, numAnalGeoTriTouches, tri_vA1, tri_vB1, tri_vC1,
+                        tri_shift, tri_L1, tri_U1, tri_L2, tri_U2, tri_ok1, tri_ok2, solverFlags.meshUniversalContact);
             // std::cout << "numBinsTriTouches: " << std::endl;
             // displayDeviceArray<binsTriangleTouches_t>(numBinsTriTouches, simParams->nTriGM);
             // std::cout << "numAnalGeoTriTouches: " << std::endl;
@@ -815,9 +863,15 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 .instantiate()
                 .configure(dim3(blocks_needed_for_tri), dim3(DEME_NUM_TRIANGLE_PER_BLOCK), 0, this_stream)
                 .launch(&simParams, &granData, numBinsTriTouchesScan, numAnalGeoTriTouchesScan, binIDsEachTriTouches,
-                        triIDsEachBinTouches, sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1,
-                        sandwichBNode2, sandwichBNode3, idTriA, idGeoB, dType, solverFlags.meshUniversalContact);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                        triIDsEachBinTouches, tri_vA1, tri_vB1, tri_vC1, tri_shift, tri_L1, tri_U1, tri_L2, tri_U2,
+                        tri_ok1, tri_ok2, idTriA, idGeoB, dType, solverFlags.meshUniversalContact);
+
+            scratchPad.finishUsingTempVector("tri_L1");
+            scratchPad.finishUsingTempVector("tri_U1");
+            scratchPad.finishUsingTempVector("tri_L2");
+            scratchPad.finishUsingTempVector("tri_U2");
+            scratchPad.finishUsingTempVector("tri_ok1");
+            scratchPad.finishUsingTempVector("tri_ok2");
             // std::cout << "binIDsEachTriTouches: " << std::endl;
             // displayDeviceArray<binsTriangleTouches_t>(binIDsEachTriTouches, *pNumBinTriTouchPairs);
             // std::cout << "dType: " << std::endl;
@@ -975,8 +1029,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     .launch(&simParams, &granData, sphereIDsEachBinTouches_sorted, activeBinIDs, numSpheresBinTouches,
                             sphereIDsLookUpTable, mapTriActBinToSphActBin, triIDsEachBinTouches_sorted,
                             activeBinIDsForTri, numTrianglesBinTouches, triIDsLookUpTable, numTriSphContactsInEachBin,
-                            numTriTriContactsInEachBin, sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1,
-                            sandwichBNode2, sandwichBNode3, *pNumActiveBinsForTri, solverFlags.meshUniversalContact);
+                            numTriTriContactsInEachBin, tri_vA1, tri_vB1, tri_vC1, tri_shift, *pNumActiveBinsForTri,
+                            solverFlags.meshUniversalContact);
                 DEME_GPU_CALL_WATCH_BETA(cudaStreamSynchronize(this_stream));
                 // std::cout << "numTriSphContactsInEachBin: " << std::endl;
                 // displayDeviceArray<binContactPairs_t>(numTriSphContactsInEachBin, *pNumActiveBinsForTri);
@@ -1113,8 +1167,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             sphereIDsLookUpTable, mapTriActBinToSphActBin, triIDsEachBinTouches_sorted,
                             activeBinIDsForTri, numTrianglesBinTouches, triIDsLookUpTable, triSphContactReportOffsets,
                             triTriContactReportOffsets, idSphA_sm, idTriB_sm, dType_sm, idTriA_mm, idTriB_mm, dType_mm,
-                            sandwichANode1, sandwichANode2, sandwichANode3, sandwichBNode1, sandwichBNode2,
-                            sandwichBNode3, *pNumActiveBinsForTri, solverFlags.meshUniversalContact);
+                            tri_vA1, tri_vB1, tri_vC1, tri_shift, *pNumActiveBinsForTri,
+                            solverFlags.meshUniversalContact);
                 DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
             }
             // std::cout << "idPrimitiveA: " << std::endl;
@@ -1130,8 +1184,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         scratchPad.finishUsingDualArray("activeBinIDs");
         scratchPad.finishUsingTempVector("numSpheresBinTouches");
         scratchPad.finishUsingTempVector("sphereIDsLookUpTable");
-        scratchPad.finishUsingTempVector("sandwichANode1");
-        scratchPad.finishUsingTempVector("sandwichBNode1");
         scratchPad.finishUsingTempVector("triIDsEachBinTouches_sorted");
         scratchPad.finishUsingDualArray("activeBinIDsForTri");
         scratchPad.finishUsingTempVector("numTrianglesBinTouches");
@@ -1143,6 +1195,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         scratchPad.finishUsingTempVector("sphSphContactReportOffsets");
         scratchPad.finishUsingTempVector("triSphContactReportOffsets");
         scratchPad.finishUsingTempVector("triTriContactReportOffsets");
+
+        // Release triangle precompute buffers (needed by tri contact kernels above).
+        if (simParams->nTriGM > 0) {
+            scratchPad.finishUsingTempVector("tri_vA1");
+            scratchPad.finishUsingTempVector("tri_vB1");
+            scratchPad.finishUsingTempVector("tri_vC1");
+            scratchPad.finishUsingTempVector("tri_shift");
+        }
 
         scratchPad.finishUsingDualStruct("numActiveBins");
         scratchPad.finishUsingDualStruct("numActiveBinsForTri");
