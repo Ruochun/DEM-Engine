@@ -584,6 +584,11 @@ const float DEFAULT_BOX_DOMAIN_SIZE = 20.;
 const float DEFAULT_BOX_DOMAIN_ENLARGE_RATIO = 0.2;
 // Initial contact array size; does not matter that much as they can be resized anytime in simulation
 const contactPairs_t INITIAL_CONTACT_ARRAY_SIZE = 1024;
+// Inclusive bin range on one axis. An empty range is represented by imax < imin.
+struct AxisBounds {
+    int imin;
+    int imax;
+};
 
 // #ifndef CUB_IGNORE_DEPRECATED_API
 // #define CUB_IGNORE_DEPRECATED_API

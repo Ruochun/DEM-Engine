@@ -26,7 +26,7 @@ inline __device__ void equipOwnerPosRot(deme::DEMSimParams* simParams,
     oriQ.x = granData->oriQx[myOwner];
     oriQ.y = granData->oriQy[myOwner];
     oriQ.z = granData->oriQz[myOwner];
-    applyOriQToVector3(relPos.x, relPos.y, relPos.z, oriQ.w, oriQ.x, oriQ.y, oriQ.z);
+    applyOriQToVector3(relPos, oriQ);
     bodyPos.x = ownerPos.x + (double)relPos.x;
     bodyPos.y = ownerPos.y + (double)relPos.y;
     bodyPos.z = ownerPos.z + (double)relPos.z;
@@ -120,9 +120,6 @@ __host__ __device__ deme::contact_t checkSphereEntityOverlap(const T1& A,
             cntNormal = dirB;
             return contactTypePrimitive;
         }
-        case (deme::ANAL_OBJ_TYPE_PLATE): {
-            return deme::NOT_A_CONTACT;
-        }
         case (deme::ANAL_OBJ_TYPE_CYL_INF): {
             T1 cyl2sph = cylRadialDistanceVec<T1>(A, B, dirB);
             const T3 dist_delta_r = length(cyl2sph);
@@ -137,8 +134,7 @@ __host__ __device__ deme::contact_t checkSphereEntityOverlap(const T1& A,
                 // Simplify it...
                 overlapArea = deme::PI * (2.0 * radA * overlapDepth - overlapDepth * overlapDepth);
             }
-            // dist_delta_r is 0 only when cylinder is thinner than sphere rad...
-            // Also, inward normal is 1, outward is -1, so flip normal_sign for B2A vector
+            // Inward normal is 1, outward is -1, so flip normal_sign for B2A vector
             cntNormal = to_real3<T1, float3>(-normal_sign / dist_delta_r * cyl2sph);
             CP = A - to_real3<float3, T1>(cntNormal * (radA - overlapDepth / 2.0));
             return contactTypePrimitive;

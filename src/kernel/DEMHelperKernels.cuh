@@ -172,6 +172,20 @@ applyOriQToVector3(T1& X, T1& Y, T1& Z, const T2& Qw, const T2& Qx, const T2& Qy
         ((T2)2.0 * (Qw * Qw + Qz * Qz) - (T2)1.0) * oldZ;
 }
 
+template <typename T1, typename T2>
+inline __host__ __device__ void applyOriQToVector3(T1& v, const T2& Q) {
+    auto oldX = v.x;
+    auto oldY = v.y;
+    auto oldZ = v.z;
+    const auto Qw = Q.w;
+    const auto Qx = Q.x;
+    const auto Qy = Q.y;
+    const auto Qz = Q.z;
+    v.x = (2 * (Qw * Qw + Qx * Qx) - 1) * oldX + (2 * (Qx * Qy - Qw * Qz)) * oldY + (2 * (Qx * Qz + Qw * Qy)) * oldZ;
+    v.y = (2 * (Qx * Qy + Qw * Qz)) * oldX + (2 * (Qw * Qw + Qy * Qy) - 1) * oldY + (2 * (Qy * Qz - Qw * Qx)) * oldZ;
+    v.z = (2 * (Qx * Qz - Qw * Qy)) * oldX + (2 * (Qy * Qz + Qw * Qx)) * oldY + (2 * (Qw * Qw + Qz * Qz) - 1) * oldZ;
+}
+
 template <typename T1, typename T2, typename T3>
 __host__ __device__ void applyFrameTransformLocalToGlobal(T1& pos, const T2& vec, const T3& rot_Q) {
     applyOriQToVector3(pos.x, pos.y, pos.z, rot_Q.w, rot_Q.x, rot_Q.y, rot_Q.z);
@@ -262,6 +276,118 @@ binIDFrom3Indices(const T1& X, const T1& Y, const T1& Z, const T1& nbX, const T1
     } else {
         return deme::NULL_BINID;
     }
+}
+
+inline __host__ __device__ bool near_edge(float b) {
+    const float k = floorf(b);
+    const float d = fminf(b - k, (k + 1.0f) - b);
+    const float tau = 8.0f * fmaxf(fabsf(b) * 1.1920929e-7f, 1.1920929e-7f);
+    return d <= tau;
+}
+
+// Computes the inclusive [imin, imax] bin range (clamped to [0, nb - 1]) along one axis with a fast
+// FP32 path and an FP64 fallback near bin boundaries.
+inline __host__ __device__ deme::AxisBounds axis_bounds(double p, double r, int nb, double invBinSize) {
+    const float invBinF = (float)invBinSize;
+    const float pF = (float)p;
+    const float rF = (float)r;
+    const float bPlusF = fmaf(rF, invBinF, pF * invBinF);
+    const float bMinusF = (pF - rF) * invBinF;
+    if (!(near_edge(bPlusF) || near_edge(bMinusF))) {
+        int imax = (int)fminf(bPlusF, (float)(nb - 1));
+        int imin = (int)fmaxf(bMinusF, 0.0f);
+        if (imax < imin) {
+            return {0, -1};
+        }
+        return {imin, imax};
+    }
+
+    const double bPlusD = fma(r, invBinSize, p * invBinSize);
+    const double bMinusD = (p - r) * invBinSize;
+    const int imax = (int)fmin(bPlusD, (double)(nb - 1));
+    const int imin = (int)fmax(bMinusD, 0.0);
+    if (imax < imin) {
+        return {0, -1};
+    }
+    return {imin, imax};
+}
+
+inline __host__ __device__ deme::contact_t checkSphereContactOverlapAndBin(const double& XA,
+                                                                           const double& YA,
+                                                                           const double& ZA,
+                                                                           const double& radA,
+                                                                           const double& XB,
+                                                                           const double& YB,
+                                                                           const double& ZB,
+                                                                           const double& radB,
+                                                                           const double& invBinSize,
+                                                                           const deme::binID_t& nbX,
+                                                                           const deme::binID_t& nbY,
+                                                                           double& overlapDepth,
+                                                                           deme::binID_t& binID) {
+    const float xA = (float)XA;
+    const float yA = (float)YA;
+    const float zA = (float)ZA;
+    const float xB = (float)XB;
+    const float yB = (float)YB;
+    const float zB = (float)ZB;
+    const float dx = xA - xB;
+    const float dy = yA - yB;
+    const float dz = zA - zB;
+    const float dist2f = fmaf(dz, dz, fmaf(dy, dy, dx * dx));
+    const float rsumf = (float)radA + (float)radB;
+    const float r2f = rsumf * rsumf;
+    if (dist2f > r2f) {
+        overlapDepth = 0.0;
+        binID = (deme::binID_t)0;
+        return deme::NOT_A_CONTACT;
+    }
+
+    float nx;
+    float ny;
+    float nz;
+    float distf = 0.0f;
+    if (dist2f > 0.0f) {
+        distf = sqrtf(dist2f);
+        const float invd = 1.0f / distf;
+        nx = dx * invd;
+        ny = dy * invd;
+        nz = dz * invd;
+    } else {
+        nx = 1.0f;
+        ny = 0.0f;
+        nz = 0.0f;
+    }
+
+    const float overlapF = rsumf - distf;
+    const float stepF = (float)radB - 0.5f * overlapF;
+    const float CPXf = fmaf(stepF, nx, xB);
+    const float CPYf = fmaf(stepF, ny, yB);
+    const float CPZf = fmaf(stepF, nz, zB);
+
+    const float invF = (float)invBinSize;
+    const float bxF = CPXf * invF;
+    const float byF = CPYf * invF;
+    const float bzF = CPZf * invF;
+    if (!(near_edge(bxF) || near_edge(byF) || near_edge(bzF))) {
+        const deme::binID_t ix = (deme::binID_t)bxF;
+        const deme::binID_t iy = (deme::binID_t)byF;
+        const deme::binID_t iz = (deme::binID_t)bzF;
+        binID = ix + iy * nbX + iz * nbX * nbY;
+        overlapDepth = (double)overlapF;
+        return deme::SPHERE_SPHERE_CONTACT;
+    }
+
+    const double centerDist2 = distSquared<double>(XA, YA, ZA, XB, YB, ZB);
+    overlapDepth = radA + radB - sqrt(centerDist2);
+    const double CPXd = XB + (radB - overlapDepth * 0.5) * nx;
+    const double CPYd = YB + (radB - overlapDepth * 0.5) * ny;
+    const double CPZd = ZB + (radB - overlapDepth * 0.5) * nz;
+    const deme::binID_t ix = (deme::binID_t)(CPXd * invBinSize);
+    const deme::binID_t iy = (deme::binID_t)(CPYd * invBinSize);
+    const deme::binID_t iz = (deme::binID_t)(CPZd * invBinSize);
+    binID = ix + iy * nbX + iz * nbX * nbY;
+    return deme::SPHERE_SPHERE_CONTACT;
 }
 
 // This utility function returns the normal to the triangular face defined by
