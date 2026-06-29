@@ -3082,6 +3082,22 @@ void DEMDynamicThread::workerThread() {
                 step_accepted = true;
             } while ((!solverFlags.isStepConst) || (!step_accepted));
 
+            //// TODO: make changes for variable time step size cases
+            simParams->dyn.timeElapsed += (double)simParams->dyn.h;
+            simParams.syncMemberToDeviceAsync<double>(
+                offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, timeElapsed), streamInfo.stream);
+
+            // Required step-completion barrier.
+            //
+            // dT/kT scheduling treats currentStampOfDynamic, nTotalSteps, and the kT handoff buffers as facts about
+            // completed dynamics steps. CUDA launches above are asynchronous, so without this barrier the CPU thread
+            // can advance those counters and hand stale positions/velocities to kT while the GPU is still finishing
+            // this step. That makes kT derive contact margins from an inflated future drift, which is especially
+            // dangerous for mesh contacts because enlarged triangle margins can explode the primitive contact count.
+            //
+            // This synchronization is therefore part of the solver's correctness contract, not debug error checking.
+            DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+
             // CalculateForces is done, set contactPairArr_isFresh to false
             // This will be set to true next time it receives an update from kT
             contactPairArr_isFresh = false;
@@ -3095,11 +3111,6 @@ void DEMDynamicThread::workerThread() {
             pSchedSupport->currentStampOfDynamic++;
             nTotalSteps++;
             accumStepUpdater.AddStep();
-
-            //// TODO: make changes for variable time step size cases
-            simParams->dyn.timeElapsed += (double)simParams->dyn.h;
-            simParams.syncMemberToDeviceAsync<double>(
-                offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, timeElapsed), streamInfo.stream);
 
             DEME_DEBUG_PRINTF("Completed step %zu, time %.9g", nTotalSteps, simParams->dyn.timeElapsed);
         }
