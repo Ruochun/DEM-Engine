@@ -23,10 +23,19 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
                                                       bool torque_in_local) {
     size_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < numCnt) {
+        const bool patch_space = (granData->contactTypePatch && granData->idPatchA && granData->idPatchB);
+        if (!patch_space) {
+            // Patch and primitive contact arrays do not share the same index space. This kernel is intentionally
+            // patch-contact-only; primitive contact queries need a separate launch.
+            return;
+        }
         contact_t typeContact = granData->contactTypePatch[i];
+        if (typeContact == NOT_A_CONTACT) {
+            return;
+        }
         bodyID_t geoA = granData->idPatchA[i];
-        bodyID_t ownerA = DEME_GET_PATCH_OWNER_ID(geoA, decodeTypeA(typeContact));
         bodyID_t geoB = granData->idPatchB[i];
+        bodyID_t ownerA = DEME_GET_PATCH_OWNER_ID(geoA, decodeTypeA(typeContact));
         bodyID_t ownerB = DEME_GET_PATCH_OWNER_ID(geoB, decodeTypeB(typeContact));
         bool AorB;  // true for A, false for B
         if (cuda_binary_search<bodyID_t, ssize_t>(d_ownerIDs, ownerA, 0, IDListSize - 1)) {
@@ -37,13 +46,13 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
             return;
         }
 
-        float3 force, torque;
-        force = granData->contactForces[i];
-        // Note torque, like force, is in global
-        if (need_torque)
-            torque = granData->contactTorque_convToForce[i];
+        float3 force = granData->contactForces[i];
+        float3 torque_only_force = make_float3(0.f, 0.f, 0.f);
+        if (need_torque) {
+            torque_only_force = granData->contactTorque_convToForce[i];
+        }
         {
-            float mag = (need_torque) ? length(force) + length(torque) : length(force);
+            float mag = length(force) + length(torque_only_force);
             if (mag < DEME_TINY_FLOAT)
                 return;
         }
@@ -63,22 +72,12 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
             // Force dir flipped
             force = -force;
             if (need_torque)
-                torque = -torque;
+                torque_only_force = -torque_only_force;
         }
         oriQ.w = granData->oriQw[ownerID];
         oriQ.x = granData->oriQx[ownerID];
         oriQ.y = granData->oriQy[ownerID];
         oriQ.z = granData->oriQz[ownerID];
-        // Must derive torque in local...
-        if (need_torque) {
-            applyOriQToVector3<float, oriQ_t>(torque.x, torque.y, torque.z, oriQ.w, -oriQ.x, -oriQ.y, -oriQ.z);
-            // Force times point...
-            torque = cross(cntPnt, torque);
-            if (!torque_in_local) {  // back to global if needed
-                applyOriQToVector3<float, oriQ_t>(torque.x, torque.y, torque.z, oriQ.w, oriQ.x, oriQ.y, oriQ.z);
-            }
-        }
-
         voxelID_t voxel = granData->voxelID[ownerID];
         subVoxelPos_t subVoxX = granData->locX[ownerID];
         subVoxelPos_t subVoxY = granData->locY[ownerID];
@@ -89,11 +88,19 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
         CoM.x += simParams->LBFX;
         CoM.y += simParams->LBFY;
         CoM.z += simParams->LBFZ;
+        if (need_torque) {
+            // This is the contact-model "extra torque" represented as a force-like vector, not r x contact force.
+            // Force-generated torque can be reconstructed from the reported point and force by the caller.
+            applyOriQToVector3(torque_only_force, make_float4(-oriQ.x, -oriQ.y, -oriQ.z, oriQ.w));
+            float3 torque = cross(cntPnt, torque_only_force);
+            if (!torque_in_local) {
+                applyOriQToVector3(torque, oriQ);
+            }
+            d_torques[writeIndex] = torque;
+        }
         applyFrameTransformLocalToGlobal<float3, double3, float4>(cntPnt, CoM, oriQ);
         d_points[writeIndex] = cntPnt;
         d_forces[writeIndex] = force;
-        if (need_torque)
-            d_torques[writeIndex] = torque;
     }
 }
 
@@ -113,7 +120,7 @@ void getContactForcesConcerningOwners(float3* d_points,
     getContactForcesConcerningOwners_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
         d_points, d_forces, d_torques, reinterpret_cast<unsigned long long*>(d_numUsefulCnt), d_ownerIDs, IDListSize,
         simParams, granData, numCnt, need_torque, torque_in_local);
-    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+    DEME_GPU_DEBUG_SYNC(this_stream);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -149,7 +156,7 @@ void prepareWeightedNormalsForVoting(DEMDataDT* granData,
     if (blocks_needed > 0) {
         prepareWeightedNormalsForVoting_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             granData, weightedNormals, startOffset, count);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -185,7 +192,7 @@ void normalizeAndScatterVotedNormals(float3* votedWeightedNormals,
     if (blocks_needed > 0) {
         normalizeAndScatterVotedNormals_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             votedWeightedNormals, output, count);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -268,7 +275,7 @@ void computePerPrimitiveWeightedQuantities(DEMDataDT* granData,
         computePerPrimitiveWeightedQuantities_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             granData, votedNormals, keys, projectedAreas, projectedPens, weights, weightedCPs, startOffsetPrimitive,
             startOffsetPatch, count);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -301,7 +308,7 @@ void extractPrimitivePenetrations(DEMDataDT* granData,
     if (blocks_needed > 0) {
         extractPrimitivePenetrations_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             granData, penetrations, startOffset, count);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -374,7 +381,7 @@ void findMaxPenetrationPrimitiveForZeroAreaPatches(DEMDataDT* granData,
                                                              this_stream>>>(
             granData, maxPenetrations, zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, keys,
             startOffsetPrimitive, startOffsetPatch, countPrimitive);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -441,7 +448,7 @@ void finalizePatchResults(double* totalProjectedAreas,
             totalProjectedAreas, maxProjPens, totalWeights, votedNormals, totalWeightedCPs, zeroAreaNormals,
             zeroAreaPenetrations, zeroAreaContactPoints, finalAreas, finalNormals, finalPenetrations,
             finalContactPoints, count);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -496,7 +503,7 @@ void prepareForceArrays(DEMSimParams* simParams,
     if (blocks_needed_for_force_prep > 0) {
         prepareForceArrays_impl<<<blocks_needed_for_force_prep, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             simParams, granData, nPrimitiveContactPairs);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -505,7 +512,7 @@ void prepareAccArrays(DEMSimParams* simParams, DEMDataDT* granData, bodyID_t nOw
     if (blocks_needed_for_acc_prep > 0) {
         prepareAccArrays_impl<<<blocks_needed_for_acc_prep, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(simParams,
                                                                                                           granData);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -543,7 +550,7 @@ void rearrangeContactWildcards(DEMDataDT* granData,
     if (blocks_needed > 0) {
         rearrangeContactWildcards_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
             granData, wildcard, sentry, nWildcards, nContactPairs);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 
@@ -565,7 +572,7 @@ void markAliveContacts(float* wildcard, notStupidBool_t* sentry, size_t nContact
     if (blocks_needed > 0) {
         markAliveContacts_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(wildcard, sentry,
                                                                                               nContactPairs);
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        DEME_GPU_DEBUG_SYNC(this_stream);
     }
 }
 

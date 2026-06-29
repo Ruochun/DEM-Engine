@@ -9,19 +9,14 @@ if (overlapDepth > 0) {
         CoR_cnt = CoR[bodyAMatType][bodyBMatType];
     }
 
-    float3 rotVelCPA, rotVelCPB;
-    {
-        // We also need the relative velocity between A and B in global frame to use in the damping terms
-        // To get that, we need contact points' rotational velocity in GLOBAL frame
-        // This is local rotational velocity (the portion of linear vel contributed by rotation)
-        rotVelCPA = cross(ARotVel, locCPA);
-        rotVelCPB = cross(BRotVel, locCPB);
-        // This is mapping from local rotational velocity to global
-        applyOriQToVector3<float, deme::oriQ_t>(rotVelCPA.x, rotVelCPA.y, rotVelCPA.z, AOriQ.w, AOriQ.x, AOriQ.y,
-                                                AOriQ.z);
-        applyOriQToVector3<float, deme::oriQ_t>(rotVelCPB.x, rotVelCPB.y, rotVelCPB.z, BOriQ.w, BOriQ.x, BOriQ.y,
-                                                BOriQ.z);
-    }
+    // We also need the relative velocity between A and B in global frame to use in the damping terms
+    // To get that, we need contact points' rotational velocity in GLOBAL frame
+    // This is local rotational velocity (the portion of linear vel contributed by rotation)
+    float3 rotVelCPA = cross(ARotVel, locCPA);
+    float3 rotVelCPB = cross(BRotVel, locCPB);
+    // This is mapping from local rotational velocity to global
+    applyOriQToVector3(rotVelCPA, AOriQ);
+    applyOriQToVector3(rotVelCPB, BOriQ);
 
     // The (total) relative linear velocity of A relative to B
     const float3 velB2A = (ALinVel + rotVelCPA) - (BLinVel + rotVelCPB);

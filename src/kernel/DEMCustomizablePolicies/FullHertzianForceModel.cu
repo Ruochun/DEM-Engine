@@ -18,19 +18,13 @@ if (overlapDepth > 0) {
         Crr_cnt = Crr[bodyAMatType][bodyBMatType];
     }
 
-    float3 rotVelCPA, rotVelCPB;
-    {
-        // We also need the relative velocity between A and B in global frame to use in the damping terms
-        // To get that, we need contact points' rotational velocity in GLOBAL frame
-        // This is local rotational velocity (the portion of linear vel contributed by rotation)
-        rotVelCPA = cross(ARotVel, locCPA);
-        rotVelCPB = cross(BRotVel, locCPB);
-        // This is mapping from local rotational velocity to global
-        applyOriQToVector3<float, deme::oriQ_t>(rotVelCPA.x, rotVelCPA.y, rotVelCPA.z, AOriQ.w, AOriQ.x, AOriQ.y,
-                                                AOriQ.z);
-        applyOriQToVector3<float, deme::oriQ_t>(rotVelCPB.x, rotVelCPB.y, rotVelCPB.z, BOriQ.w, BOriQ.x, BOriQ.y,
-                                                BOriQ.z);
-    }
+    // We also need the relative velocity between A and B in global frame to use in the damping terms
+    // To get that, we need contact points' rotational velocity in GLOBAL frame
+    // This is local rotational velocity (the portion of linear vel contributed by rotation)
+    float3 rotVelCPA = cross(ARotVel, locCPA);
+    float3 rotVelCPB = cross(BRotVel, locCPB);
+    applyOriQToVector3(rotVelCPA, AOriQ);
+    applyOriQToVector3(rotVelCPB, BOriQ);
 
     // A few re-usables
     float mass_eff, beta, cnt_rad;
@@ -69,7 +63,7 @@ if (overlapDepth > 0) {
     }
 
     // Rolling resistance part
-    if (Crr_cnt > 0.0) {
+    if (Crr_cnt > 0.f) {
         // Figure out if we should apply rolling resistance force
         bool should_add_rolling_resistance = true;
         {
@@ -81,7 +75,7 @@ if (overlapDepth > 0) {
 
             const float d_coeff = gn_simple / (2.f * sqrtf(kn_simple * mass_eff));
 
-            if (d_coeff < 1.0) {
+            if (d_coeff < 1.f) {
                 float t_collision = deme::PI * sqrtf(mass_eff / (kn_simple * (1.f - d_coeff * d_coeff)));
                 if (delta_time <= t_collision) {
                     should_add_rolling_resistance = false;
@@ -106,8 +100,8 @@ if (overlapDepth > 0) {
     }
 
     // Tangential force part
-    if (mu_cnt > 0.0) {
-        const float kt = 8. * G_cnt * cnt_rad;
+    if (mu_cnt > 0.f) {
+        const float kt = 8.f * G_cnt * cnt_rad;
         const float gt = -2.f * sqrtf(5.f / 3.f) * beta * sqrtf(mass_eff * kt);
         float3 tangent_force = -kt * delta_tan - gt * vrel_tan;
         const float ft = length(tangent_force);

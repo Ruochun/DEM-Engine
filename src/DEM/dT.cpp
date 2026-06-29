@@ -2787,7 +2787,7 @@ void DEMDynamicThread::calculateForces() {
             collect_force_kernels->kernel("forceToAcc")
                 .instantiate()
                 .configure(dim3(blocks_needed_for_contacts), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
-                .launch(&granData, nContactPairs);
+                .launch(&simParams, &granData, nContactPairs);
             DEME_GPU_DEBUG_SYNC(streamInfo.stream);
             // displayDeviceArray<float>(granData->aZ, simParams->nOwnerBodies);
             // displayDeviceFloat3(granData->contactForces, nContactPairs);
