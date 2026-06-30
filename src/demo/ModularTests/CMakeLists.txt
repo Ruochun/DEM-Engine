@@ -12,13 +12,15 @@ SET(LIBRARIES
 
 SET(MODULAR_TESTS
 		DEMTest_CombinedOwners
+		DEMTest_ContactIslandFlooding
 		DEMTest_ConeGrazingPlane
 		DEMTest_ConeGrazingSphere
 		DEMTest_CylinderCrossRotation
 		DEMTest_MeshSlidingOnSlope
 		DEMTest_MeshTemplate
 		DEMTest_PatchLocations
-		DEMTest_MeshPatch	
+		DEMTest_MeshPatch
+		DEMTest_SimpleCollisions
 		DEMTest_SpherePlanePeneArea
 		DEMTest_SphereSphereArea
 )
@@ -57,9 +59,11 @@ FOREACH(PROGRAM ${MODULAR_TESTS})
 		
 		add_dependencies(${PROGRAM} ${LIBRARIES})
 
-		set_target_properties(
-			${PROGRAM} PROPERTIES
-			CXX_STANDARD ${CXXSTD_SUPPORTED}
-		)
+		if (CXXSTD_SUPPORTED)
+			set_target_properties(
+				${PROGRAM} PROPERTIES
+				CXX_STANDARD ${CXXSTD_SUPPORTED}
+			)
+		endif()
 
 ENDFOREACH(PROGRAM)

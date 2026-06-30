@@ -186,6 +186,8 @@ constexpr unsigned int THRESHOLD_CANT_JITIFY_ALL_COMP =
     DEME_MIN(DEME_MIN(RESERVED_CLUMP_COMPONENT_OFFSET, DEME_THRESHOLD_BIG_CLUMP), DEME_THRESHOLD_TOO_MANY_SPHERE_COMP);
 // Max size change the bin auto-adjust algorithm can apply to the bin size per step
 constexpr float BIN_SIZE_MAX_CHANGE_RATE = 0.2;
+// Safety factor for hertz_const adaptive time step estimates.
+constexpr double N_DT = 16.0;
 
 // Some enums...
 // Stepping method

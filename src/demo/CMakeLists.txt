@@ -22,14 +22,19 @@ SET(DEMOS
 		DEMdemo_MeshCollide
 		DEMdemo_MeshFalling
 		DEMdemo_TestPack
+		DEMdemo_TestRestart
 		DEMdemo_RotatingDrum
-		DEMdemo_DrumCubes
 		DEMdemo_Centrifuge
+		DEMdemo_DrumCubes
+		DEMdemo_DrumCubesSmall
+		DEMdemo_ResponseAngleMesh
 		DEMdemo_GameOfLife
 		DEMdemo_BallDrop
 		DEMdemo_BallDropReduced
 		DEMdemo_BallDrop2D
 		DEMdemo_Mixer
+		DEMdemo_PolydisperseGeneration
+		DEMdemo_RoverWheel
 		DEMdemo_GRCPrep_Part1
 		DEMdemo_GRCPrep_Part2
 		DEMdemo_GRCPrep_Part3
@@ -85,11 +90,14 @@ FOREACH(PROGRAM ${DEMOS})
 		)
 		
 		add_dependencies(${PROGRAM} ${LIBRARIES})
+		add_dependencies(${PROGRAM} sync_kernels)
 
-		set_target_properties(
-			${PROGRAM} PROPERTIES
-			CXX_STANDARD ${CXXSTD_SUPPORTED}
-		)
+		if (CXXSTD_SUPPORTED)
+			set_target_properties(
+				${PROGRAM} PROPERTIES
+				CXX_STANDARD ${CXXSTD_SUPPORTED}
+			)
+		endif()
 
 		# install(TARGETS ${PROGRAM} DESTINATION ${DEME_INSTALL_DEMO})
 
