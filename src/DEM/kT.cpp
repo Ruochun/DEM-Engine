@@ -537,6 +537,7 @@ void DEMKinematicThread::packDataPointers() {
 
     familyMaskMatrix.bindDevicePointer(&(granData->familyMasks));
     familyExtraMarginSize.bindDevicePointer(&(granData->familyExtraMarginSize));
+    ownerCombinedMaster.bindDevicePointer(&(granData->ownerCombinedMaster));
 
     // The offset info that indexes into the template arrays
     ownerClumpBody.bindDevicePointer(&(granData->ownerClumpBody));
@@ -591,6 +592,9 @@ void DEMKinematicThread::migrateDataToDevice() {
     previous_contactPatchIsland.toDeviceAsync(streamInfo.stream);
     familyMaskMatrix.toDeviceAsync(streamInfo.stream);
     familyExtraMarginSize.toDeviceAsync(streamInfo.stream);
+    if (ownerCombinedMaster.size() > 0) {
+        ownerCombinedMaster.toDeviceAsync(streamInfo.stream);
+    }
 
     ownerClumpBody.toDeviceAsync(streamInfo.stream);
     clumpComponentOffset.toDeviceAsync(streamInfo.stream);

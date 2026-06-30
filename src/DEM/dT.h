@@ -326,6 +326,15 @@ class DEMDynamicThread {
     // that means geometries should be considered in contact when they are physically in contact.
     DualArray<float> familyExtraMarginSize = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
+    // Combined-owner mapping (owner -> master owner, NULL_BODYID if not participating in a combined owner).
+    DualArray<bodyID_t> ownerCombinedMaster = DualArray<bodyID_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Fixed member transforms in the master frame.
+    DualArray<float3> ownerCombinedRelPos = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float4> ownerCombinedRelOriQ = DualArray<float4>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Equivalent combined-group mass/MOI, stored on master owner slots.
+    DualArray<float> ownerCombinedMasterMass = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float3> ownerCombinedMasterMOI = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+
     // dT's copy of "clump template and their names" map
     std::unordered_map<unsigned int, std::string> templateNumNameMap;
 

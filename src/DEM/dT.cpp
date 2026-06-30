@@ -64,6 +64,11 @@ void DEMDynamicThread::packDataPointers() {
 
     familyMaskMatrix.bindDevicePointer(&(granData->familyMasks));
     familyExtraMarginSize.bindDevicePointer(&(granData->familyExtraMarginSize));
+    ownerCombinedMaster.bindDevicePointer(&(granData->ownerCombinedMaster));
+    ownerCombinedRelPos.bindDevicePointer(&(granData->ownerCombinedRelPos));
+    ownerCombinedRelOriQ.bindDevicePointer(&(granData->ownerCombinedRelOriQ));
+    ownerCombinedMasterMass.bindDevicePointer(&(granData->ownerCombinedMasterMass));
+    ownerCombinedMasterMOI.bindDevicePointer(&(granData->ownerCombinedMasterMOI));
 
     contactForces.bindDevicePointer(&(granData->contactForces));
     contactTorque_convToForce.bindDevicePointer(&(granData->contactTorque_convToForce));
@@ -164,6 +169,13 @@ void DEMDynamicThread::migrateDataToDevice() {
 
     familyMaskMatrix.toDeviceAsync(streamInfo.stream);
     familyExtraMarginSize.toDeviceAsync(streamInfo.stream);
+    if (ownerCombinedMaster.size() > 0) {
+        ownerCombinedMaster.toDeviceAsync(streamInfo.stream);
+        ownerCombinedRelPos.toDeviceAsync(streamInfo.stream);
+        ownerCombinedRelOriQ.toDeviceAsync(streamInfo.stream);
+        ownerCombinedMasterMass.toDeviceAsync(streamInfo.stream);
+        ownerCombinedMasterMOI.toDeviceAsync(streamInfo.stream);
+    }
 
     contactForces.toDeviceAsync(streamInfo.stream);
     contactNormals.toDeviceAsync(streamInfo.stream);
@@ -1236,6 +1248,12 @@ void DEMDynamicThread::buildTrackedObjs(const std::vector<std::shared_ptr<DEMClu
                 break;
             default:
                 DEME_ERROR(std::string("A DEM tracked object has an unknown type."));
+        }
+        if (tracked_obj->nSpanOwnersOverride > 0) {
+            tracked_obj->nSpanOwners = tracked_obj->nSpanOwnersOverride;
+        }
+        if (tracked_obj->nGeosOverride > 0) {
+            tracked_obj->nGeos = tracked_obj->nGeosOverride;
         }
     }
     nTrackersProcessed = tracked_objs.size();
@@ -2795,6 +2813,21 @@ void DEMDynamicThread::calculateForces() {
             timers.GetTimer("Optional force reduction").stop();
         }
     }
+
+    if (simParams->nCombinedOwners > 0) {
+        // Fold non-master member accelerations into their master before integration. This also covers prescribed
+        // accelerations in no-contact steps because it runs outside the contact-count branch.
+        timers.GetTimer("Optional force reduction").start();
+        constexpr unsigned int COMBINED_OWNER_AGGREGATION_BLOCK = 512;
+        const size_t blocks_needed_for_owners =
+            (simParams->nOwnerBodies + COMBINED_OWNER_AGGREGATION_BLOCK - 1) / COMBINED_OWNER_AGGREGATION_BLOCK;
+        collect_force_kernels->kernel("aggregateCombinedOwnersAcc")
+            .instantiate()
+            .configure(dim3(blocks_needed_for_owners), dim3(COMBINED_OWNER_AGGREGATION_BLOCK), 0, streamInfo.stream)
+            .launch(&simParams, &granData, simParams->nOwnerBodies);
+        DEME_GPU_DEBUG_SYNC(streamInfo.stream);
+        timers.GetTimer("Optional force reduction").stop();
+    }
 }
 
 inline void DEMDynamicThread::integrateOwnerMotions() {
@@ -2805,6 +2838,18 @@ inline void DEMDynamicThread::integrateOwnerMotions() {
         .configure(dim3(blocks_needed_for_clumps), dim3(DEME_NUM_BODIES_PER_BLOCK), 0, streamInfo.stream)
         .launch(&simParams, &granData);
     DEME_GPU_DEBUG_SYNC(streamInfo.stream);
+
+    if (simParams->nCombinedOwners > 0) {
+        // Re-impose each non-master member from the integrated master state and its fixed relative transform.
+        constexpr unsigned int COMBINED_OWNER_REIMPOSITION_BLOCK = 512;
+        const size_t blocks_needed_for_owners =
+            (simParams->nOwnerBodies + COMBINED_OWNER_REIMPOSITION_BLOCK - 1) / COMBINED_OWNER_REIMPOSITION_BLOCK;
+        collect_force_kernels->kernel("reimposeCombinedOwners")
+            .instantiate()
+            .configure(dim3(blocks_needed_for_owners), dim3(COMBINED_OWNER_REIMPOSITION_BLOCK), 0, streamInfo.stream)
+            .launch(&simParams, &granData, simParams->nOwnerBodies);
+        DEME_GPU_DEBUG_SYNC(streamInfo.stream);
+    }
 }
 
 inline void DEMDynamicThread::routineChecks() {
@@ -3234,6 +3279,8 @@ void DEMDynamicThread::prewarmKernels() {
     }
     if (collect_force_kernels) {
         collect_force_kernels->kernel("forceToAcc").instantiate();
+        collect_force_kernels->kernel("aggregateCombinedOwnersAcc").instantiate();
+        collect_force_kernels->kernel("reimposeCombinedOwners").instantiate();
     }
     if (integrator_kernels) {
         integrator_kernels->kernel("integrateOwners").instantiate();

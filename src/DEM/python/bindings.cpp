@@ -517,6 +517,47 @@ PYBIND11_MODULE(DEME, obj) {
         .def("LoadSphereType",
              static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
                  float, float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType))
+        .def("LoadCombinedClumpType",
+             static_cast<std::shared_ptr<deme::DEMCombinedTemplate> (deme::DEMSolver::*)(
+                 const std::vector<std::shared_ptr<deme::DEMClumpTemplate>>&, const std::vector<float3>&,
+                 const std::vector<float4>&, size_t)>(&deme::DEMSolver::LoadCombinedClumpType),
+             "Load a rigid combined-clump template with fixed member-relative transforms.",
+             py::arg("component_templates"), py::arg("component_rel_pos"),
+             py::arg("component_rel_oriQ") = std::vector<float4>(), py::arg("master_component") = 0)
+        .def("LoadCombinedMeshType",
+             static_cast<std::shared_ptr<deme::DEMCombinedTemplate> (deme::DEMSolver::*)(
+                 const std::vector<std::shared_ptr<deme::DEMMesh>>&, const std::vector<float3>&,
+                 const std::vector<float4>&, size_t)>(&deme::DEMSolver::LoadCombinedMeshType),
+             "Load a rigid combined-mesh template with fixed member-relative transforms.",
+             py::arg("component_templates"), py::arg("component_rel_pos"),
+             py::arg("component_rel_oriQ") = std::vector<float4>(), py::arg("master_component") = 0)
+        .def("AddCombinedFromTemplate",
+             static_cast<std::shared_ptr<deme::DEMCombinedInstances> (deme::DEMSolver::*)(
+                 const std::shared_ptr<deme::DEMCombinedTemplate>&, const std::vector<float3>&,
+                 const std::vector<float4>&)>(&deme::DEMSolver::AddCombinedFromTemplate),
+             "Instantiate a combined template at one or more user-specified global poses.",
+             py::arg("combined_template"), py::arg("init_pos"), py::arg("init_oriQ") = std::vector<float4>())
+        .def("AddCombinedFromTemplate",
+             static_cast<std::shared_ptr<deme::DEMCombinedInstances> (deme::DEMSolver::*)(
+                 const std::shared_ptr<deme::DEMCombinedTemplate>&, const float3&, const float4&)>(
+                 &deme::DEMSolver::AddCombinedFromTemplate),
+             "Instantiate a combined template at a single user-specified global pose.", py::arg("combined_template"),
+             py::arg("init_pos") = deme::make_float3(0), py::arg("init_oriQ") = deme::make_float4(0, 0, 0, 1))
+        .def("GetNumCombinedInstances", &deme::DEMSolver::GetNumCombinedInstances,
+             "Return the number of combined instances currently cached.")
+        .def(
+            "GetCombinedInstanceInfo",
+            [](deme::DEMSolver& self, size_t combined_instance_id) {
+                deme::bodyID_t master_owner_id = deme::NULL_BODYID;
+                std::vector<deme::bodyID_t> member_owner_ids;
+                std::vector<float3> member_rel_pos;
+                std::vector<float4> member_rel_oriQ;
+                bool ok = self.GetCombinedInstanceInfo(combined_instance_id, master_owner_id, member_owner_ids,
+                                                       member_rel_pos, member_rel_oriQ);
+                return py::make_tuple(ok, master_owner_id, member_owner_ids, member_rel_pos, member_rel_oriQ);
+            },
+            "Return combined-owner metadata as (ok, master_owner_id, member_owner_ids, member_rel_pos, member_rel_oriQ).",
+            py::arg("combined_instance_id"))
         .def("EnsureKernelErrMsgLineNum", &deme::DEMSolver::EnsureKernelErrMsgLineNum,
              "If true, each jitification string substitution will do a one-liner to one-liner replacement, so that if "
              "the kernel compilation fails, the error meessage line number will reflex the actual spot where that "
@@ -728,6 +769,9 @@ PYBIND11_MODULE(DEME, obj) {
              "Enable or disable contact wildcard output.", py::arg("enable") = true)
         .def("EnableGeometryWildcardOutput", &deme::DEMSolver::EnableGeometryWildcardOutput,
              "Enable or disable geometry wildcard output.", py::arg("enable") = true)
+        .def("SetAllowIntraCombinedOwnerContacts", &deme::DEMSolver::SetAllowIntraCombinedOwnerContacts,
+             "Allow or suppress contacts among owners belonging to the same combined owner group.",
+             py::arg("allow") = true)
         .def("SetVerbosity", static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetVerbosity),
              "Set the verbosity level of the solver.")
         .def("EnableStoreNormals", &deme::DEMSolver::EnableStoreNormals,
@@ -774,6 +818,11 @@ PYBIND11_MODULE(DEME, obj) {
         .def("Track", (&deme::DEMSolver::PythonTrack),
              "Create a DEMTracker to allow direct control/modification/query to this external object/batch of "
              "clumps/triangle mesh object.")
+        .def("Track",
+             static_cast<std::shared_ptr<deme::DEMTracker> (deme::DEMSolver::*)(
+                 const std::shared_ptr<deme::DEMCombinedInstances>&)>(&deme::DEMSolver::Track),
+             "Create a single tracker that tracks all member owners in a combined-instances batch.",
+             py::arg("combined_inst"))
         .def("AddWavefrontMeshObject",
              static_cast<std::shared_ptr<deme::DEMMeshConnected> (deme::DEMSolver::*)(
                  const std::string&, const std::shared_ptr<deme::DEMMaterial>&, bool, bool)>(
@@ -1293,6 +1342,22 @@ PYBIND11_MODULE(DEME, obj) {
                  &deme::DEMClumpTemplate::Move))
         .def("Scale", &deme::DEMClumpTemplate::Scale)
         .def("AssignName", &deme::DEMClumpTemplate::AssignName);
+
+    py::class_<deme::DEMCombinedTemplate, std::shared_ptr<deme::DEMCombinedTemplate>>(obj, "DEMCombinedTemplate")
+        .def(py::init<>());
+
+    py::class_<deme::DEMCombinedInstances, std::shared_ptr<deme::DEMCombinedInstances>>(obj, "DEMCombinedInstances")
+        .def(py::init<>())
+        .def("GetNumOwners", &deme::DEMCombinedInstances::GetNumOwners,
+             "Get total number of member owners in this combined batch.")
+        .def("AddOwnerWildcard",
+             static_cast<void (deme::DEMCombinedInstances::*)(const std::string&, const std::vector<float>&)>(
+                 &deme::DEMCombinedInstances::AddOwnerWildcard),
+             "Add an owner wildcard to all member owners with per-owner values.", py::arg("name"), py::arg("vals"))
+        .def("AddOwnerWildcard",
+             static_cast<void (deme::DEMCombinedInstances::*)(const std::string&, float)>(
+                 &deme::DEMCombinedInstances::AddOwnerWildcard),
+             "Add an owner wildcard to all member owners with a uniform value.", py::arg("name"), py::arg("val"));
 
     py::class_<deme::DEMClumpBatch, deme::DEMInitializer, std::shared_ptr<deme::DEMClumpBatch>>(obj, "DEMClumpBatch")
         .def(py::init<size_t&>())
