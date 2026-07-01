@@ -43,12 +43,18 @@ void DEMSolver::assignFamilyPersistentContact_impl(
                         "marking persistent contacts."));
     }
     // Get device-major info to host first
-    kT->previous_idPrimitiveA.toHost();
-    kT->previous_idPrimitiveB.toHost();
-    kT->previous_contactTypePrimitive.toHost();
-    kT->contactPersistency.toHost();
-    if (dT->solverFlags.canFamilyChangeOnDevice) {
-        dT->familyID.toHost();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->previous_idPrimitiveA.toHost();
+        kT->previous_idPrimitiveB.toHost();
+        kT->previous_contactTypePrimitive.toHost();
+        kT->contactPersistency.toHost();
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        if (dT->solverFlags.canFamilyChangeOnDevice) {
+            dT->familyID.toHost();
+        }
     }
 
     // What we mark are actually the prev contact arrays. These arrays will be checked by kT and if a contact is marked
@@ -68,7 +74,10 @@ void DEMSolver::assignFamilyPersistentContact_impl(
         }
     }
 
-    kT->contactPersistency.toDevice();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->contactPersistency.toDevice();
+    }
 }
 
 void DEMSolver::assignFamilyPersistentContactEither(unsigned int N, notStupidBool_t is_or_not) {
@@ -96,6 +105,7 @@ void DEMSolver::assignPersistentContact(notStupidBool_t is_or_not) {
             std::string("You must first enable persistent contact support by calling SetPersistentContact(true) before "
                         "marking persistent contacts."));
     }
+    ScopedCudaDevice device_scope(kT->streamInfo.device);
     kT->contactPersistency.toHost();
 
     // What we mark are actually the prev contact arrays. These arrays will be checked by kT and if a contact is marked
@@ -306,11 +316,6 @@ void DEMSolver::jitifyKernels() {
         DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
         dT->jitifyKernels(m_subs, m_jitify_options);
 
-        // Now, inspectors need to be jitified too... but the current design jitify inspector kernels at the first time
-        // they are used. for (auto& insp : m_inspectors) {
-        //     insp->Initialize(m_subs);
-        // }
-
         // Solver system's own max vel inspector should be init-ed. Don't bother init-ing it while using, because it is
         // called at high frequency, let's save an if check. Forced initialization (since doing it before system
         // completes init).
@@ -322,6 +327,16 @@ void DEMSolver::jitifyKernels() {
     });
     kT_build.join();
     dT_build.join();
+
+    // Eagerly initialize user-created inspectors so their kernels compile before first use.
+    for (auto& insp : m_inspectors) {
+        if (insp) {
+            insp->Initialize(m_subs, m_jitify_options, true);
+            if (insp->inspection_kernel) {
+                insp->inspection_kernel->kernel(insp->kernel_name).instantiate();
+            }
+        }
+    }
 }
 
 void DEMSolver::getContacts_impl(std::vector<bodyID_t>& idA,
@@ -331,6 +346,7 @@ void DEMSolver::getContacts_impl(std::vector<bodyID_t>& idA,
                                  std::vector<family_t>& famB,
                                  std::function<bool(contact_t)> type_func) const {
     // Get device-major info to host first
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     if (dT->solverFlags.canFamilyChangeOnDevice) {
         dT->familyID.toHostAsync(dT->streamInfo.stream);
     }
@@ -1360,12 +1376,24 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
 }
 
 void DEMSolver::packDataPointers() {
-    dT->packDataPointers();
-    kT->packDataPointers();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->packDataPointers();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->packDataPointers();
+    }
     // Each worker thread needs pointers used for data transfering. Note this step must be done after packDataPointers
     // are called, so each thread has its own pointers packed.
-    dT->packTransferPointers(kT);
-    kT->packTransferPointers(dT);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->packTransferPointers(kT);
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->packTransferPointers(dT);
+    }
     // Finally, the API needs to map all mesh to their owners
     for (const auto& mmesh : m_meshes) {
         m_owner_mesh_map[mmesh->owner] = mmesh->cache_offset;
@@ -1373,21 +1401,38 @@ void DEMSolver::packDataPointers() {
 }
 
 void DEMSolver::migrateSimParamsToDevice() {
-    dT->simParams.toDevice();
-    kT->simParams.toDevice();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams.toDevice();
+    }
 }
 
 void DEMSolver::migrateArrayDataToDevice() {
-    dT->granData.toDevice();
-    kT->granData.toDevice();
-    // Then move DualArray data to device
-    dT->migrateDataToDevice();
-    kT->migrateDataToDevice();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->granData.toDevice();
+        kT->migrateDataToDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->granData.toDevice();
+        dT->migrateDataToDevice();
+    }
 }
 
 void DEMSolver::migrateArrayDataToHost() {
-    dT->migrateDeviceModifiableInfoToHost();
-    kT->migrateDeviceModifiableInfoToHost();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->migrateDeviceModifiableInfoToHost();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->migrateDeviceModifiableInfoToHost();
+    }
 }
 
 void DEMSolver::validateUserInputs() {
