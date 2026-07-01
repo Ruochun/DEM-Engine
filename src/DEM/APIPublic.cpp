@@ -70,6 +70,9 @@ DEMSolver::~DEMSolver() {
 
 void DEMSolver::SetVerbosity(verbosity_t verbose) {
     switch (verbose) {
+        case VERBOSITY_QUIET:
+            Logger::GetInstance().SetVerbosity(VERBOSITY_QUIET);
+            break;
         case VERBOSITY_ERROR:
             Logger::GetInstance().SetVerbosity(VERBOSITY_ERROR);
             break;
@@ -93,6 +96,9 @@ void DEMSolver::SetVerbosity(verbosity_t verbose) {
 
 void DEMSolver::SetVerbosity(const std::string& verbose) {
     switch (hash_charr(str_to_upper(verbose).c_str())) {
+        case "QUIET"_:
+            SetVerbosity(VERBOSITY_QUIET);
+            break;
         case "ERROR"_:
             SetVerbosity(VERBOSITY_ERROR);
             break;
@@ -271,8 +277,14 @@ void DEMSolver::SetContactOutputContent(const std::vector<std::string>& content)
 void DEMSolver::EnableStoreNormals(bool enable) {
     kT->simParams->storeNormal = enable;
     dT->simParams->storeNormal = enable;
-    kT->simParams.toDevice();
-    dT->simParams.toDevice();
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams.toDevice();
+    }
 }
 
 void DEMSolver::SetMeshUniversalContact(bool use) {
@@ -299,17 +311,31 @@ void DEMSolver::SetMeshParticlesLowPoly(bool use) {
     kT->simParams->meshParticlesLowPoly = use;
     dT->simParams->meshParticlesLowPoly = use;
     if (sys_initialized) {
-        kT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
-        dT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+        // This toggle is read inside both workers' device kernels, so on-the-fly changes must update device simParams.
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+        }
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+        }
     }
 }
 
 void DEMSolver::SyncMemoryTransfer() {
-    dT->syncMemoryTransfer();
-    kT->syncMemoryTransfer();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->syncMemoryTransfer();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->syncMemoryTransfer();
+    }
 }
 
 std::vector<bodyID_t> DEMSolver::GetOwnerContactClumps(bodyID_t ownerID) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     // Is this owner a clump?
     ownerType_t this_type = dT->ownerTypes[ownerID];  // ownerTypes has no way to change on device
     std::vector<bodyID_t> geo_to_watch;               // geo IDs that need to scan
@@ -506,29 +532,47 @@ std::vector<std::pair<bodyID_t, bodyID_t>> DEMSolver::GetContacts(
 }
 
 std::shared_ptr<ContactInfoContainer> DEMSolver::GetContactDetailedInfo(float force_thres) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->generateContactInfo(force_thres);
 }
 
 std::vector<float3> DEMSolver::GetOwnerPosition(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerPos(ownerID, n);
 }
+std::vector<float3> DEMSolver::GetClumpPositionsHandover() const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    return dT->getOwnerPos(0, nOwnerClumps);
+}
 std::vector<float3> DEMSolver::GetOwnerAngVel(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerAngVel(ownerID, n);
 }
 std::vector<float3> DEMSolver::GetOwnerVelocity(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerVel(ownerID, n);
 }
 std::vector<float4> DEMSolver::GetOwnerOriQ(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerOriQ(ownerID, n);
 }
 std::vector<float3> DEMSolver::GetOwnerAcc(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerAcc(ownerID, n);
 }
 std::vector<float3> DEMSolver::GetOwnerAngAcc(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerAngAcc(ownerID, n);
 }
 std::vector<unsigned int> DEMSolver::GetOwnerFamily(bodyID_t ownerID, bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerFamily(ownerID, n);
+}
+
+void DEMSolver::RequestContactUpdate() {
+    assertSysInit("RequestContactUpdate");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->announceCritical();
 }
 
 std::vector<float> DEMSolver::GetOwnerWildcardValue(bodyID_t ownerID, const std::string& name, bodyID_t n) {
@@ -539,6 +583,7 @@ std::vector<float> DEMSolver::GetOwnerWildcardValue(bodyID_t ownerID, const std:
             "SetPerOwnerWildcards first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerWildcardValue(ownerID, m_owner_wc_num.at(name), n);
 }
 
@@ -551,6 +596,7 @@ std::vector<float> DEMSolver::GetAllOwnerWildcardValue(const std::string& name) 
             name.c_str());
     }
     std::vector<float> res;
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getAllOwnerWildcardValue(res, m_owner_wc_num.at(name));
     return res;
 }
@@ -564,6 +610,7 @@ std::vector<float> DEMSolver::GetFamilyOwnerWildcardValue(unsigned int N, const 
             name.c_str());
     }
     std::vector<float> res;
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getFamilyOwnerWildcardValue(res, N, m_owner_wc_num.at(name));
     return res;
 }
@@ -577,6 +624,7 @@ std::vector<float> DEMSolver::GetPatchWildcardValue(bodyID_t geoID, const std::s
             name.c_str());
     }
     std::vector<float> res;
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getPatchWildcardValue(res, geoID, m_geo_wc_num.at(name), n);
     return res;
 }
@@ -590,6 +638,7 @@ std::vector<float> DEMSolver::GetSphereWildcardValue(bodyID_t geoID, const std::
             name.c_str());
     }
     std::vector<float> res;
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getSphereWildcardValue(res, geoID, m_geo_wc_num.at(name), n);
     return res;
 }
@@ -603,6 +652,7 @@ std::vector<float> DEMSolver::GetAnalWildcardValue(bodyID_t geoID, const std::st
             name.c_str());
     }
     std::vector<float> res;
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getAnalWildcardValue(res, geoID, m_geo_wc_num.at(name), n);
     return res;
 }
@@ -610,6 +660,7 @@ std::vector<float> DEMSolver::GetAnalWildcardValue(bodyID_t geoID, const std::st
 size_t DEMSolver::GetOwnerContactForces(const std::vector<bodyID_t>& ownerIDs,
                                         std::vector<float3>& points,
                                         std::vector<float3>& forces) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerContactForces(ownerIDs, points, forces);
 }
 size_t DEMSolver::GetOwnerContactForces(const std::vector<bodyID_t>& ownerIDs,
@@ -617,6 +668,7 @@ size_t DEMSolver::GetOwnerContactForces(const std::vector<bodyID_t>& ownerIDs,
                                         std::vector<float3>& forces,
                                         std::vector<float3>& torques,
                                         bool torque_in_local) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getOwnerContactForces(ownerIDs, points, forces, torques, torque_in_local);
 }
 
@@ -655,21 +707,27 @@ std::vector<float3> DEMSolver::GetOwnerMOI(bodyID_t ownerID, bodyID_t n) const {
 }
 
 void DEMSolver::AddOwnerNextStepAcc(bodyID_t ownerID, const std::vector<float3>& acc) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->addOwnerNextStepAcc(ownerID, acc);
 }
 void DEMSolver::AddOwnerNextStepAngAcc(bodyID_t ownerID, const std::vector<float3>& angAcc) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->addOwnerNextStepAngAcc(ownerID, angAcc);
 }
 void DEMSolver::SetOwnerPosition(bodyID_t ownerID, const std::vector<float3>& pos) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerPos(ownerID, pos);
 }
 void DEMSolver::SetOwnerAngVel(bodyID_t ownerID, const std::vector<float3>& angVel) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerAngVel(ownerID, angVel);
 }
 void DEMSolver::SetOwnerVelocity(bodyID_t ownerID, const std::vector<float3>& vel) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerVel(ownerID, vel);
 }
 void DEMSolver::SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerOriQ(ownerID, oriQ);
 }
 void DEMSolver::SetOwnerFamily(bodyID_t ownerID, unsigned int fam, bodyID_t n) {
@@ -677,8 +735,14 @@ void DEMSolver::SetOwnerFamily(bodyID_t ownerID, unsigned int fam, bodyID_t n) {
         DEME_ERROR("You called SetOwnerFamily with family number %u, but family number should not be larger than %u.",
                    fam, std::numeric_limits<family_t>::max());
     }
-    kT->setOwnerFamily(ownerID, static_cast<family_t>(fam), n);
-    dT->setOwnerFamily(ownerID, static_cast<family_t>(fam), n);
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->setOwnerFamily(ownerID, static_cast<family_t>(fam), n);
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->setOwnerFamily(ownerID, static_cast<family_t>(fam), n);
+    }
 }
 
 void DEMSolver::SetTriNodeRelPos(size_t owner, size_t triID, const std::vector<float3>& new_nodes) {
@@ -697,6 +761,7 @@ void DEMSolver::SetTriNodeRelPos(size_t owner, size_t triID, const std::vector<f
     for (size_t i = 0; i < mesh->GetNumTriangles(); i++) {
         new_triangles[i] = mesh->GetTriangle(i);
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setTriNodeRelPos(triID, new_triangles);
     dT->solverFlags.willMeshDeform = true;
 
@@ -721,6 +786,7 @@ void DEMSolver::UpdateTriNodeRelPos(size_t owner, size_t triID, const std::vecto
         new_triangles[i] = mesh->GetTriangle(i);
     }
     // This is correct to use setTriNodeRelPos, as mesh is already modified in this method
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setTriNodeRelPos(triID, new_triangles);
     dT->solverFlags.willMeshDeform = true;
 
@@ -734,6 +800,7 @@ std::shared_ptr<DEMMesh>& DEMSolver::GetCachedMesh(bodyID_t ownerID) {
     return m_meshes.at(m_owner_mesh_map.at(ownerID));
 }
 std::vector<float3> DEMSolver::GetMeshNodesGlobal(bodyID_t ownerID) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     if (m_owner_mesh_map.find(ownerID) == m_owner_mesh_map.end()) {
         DEME_ERROR("Owner %zu is not a mesh, you therefore cannot get its nodes' coordinates.", (size_t)ownerID);
     }
@@ -747,14 +814,17 @@ std::vector<float3> DEMSolver::GetMeshNodesGlobal(bodyID_t ownerID) {
 }
 
 double DEMSolver::GetSimTime() const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getSimTime();
 }
 
 void DEMSolver::SetSimTime(double time) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setSimTime(time);
 }
 
 float DEMSolver::GetUpdateFreq() const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getUpdateFreq();
 }
 
@@ -818,18 +888,15 @@ void DEMSolver::SetTriTriPenetration(double penetration) {
             "SetTriTriPenetration called before system initialization. This has no effect until after Initialize()."));
         return;
     }
-    size_t nTri = dT->maxTriTriPenetration.size();
-    if (nTri == 0) {
+    size_t nTriGM = dT->maxTriTriPenetration.size();
+    if (nTriGM == 0) {
         return;
     }
 
-    int prev_device = 0;
-    DEME_GPU_CALL(cudaGetDevice(&prev_device));
-    DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
-    std::vector<float> hostBuf(nTri, static_cast<float>(penetration));
+    std::vector<float> hostBuf(nTriGM, static_cast<float>(penetration));
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     DEME_GPU_CALL(
-        cudaMemcpy(dT->maxTriTriPenetration.data(), hostBuf.data(), nTri * sizeof(float), cudaMemcpyHostToDevice));
-    DEME_GPU_CALL(cudaSetDevice(prev_device));
+        cudaMemcpy(dT->maxTriTriPenetration.data(), hostBuf.data(), nTriGM * sizeof(float), cudaMemcpyHostToDevice));
 }
 
 void DEMSolver::SetExpandSafetyType(const std::string& insp_type) {
@@ -978,8 +1045,14 @@ void DEMSolver::ChangeFamily(unsigned int ID_from, unsigned int ID_to) {
             ID_from, ID_to, std::numeric_limits<family_t>::max());
     }
 
-    dT->changeFamily(ID_from, ID_to);
-    kT->changeFamily(ID_from, ID_to);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->changeFamily(ID_from, ID_to);
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->changeFamily(ID_from, ID_to);
+    }
 }
 
 void DEMSolver::SetFamilyFixed(unsigned int ID) {
@@ -1522,6 +1595,7 @@ void DEMSolver::SetPatchWildcardValue(bodyID_t geoID, const std::string& name, c
             "SetPerGeometryWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setPatchWildcardValue(geoID, m_geo_wc_num.at(name), vals);
 }
 
@@ -1533,6 +1607,7 @@ void DEMSolver::SetSphereWildcardValue(bodyID_t geoID, const std::string& name, 
             "SetPerGeometryWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setSphWildcardValue(geoID, m_geo_wc_num.at(name), vals);
 }
 
@@ -1544,6 +1619,7 @@ void DEMSolver::SetAnalWildcardValue(bodyID_t geoID, const std::string& name, co
             "SetPerGeometryWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setAnalWildcardValue(geoID, m_geo_wc_num.at(name), vals);
 }
 
@@ -1555,6 +1631,7 @@ void DEMSolver::SetOwnerWildcardValue(bodyID_t ownerID, const std::string& name,
             "SetPerOwnerWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerWildcardValue(ownerID, m_owner_wc_num.at(name), vals);
 }
 
@@ -1566,6 +1643,7 @@ void DEMSolver::SetFamilyContactWildcardValueEither(unsigned int N, const std::s
             "SetPerContactWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setFamilyContactWildcardValueEither(N, m_cnt_wc_num.at(name), val);
 }
 void DEMSolver::SetFamilyContactWildcardValueBoth(unsigned int N, const std::string& name, float val) {
@@ -1576,6 +1654,7 @@ void DEMSolver::SetFamilyContactWildcardValueBoth(unsigned int N, const std::str
             "SetPerContactWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setFamilyContactWildcardValueBoth(N, m_cnt_wc_num.at(name), val);
 }
 void DEMSolver::SetFamilyContactWildcardValue(unsigned int N1, unsigned int N2, const std::string& name, float val) {
@@ -1586,6 +1665,7 @@ void DEMSolver::SetFamilyContactWildcardValue(unsigned int N1, unsigned int N2, 
             "SetPerContactWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setFamilyContactWildcardValue(N1, N2, m_cnt_wc_num.at(name), val);
 }
 void DEMSolver::SetContactWildcardValue(const std::string& name, float val) {
@@ -1596,15 +1676,18 @@ void DEMSolver::SetContactWildcardValue(const std::string& name, float val) {
             "SetPerContactWildcards in the force model first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setContactWildcardValue(m_cnt_wc_num.at(name), val);
 }
 
 void DEMSolver::SetFamilyClumpMaterial(unsigned int N, const std::shared_ptr<DEMMaterial>& mat) {
     assertSysInit("SetFamilyClumpMaterial");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setFamilyClumpMaterial(N, mat->load_order);
 }
 void DEMSolver::SetFamilyMeshMaterial(unsigned int N, const std::shared_ptr<DEMMaterial>& mat) {
     assertSysInit("SetFamilyMeshMaterial");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setFamilyMeshMaterial(N, mat->load_order);
 }
 
@@ -1616,6 +1699,7 @@ void DEMSolver::SetFamilyOwnerWildcardValue(unsigned int N, const std::string& n
             "SetPerOwnerWildcards first.",
             name.c_str());
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setFamilyOwnerWildcardValue(N, m_owner_wc_num.at(name), vals);
 }
 
@@ -1871,8 +1955,14 @@ void DEMSolver::DisableContactBetweenFamilies(unsigned int ID1, unsigned int ID2
     } else {
         // If initialized, directly pass this info to workers
         unsigned int posInMat = locateMaskPair<unsigned int>(ID1, ID2);
-        kT->familyMaskMatrix.setVal(PREVENT_CONTACT, posInMat);
-        dT->familyMaskMatrix.setVal(PREVENT_CONTACT, posInMat);
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->familyMaskMatrix.setVal(PREVENT_CONTACT, posInMat);
+        }
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->familyMaskMatrix.setVal(PREVENT_CONTACT, posInMat);
+        }
     }
 }
 
@@ -1890,8 +1980,14 @@ void DEMSolver::EnableContactBetweenFamilies(unsigned int ID1, unsigned int ID2)
     } else {
         // If initialized, directly pass this info to workers
         unsigned int posInMat = locateMaskPair<unsigned int>(ID1, ID2);
-        kT->familyMaskMatrix.setVal(DONT_PREVENT_CONTACT, posInMat);
-        dT->familyMaskMatrix.setVal(DONT_PREVENT_CONTACT, posInMat);
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->familyMaskMatrix.setVal(DONT_PREVENT_CONTACT, posInMat);
+        }
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->familyMaskMatrix.setVal(DONT_PREVENT_CONTACT, posInMat);
+        }
     }
 }
 
@@ -1904,8 +2000,14 @@ void DEMSolver::SetFamilyExtraMargin(unsigned int N, float extra_size) {
         DEME_ERROR("You are adding an extra margin of size %.7g, but the size should not be smaller than 0.",
                    extra_size);
     }
-    kT->familyExtraMarginSize.setVal(extra_size, N);
-    dT->familyExtraMarginSize.setVal(extra_size, N);
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->familyExtraMarginSize.setVal(extra_size, N);
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->familyExtraMarginSize.setVal(extra_size, N);
+    }
 }
 
 void DEMSolver::ClearCache() {
@@ -2271,10 +2373,16 @@ std::shared_ptr<DEMCombinedInstances> DEMSolver::AddCombinedFromTemplate(
 void DEMSolver::SetAllowIntraCombinedOwnerContacts(bool allow) {
     m_allow_intra_combined_owner_contacts = allow;
     if (sys_initialized) {
-        dT->simParams->allowIntraCombinedOwnerContacts = allow ? 1 : 0;
-        kT->simParams->allowIntraCombinedOwnerContacts = allow ? 1 : 0;
-        dT->simParams.toDevice();
-        kT->simParams.toDevice();
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->simParams->allowIntraCombinedOwnerContacts = allow ? 1 : 0;
+            dT->simParams.toDevice();
+        }
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->simParams->allowIntraCombinedOwnerContacts = allow ? 1 : 0;
+            kT->simParams.toDevice();
+        }
     }
 }
 
@@ -2316,6 +2424,7 @@ std::shared_ptr<DEMInspector> DEMSolver::CreateInspector(const std::string& quan
 }
 
 void DEMSolver::WriteSphereFile(const std::string& outfilename) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     switch (m_out_format) {
 #ifdef DEME_USE_CHPF
         case (OUTPUT_FORMAT::CHPF): {
@@ -2346,6 +2455,7 @@ void DEMSolver::WriteSphereFile(const std::string& outfilename) const {
 }
 
 void DEMSolver::WriteClumpFile(const std::string& outfilename, unsigned int accuracy) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     switch (m_out_format) {
 #ifdef DEME_USE_CHPF
         case (OUTPUT_FORMAT::CHPF): {
@@ -2382,6 +2492,7 @@ void DEMSolver::WriteContactFile(const std::string& outfilename, float force_thr
             "call."));
         return;
     }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     switch (m_cnt_out_format) {
         case (OUTPUT_FORMAT::CSV): {
             std::ofstream ptFile(outfilename, std::ios::out);
@@ -2406,6 +2517,7 @@ void DEMSolver::WriteContactFile(const std::string& outfilename, float force_thr
 }
 
 void DEMSolver::WriteMeshFile(const std::string& outfilename) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     switch (m_mesh_out_format) {
         case (MESH_FORMAT::VTK): {
             std::ofstream ptFile(outfilename, std::ios::out);
@@ -2441,14 +2553,20 @@ size_t DEMSolver::ChangeClumpFamily(unsigned int fam_num,
     size_t count = 0;
 
     // And get those device-major data from device
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        if (dT->solverFlags.canFamilyChangeOnDevice) {
+            dT->familyID.toHost();
+        }
+        dT->voxelID.toHost();
+        dT->locX.toHost();
+        dT->locY.toHost();
+        dT->locZ.toHost();
+    }
     if (dT->solverFlags.canFamilyChangeOnDevice) {
-        dT->familyID.toHost();
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
         kT->familyID.toHost();
     }
-    dT->voxelID.toHost();
-    dT->locX.toHost();
-    dT->locY.toHost();
-    dT->locZ.toHost();
 
     for (bodyID_t ownerID = 0; ownerID < nOwnerBodies; ownerID++) {
         // ownerTypes has no way to change on device
@@ -2484,8 +2602,14 @@ size_t DEMSolver::ChangeClumpFamily(unsigned int fam_num,
         }
     }
 
-    dT->familyID.toDevice();
-    kT->familyID.toDevice();
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->familyID.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->familyID.toDevice();
+    }
     return count;
 }
 

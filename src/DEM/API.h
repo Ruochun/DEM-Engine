@@ -526,6 +526,11 @@ class DEMSolver {
     /// @param n The number of consecutive owners.
     /// @return The family number.
     std::vector<unsigned int> GetOwnerFamily(bodyID_t ownerID, bodyID_t n = 1) const;
+    /// @brief Handover helper: get all clump-owner center positions in one call.
+    /// @return Position vector with one entry per clump owner, ordered by owner ID.
+    std::vector<float3> GetClumpPositionsHandover() const;
+    /// @brief Request an immediate contact detection update.
+    void RequestContactUpdate();
     /// @brief Get the mass of n consecutive owners.
     /// @param ownerID First owner's ID.
     /// @param n The number of consecutive owners.
