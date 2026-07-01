@@ -2762,7 +2762,7 @@ void DEMDynamicThread::calculateForces() {
         DEME_GPU_CALL(cudaMemset(maxTriTriPenetration.data(), 0, (size_t)simParams->nTriGM * sizeof(float)));
     }
 
-    timers.GetTimer("Clear force array").start();
+    timers.StartGpuTimer("Clear force array", streamInfo.stream);
     {
         prepareAccArrays(&simParams, &granData, simParams->nOwnerBodies, streamInfo.stream);
 
@@ -2773,12 +2773,12 @@ void DEMDynamicThread::calculateForces() {
         //     prepareForceArrays(&simParams, &granData, nPrimitiveContactPairs, streamInfo.stream);
         // }
     }
-    timers.GetTimer("Clear force array").stop();
+    timers.StopGpuTimer("Clear force array", streamInfo.stream);
 
     // If no contact then we don't have to calculate forces. Note there might still be forces, coming from prescription
     // or other sources.
     if (nContactPairs > 0) {
-        timers.GetTimer("Calculate contact forces").start();
+        timers.StartGpuTimer("Calculate contact forces", streamInfo.stream);
 
         // Call specialized kernels for each contact type that exists
         dispatchPrimitiveForceKernels(typeStartCountPrimitiveMap, contactTypePrimitiveKernelMap);
@@ -2794,10 +2794,10 @@ void DEMDynamicThread::calculateForces() {
         // displayDeviceArray<bodyID_t>(granData->idPatchA, nContactPairs);
         // displayDeviceArray<bodyID_t>(granData->idPatchB, nContactPairs);
         // std::cout << "===========================" << std::endl;
-        timers.GetTimer("Calculate contact forces").stop();
+        timers.StopGpuTimer("Calculate contact forces", streamInfo.stream);
 
         if (!solverFlags.useForceCollectInPlace) {
-            timers.GetTimer("Optional force reduction").start();
+            timers.StartGpuTimer("Optional force reduction", streamInfo.stream);
             // Reflect those body-wise forces on their owner clumps
             size_t blocks_needed_for_contacts =
                 (nContactPairs + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
@@ -2810,14 +2810,14 @@ void DEMDynamicThread::calculateForces() {
             // displayDeviceArray<float>(granData->aZ, simParams->nOwnerBodies);
             // displayDeviceFloat3(granData->contactForces, nContactPairs);
             // std::cout << nContactPairs << std::endl;
-            timers.GetTimer("Optional force reduction").stop();
+            timers.StopGpuTimer("Optional force reduction", streamInfo.stream);
         }
     }
 
     if (simParams->nCombinedOwners > 0) {
         // Fold non-master member accelerations into their master before integration. This also covers prescribed
         // accelerations in no-contact steps because it runs outside the contact-count branch.
-        timers.GetTimer("Optional force reduction").start();
+        timers.StartGpuTimer("Optional force reduction", streamInfo.stream);
         constexpr unsigned int COMBINED_OWNER_AGGREGATION_BLOCK = 512;
         const size_t blocks_needed_for_owners =
             (simParams->nOwnerBodies + COMBINED_OWNER_AGGREGATION_BLOCK - 1) / COMBINED_OWNER_AGGREGATION_BLOCK;
@@ -2826,11 +2826,12 @@ void DEMDynamicThread::calculateForces() {
             .configure(dim3(blocks_needed_for_owners), dim3(COMBINED_OWNER_AGGREGATION_BLOCK), 0, streamInfo.stream)
             .launch(&simParams, &granData, simParams->nOwnerBodies);
         DEME_GPU_DEBUG_SYNC(streamInfo.stream);
-        timers.GetTimer("Optional force reduction").stop();
+        timers.StopGpuTimer("Optional force reduction", streamInfo.stream);
     }
 }
 
 inline void DEMDynamicThread::integrateOwnerMotions() {
+    timers.StartGpuTimer("Integration", streamInfo.stream);
     size_t blocks_needed_for_clumps =
         (simParams->nOwnerBodies + DEME_NUM_BODIES_PER_BLOCK - 1) / DEME_NUM_BODIES_PER_BLOCK;
     integrator_kernels->kernel("integrateOwners")
@@ -2850,6 +2851,7 @@ inline void DEMDynamicThread::integrateOwnerMotions() {
             .launch(&simParams, &granData, simParams->nOwnerBodies);
         DEME_GPU_DEBUG_SYNC(streamInfo.stream);
     }
+    timers.StopGpuTimer("Integration", streamInfo.stream);
 }
 
 inline void DEMDynamicThread::routineChecks() {
@@ -3120,9 +3122,12 @@ void DEMDynamicThread::workerThread() {
 
                 routineChecks();
 
-                timers.GetTimer("Integration").start();
                 integrateOwnerMotions();
-                timers.GetTimer("Integration").stop();
+
+                timers.AccumulateGpuTimer("Clear force array");
+                timers.AccumulateGpuTimer("Calculate contact forces");
+                timers.AccumulateGpuTimer("Optional force reduction");
+                timers.AccumulateGpuTimer("Integration");
 
                 step_accepted = true;
             } while ((!solverFlags.isStepConst) || (!step_accepted));

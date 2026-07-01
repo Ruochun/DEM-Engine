@@ -133,6 +133,7 @@ int main() {
     DEMSim.InstructBoxDomainDimension(5, 5, 5);
     float step_size = 5e-6;
     DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetGPUTimersEnabled(true);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     // If there is a velocity that an analytical object (i.e. the drum) has that you'd like the solver to take into

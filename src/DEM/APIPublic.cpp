@@ -2549,6 +2549,17 @@ void DEMSolver::Initialize(bool dry_run) {
 }
 
 void DEMSolver::ShowTimingStats() {
+    // If accumulation is deferred, flush any pending GPU timer spans before reading values.
+    if (m_gpu_timers_enabled) {
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->timers.FlushGpuTimers();
+        }
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->timers.FlushGpuTimers();
+        }
+    }
     std::vector<std::string> kT_timer_names, dT_timer_names;
     std::vector<double> kT_timer_vals, dT_timer_vals;
     double kT_total_time, dT_total_time;
@@ -2573,6 +2584,31 @@ void DEMSolver::ShowTimingStats() {
                     dT_timer_vals.at(i) / dT_total_time * 100.);
     }
     DEME_PRINTF("--------------------------\n");
+}
+
+void DEMSolver::SetGPUTimersEnabled(bool enabled) {
+    m_gpu_timers_enabled = enabled;
+
+    // SolverTimers uses cudaEventCreate/Destroy, which are device-scoped.
+    if (enabled) {
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->timers.EnableGpuTimers();
+        }
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->timers.EnableGpuTimers();
+        }
+    } else {
+        {
+            ScopedCudaDevice device_scope(dT->streamInfo.device);
+            dT->timers.DestroyGpuEvents();
+        }
+        {
+            ScopedCudaDevice device_scope(kT->streamInfo.device);
+            kT->timers.DestroyGpuEvents();
+        }
+    }
 }
 
 void DEMSolver::ClearTimingStats() {

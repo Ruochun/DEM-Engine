@@ -1483,6 +1483,12 @@ class DEMSolver {
     /// Show the wall time and percentages of wall time spend on various solver tasks.
     void ShowTimingStats();
 
+    /// Enable/disable GPU event-based timing. Disabling this can reduce overhead; enabling it records GPU-side spans
+    /// without turning every timed section into a host synchronization point.
+    void SetGPUTimersEnabled(bool enabled);
+    /// Return whether GPU event-based timing is enabled.
+    bool GetGPUTimersEnabled() const { return m_gpu_timers_enabled; }
+
     /// Reset the collaboration stats between dT and kT back to the initial value (0). You should call this if you want
     /// to start over and re-inspect the stats of the new run; otherwise, it is generally not needed, you can go ahead
     /// and destroy DEMSolver.
@@ -1784,6 +1790,8 @@ class DEMSolver {
     bool no_recording_contact_forces = false;
     // See SetCollectAccRightAfterForceCalc
     bool collect_force_in_force_kernel = false;
+    // See SetGPUTimersEnabled
+    bool m_gpu_timers_enabled = true;
 
     // Error-out avg num contacts
     float threshold_error_out_num_cnts = 300.;

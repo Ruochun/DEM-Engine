@@ -19,6 +19,7 @@
 #include <sstream>
 #include <exception>
 #include <memory>
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
@@ -166,19 +167,239 @@ enum class ADAPT_TS_TYPE { NONE, MAX_VEL, INT_DIFF };
 // NOW SOME HOST-SIDE SIMPLE STRUCTS USED BY THE DEM MODULE
 // =============================================================================
 
+// Simple CUDA event-backed span timer, used for GPU section timing without forcing host synchronizations.
+struct StreamEventTimerSpan {
+    static constexpr int kQueueDepth = 8;
+
+    struct Slot {
+        cudaEvent_t start = nullptr;
+        cudaEvent_t stop = nullptr;
+        bool started = false;
+        bool stopped = false;
+    };
+
+    std::array<Slot, kQueueDepth> slots{};
+    int head = 0;
+    int count = 0;
+    int active = -1;
+
+    void create(unsigned int flags = cudaEventDefault) {
+        for (auto& slot : slots) {
+            DEME_GPU_CALL(cudaEventCreateWithFlags(&slot.start, flags));
+            DEME_GPU_CALL(cudaEventCreateWithFlags(&slot.stop, flags));
+            slot.started = false;
+            slot.stopped = false;
+        }
+        head = 0;
+        count = 0;
+        active = -1;
+    }
+
+    void destroy() {
+        for (auto& slot : slots) {
+            if (slot.start) {
+                cudaEventDestroy(slot.start);
+                slot.start = nullptr;
+            }
+            if (slot.stop) {
+                cudaEventDestroy(slot.stop);
+                slot.stop = nullptr;
+            }
+            slot.started = false;
+            slot.stopped = false;
+        }
+        head = 0;
+        count = 0;
+        active = -1;
+    }
+
+    void reset() {
+        for (auto& slot : slots) {
+            slot.started = false;
+            slot.stopped = false;
+        }
+        head = 0;
+        count = 0;
+        active = -1;
+    }
+
+    bool hasFreeSlot() const { return count < kQueueDepth; }
+
+    bool begin(cudaStream_t stream, Timer<double>& timer, bool allow_sync) {
+        if (active != -1) {
+            return false;
+        }
+        if (!hasFreeSlot()) {
+            accumulateAll(timer, allow_sync);
+        }
+        if (!hasFreeSlot()) {
+            return false;
+        }
+        const int idx = (head + count) % kQueueDepth;
+        Slot& slot = slots[idx];
+        DEME_GPU_CALL(cudaEventRecord(slot.start, stream));
+        slot.started = true;
+        slot.stopped = false;
+        active = idx;
+        count++;
+        return true;
+    }
+
+    void end(cudaStream_t stream) {
+        if (active < 0) {
+            return;
+        }
+        Slot& slot = slots[active];
+        if (!slot.started) {
+            return;
+        }
+        DEME_GPU_CALL(cudaEventRecord(slot.stop, stream));
+        slot.stopped = true;
+        active = -1;
+    }
+
+    bool accumulate(Timer<double>& timer, bool allow_sync) {
+        if (count == 0) {
+            return false;
+        }
+        Slot& slot = slots[head];
+        if (!slot.started || !slot.stopped) {
+            return false;
+        }
+        // Non-blocking elapsed-time queries can return cudaErrorNotReady if the stop event has not completed yet.
+        cudaError_t q = cudaEventQuery(slot.stop);
+        if (q == cudaErrorNotReady) {
+            if (!allow_sync) {
+                (void)cudaGetLastError();
+                return false;
+            }
+            (void)cudaGetLastError();
+            DEME_GPU_CALL(cudaEventSynchronize(slot.stop));
+        } else {
+            DEME_GPU_CALL(q);
+        }
+        float milliseconds = 0.f;
+        DEME_GPU_CALL(cudaEventElapsedTime(&milliseconds, slot.start, slot.stop));
+        timer.addDuration(milliseconds / 1000.0);
+        slot.started = false;
+        slot.stopped = false;
+        head = (head + 1) % kQueueDepth;
+        count--;
+        return true;
+    }
+
+    void accumulateAll(Timer<double>& timer, bool allow_sync) {
+        while (accumulate(timer, allow_sync)) {
+        }
+    }
+};
+
 // Timers used by kT and dT
 class SolverTimers {
   private:
     const unsigned int num_timers;
     std::unordered_map<std::string, Timer<double>> m_timers;
+    std::unordered_map<std::string, StreamEventTimerSpan> m_gpu_timers;
+    bool gpu_timers_initialized = false;
+    bool defer_gpu_timer_accumulation = true;
 
   public:
     SolverTimers(const std::vector<std::string>& names) : num_timers(names.size()) {
         for (unsigned int i = 0; i < num_timers; i++) {
             m_timers[names.at(i)] = Timer<double>();
+            m_gpu_timers[names.at(i)] = StreamEventTimerSpan();
         }
     }
+
+    void InitGpuEvents(unsigned int flags = cudaEventDefault) {
+        if (gpu_timers_initialized) {
+            return;
+        }
+        for (auto& [name, span] : m_gpu_timers) {
+            span.create(flags);
+        }
+        gpu_timers_initialized = true;
+    }
+
+    void EnableGpuTimers(unsigned int flags = cudaEventDefault) { InitGpuEvents(flags); }
+    void SetDeferGpuTimerAccumulation(bool defer) { defer_gpu_timer_accumulation = defer; }
+    bool GetDeferGpuTimerAccumulation() const { return defer_gpu_timer_accumulation; }
+
+    void DestroyGpuEvents() {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        for (auto& [name, span] : m_gpu_timers) {
+            span.destroy();
+        }
+        gpu_timers_initialized = false;
+    }
+
     Timer<double>& GetTimer(const std::string& name) { return m_timers.at(name); }
+
+    void StartGpuTimer(const std::string& name, cudaStream_t stream) {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        auto it = m_gpu_timers.find(name);
+        if (it != m_gpu_timers.end()) {
+            it->second.begin(stream, m_timers.at(name), !defer_gpu_timer_accumulation);
+        }
+    }
+
+    void StopGpuTimer(const std::string& name, cudaStream_t stream) {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        auto it = m_gpu_timers.find(name);
+        if (it != m_gpu_timers.end()) {
+            it->second.end(stream);
+        }
+    }
+
+    void AccumulateGpuTimer(const std::string& name) {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        auto it = m_gpu_timers.find(name);
+        if (it != m_gpu_timers.end()) {
+            it->second.accumulateAll(m_timers.at(name), !defer_gpu_timer_accumulation);
+        }
+    }
+
+    void AccumulateGpuTimers(const std::vector<std::string>& names) {
+        for (const auto& name : names) {
+            AccumulateGpuTimer(name);
+        }
+    }
+
+    void FlushGpuTimers() {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        for (auto& [name, span] : m_gpu_timers) {
+            span.accumulateAll(m_timers.at(name), true);
+        }
+    }
+
+    void ResetGpuTimer(const std::string& name) {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        auto it = m_gpu_timers.find(name);
+        if (it != m_gpu_timers.end()) {
+            it->second.reset();
+        }
+    }
+
+    void ResetGpuTimers() {
+        if (!gpu_timers_initialized) {
+            return;
+        }
+        for (auto& [name, span] : m_gpu_timers) {
+            span.reset();
+        }
+    }
 };
 
 // Manager of the collabortation between the main thread and worker threads

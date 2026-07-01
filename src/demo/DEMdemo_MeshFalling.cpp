@@ -31,6 +31,8 @@ int main() {
     DEMSim.SetContactOutputContent({"OWNER", "FORCE", "POINT", "NORMAL", "TORQUE", "CNT_WILDCARD"});
     DEMSim.InstructBoxDomainDimension(20, 20, 15);
 
+    DEMSim.SetGPUTimersEnabled(true);
+
     // Enable mesh-mesh contacts so boxes can collide with each other
     DEMSim.SetMeshUniversalContact(true);
 

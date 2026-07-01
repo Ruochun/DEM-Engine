@@ -236,8 +236,7 @@ int main() {
     DEMSim.InstructBoxDomainDimension(0.3, 0.3, 0.2);
     float step_size = 5e-6f;
     DEMSim.SetInitTimeStep(step_size);
-    // TODO: Restore this once the staged branch ports the GPU timing control API.
-    // DEMSim.SetGPUTimersEnabled(true);
+    DEMSim.SetGPUTimersEnabled(true);
     DEMSim.SetGravitationalAcceleration(make_float3(0, -9.81, 0));
     DEMSim.SetExpandSafetyType("auto");
     const float vmax_grav = std::sqrt(2.0f * 9.81f * drum_inner_radius);
