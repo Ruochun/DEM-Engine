@@ -2399,8 +2399,6 @@ inline void DEMDynamicThread::unpackMyBuffer() {
     dumpContactTypeArrayIfHasNull("dT", "after_unpack_working_array", "contactTypePrimitive",
                                   granData->contactTypePrimitive, *solverScratchSpace.numPrimitiveContacts,
                                   streamInfo.device);
-    dumpContactTypeArrayIfHasNull("dT", "after_unpack_working_array", "contactTypePatch", granData->contactTypePatch,
-                                  *solverScratchSpace.numContacts, streamInfo.device);
 #endif
 
     if (!solverFlags.isHistoryless) {

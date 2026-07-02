@@ -317,8 +317,6 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
 #if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
     dumpContactTypeArrayIfHasNull("kT", "before_copy_source", "contactTypePrimitive", granData->contactTypePrimitive,
                                   *solverScratchSpace.numPrimitiveContacts, streamInfo.device);
-    dumpContactTypeArrayIfHasNull("kT", "before_copy_source", "contactTypePatch", granData->contactTypePatch,
-                                  *solverScratchSpace.numContacts, streamInfo.device);
 #endif
 
     // Send over the sum of contacts
@@ -376,9 +374,6 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
 #if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
     dumpContactTypeArrayIfHasNull("kT", "after_copy_dT_buffer", "contactTypePrimitive",
                                   granData->pDTOwnedBuffer_contactType, *solverScratchSpace.numPrimitiveContacts,
-                                  dT->streamInfo.device);
-    dumpContactTypeArrayIfHasNull("kT", "after_copy_dT_buffer", "contactTypePatch",
-                                  granData->pDTOwnedBuffer_contactTypePatch, *solverScratchSpace.numContacts,
                                   dT->streamInfo.device);
 #endif
 }
