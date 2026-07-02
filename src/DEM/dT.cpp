@@ -8,6 +8,7 @@
 #include <iostream>
 #include <thread>
 #include <algorithm>
+#include <vector>
 
 #ifdef DEME_USE_CHPF
     #include <chpf.hpp>
@@ -23,6 +24,55 @@
 #include <kernel/DEMHelperKernels.cuh>
 
 namespace deme {
+
+#if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
+static void dumpContactTypeArrayIfHasNull(const char* side,
+                                          const char* stage,
+                                          const char* name,
+                                          const contact_t* device_types,
+                                          size_t n,
+                                          int device) {
+    if (device_types == nullptr || n == 0) {
+        return;
+    }
+
+    int previous_device = 0;
+    DEME_GPU_CALL(cudaGetDevice(&previous_device));
+    DEME_GPU_CALL(cudaSetDevice(device));
+    DEME_GPU_CALL(cudaDeviceSynchronize());
+
+    std::vector<contact_t> host_types(n);
+    DEME_GPU_CALL(cudaMemcpy(host_types.data(), device_types, n * sizeof(contact_t), cudaMemcpyDeviceToHost));
+
+    size_t n_null = 0;
+    size_t first_null = n;
+    for (size_t i = 0; i < n; i++) {
+        if (host_types[i] == NOT_A_CONTACT) {
+            if (first_null == n) {
+                first_null = i;
+            }
+            n_null++;
+        }
+    }
+
+    if (n_null > 0) {
+        printf("[CONTACT_TRANSFER_DEBUG] side=%s stage=%s array=%s device=%d n=%zu null_count=%zu first_null=%zu\n",
+               side, stage, name, device, n, n_null, first_null);
+        constexpr size_t CHUNK = 64;
+        for (size_t begin = 0; begin < n; begin += CHUNK) {
+            const size_t end = std::min(begin + CHUNK, n);
+            printf("[CONTACT_TRANSFER_DEBUG] side=%s stage=%s array=%s range=[%zu,%zu) values=", side, stage, name,
+                   begin, end);
+            for (size_t i = begin; i < end; i++) {
+                printf("%u%s", static_cast<unsigned int>(host_types[i]), (i + 1 < end) ? "," : "");
+            }
+            printf("\n");
+        }
+    }
+
+    DEME_GPU_CALL(cudaSetDevice(previous_device));
+}
+#endif
 
 // Put sim data array pointers in place
 void DEMDynamicThread::packDataPointers() {
@@ -2339,6 +2389,19 @@ inline void DEMDynamicThread::unpackMyBuffer() {
                              *solverScratchSpace.numContacts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
     DEME_GPU_CALL(cudaMemcpy(granData->contactPatchIsland, contactPatchIsland_buffer.data(),
                              *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+
+#if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
+    // Conservative receive-side barrier: by this point dT has copied the dT-owned transfer buffers into its working
+    // contact arrays. Synchronize before scanning so a null type in the counted prefix reflects actual received data,
+    // not an in-flight copy.
+    DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
+    DEME_GPU_CALL(cudaDeviceSynchronize());
+    dumpContactTypeArrayIfHasNull("dT", "after_unpack_working_array", "contactTypePrimitive",
+                                  granData->contactTypePrimitive, *solverScratchSpace.numPrimitiveContacts,
+                                  streamInfo.device);
+    dumpContactTypeArrayIfHasNull("dT", "after_unpack_working_array", "contactTypePatch", granData->contactTypePatch,
+                                  *solverScratchSpace.numContacts, streamInfo.device);
+#endif
 
     if (!solverFlags.isHistoryless) {
         // Note we don't have to use dedicated memory space for unpacking contactMapping_buffer contents, because we
