@@ -281,57 +281,75 @@ DEME_KERNEL void populateBinSphereTouchingPairs(deme::DEMSimParams* simParams,
                         ? granData->familyExtraMarginSize[sphFamilyNum]
                         : granData->familyExtraMarginSize[objFamilyNum];
                 if (contact_type == deme::NOT_A_CONTACT && overlapDepth > marginThres) {
-                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin sphere=%u owner=%u "
-                           "obj=%u objOwner=%u sphFamily=%u objFamily=%u maskMat=%u mask=%u begin=%u current=%u "
-                           "end=%u expected=%u contactType=%u overlapDepth=%.17g overlapArea=%.17g marginThres=%.17g "
-                           "spherePos=(%.17g,%.17g,%.17g) sphereRadius=%.17g objPos=(%.17g,%.17g,%.17g) "
-                           "objRot=(%.9g,%.9g,%.9g) objType=%u objNormal=%u objSize=(%.9g,%.9g,%.9g) "
-                           "analMargin=%.9g block=%u thread=%u\n",
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=ids sphere=%u "
+                           "owner=%u obj=%u objOwner=%u block=%u thread=%u\n",
                            static_cast<unsigned int>(sphereID), static_cast<unsigned int>(myOwnerID),
-                           static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), sphFamilyNum,
-                           objFamilyNum, maskMatID, static_cast<unsigned int>(granData->familyMasks[maskMatID]),
+                           static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), blockIdx.x,
+                           threadIdx.x);
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=scan begin=%u "
+                           "current=%u end=%u expected=%u contactType=%u\n",
                            static_cast<unsigned int>(mySphereGeoReportOffset_begin),
                            static_cast<unsigned int>(mySphereGeoReportOffset),
                            static_cast<unsigned int>(mySphereGeoReportOffset_end),
-                           static_cast<unsigned int>(expectedSphereGeoContacts), static_cast<unsigned int>(contact_type),
-                           overlapDepth, overlapArea, marginThres, myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius,
+                           static_cast<unsigned int>(expectedSphereGeoContacts), static_cast<unsigned int>(contact_type));
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=family "
+                           "sphFamily=%u objFamily=%u maskMat=%u mask=%u\n",
+                           sphFamilyNum, objFamilyNum, maskMatID,
+                           static_cast<unsigned int>(granData->familyMasks[maskMatID]));
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=overlap "
+                           "overlapDepth=%.17g overlapArea=%.17g marginThres=%.17g\n",
+                           overlapDepth, overlapArea, marginThres);
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=sphere "
+                           "spherePos=(%.17g,%.17g,%.17g) sphereRadius=%.17g\n",
+                           myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius);
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=obj "
+                           "objPos=(%.17g,%.17g,%.17g) objRot=(%.9g,%.9g,%.9g)\n",
                            objBPosXYZ.x, objBPosXYZ.y, objBPosXYZ.z, static_cast<double>(objBRot.x),
-                           static_cast<double>(objBRot.y), static_cast<double>(objBRot.z),
+                           static_cast<double>(objBRot.y), static_cast<double>(objBRot.z));
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=computed_zero_positive_margin part=obj_meta "
+                           "objType=%u objNormal=%u objSize=(%.9g,%.9g,%.9g) analMargin=%.9g\n",
                            static_cast<unsigned int>(objType[objB]), static_cast<unsigned int>(objNormal[objB]),
                            static_cast<double>(objSize1[objB]), static_cast<double>(objSize2[objB]),
-                           static_cast<double>(objSize3[objB]),
-                           static_cast<double>(granData->marginSizeAnalytical[objB]), blockIdx.x, threadIdx.x);
+                           static_cast<double>(objSize3[objB]), static_cast<double>(granData->marginSizeAnalytical[objB]));
                 }
                 if (contact_type && overlapDepth > marginThres) {
                     // Keep going on rare count/populate mismatches so trailing slots are still normalized.
                     if (mySphereGeoReportOffset < mySphereGeoReportOffset_end) {
                         if (contact_type == deme::NOT_A_CONTACT) {
-                            printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=about_to_write_computed_zero sphere=%u "
-                                   "owner=%u obj=%u objOwner=%u begin=%u current=%u end=%u expected=%u "
-                                   "overlapDepth=%.17g marginThres=%.17g block=%u thread=%u\n",
+                            printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=about_to_write_computed_zero part=ids "
+                                   "sphere=%u owner=%u obj=%u objOwner=%u block=%u thread=%u\n",
                                    static_cast<unsigned int>(sphereID), static_cast<unsigned int>(myOwnerID),
-                                   static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner),
+                                   static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), blockIdx.x,
+                                   threadIdx.x);
+                            printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=about_to_write_computed_zero part=scan "
+                                   "begin=%u current=%u end=%u expected=%u\n",
                                    static_cast<unsigned int>(mySphereGeoReportOffset_begin),
                                    static_cast<unsigned int>(mySphereGeoReportOffset),
                                    static_cast<unsigned int>(mySphereGeoReportOffset_end),
-                                   static_cast<unsigned int>(expectedSphereGeoContacts), overlapDepth, marginThres,
-                                   blockIdx.x, threadIdx.x);
+                                   static_cast<unsigned int>(expectedSphereGeoContacts));
+                            printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=about_to_write_computed_zero part=overlap "
+                                   "overlapDepth=%.17g marginThres=%.17g\n",
+                                   overlapDepth, marginThres);
                         }
                         idGeoA[mySphereGeoReportOffset] = sphereID;
                         idGeoB[mySphereGeoReportOffset] = (deme::bodyID_t)objB;
                         contactTypePrimitive[mySphereGeoReportOffset] = contact_type;
                         ++mySphereGeoReportOffset;
                     } else {
-                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=analytical_contact_overflow sphere=%u owner=%u "
-                               "obj=%u objOwner=%u begin=%u current=%u end=%u expected=%u contactType=%u "
-                               "overlapDepth=%.17g marginThres=%.17g block=%u thread=%u\n",
+                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=analytical_contact_overflow part=ids sphere=%u "
+                               "owner=%u obj=%u objOwner=%u block=%u thread=%u\n",
                                static_cast<unsigned int>(sphereID), static_cast<unsigned int>(myOwnerID),
-                               static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner),
+                               static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), blockIdx.x,
+                               threadIdx.x);
+                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=analytical_contact_overflow part=scan begin=%u "
+                               "current=%u end=%u expected=%u contactType=%u\n",
                                static_cast<unsigned int>(mySphereGeoReportOffset_begin),
                                static_cast<unsigned int>(mySphereGeoReportOffset),
                                static_cast<unsigned int>(mySphereGeoReportOffset_end),
-                               static_cast<unsigned int>(expectedSphereGeoContacts), static_cast<unsigned int>(contact_type),
-                               overlapDepth, marginThres, blockIdx.x, threadIdx.x);
+                               static_cast<unsigned int>(expectedSphereGeoContacts), static_cast<unsigned int>(contact_type));
+                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=analytical_contact_overflow part=overlap "
+                               "overlapDepth=%.17g marginThres=%.17g\n",
+                               overlapDepth, marginThres);
                     }
                 }
             }
@@ -343,16 +361,21 @@ DEME_KERNEL void populateBinSphereTouchingPairs(deme::DEMSimParams* simParams,
                     unsigned int objFamilyNum = granData->familyID[objBOwner];
                     unsigned int maskMatID = locateMaskPair<unsigned int>(sphFamilyNum, objFamilyNum);
                     if (granData->familyMasks[maskMatID] != deme::DONT_PREVENT_CONTACT) {
-                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_masked sphere=%u owner=%u "
-                               "obj=%u objOwner=%u sphFamily=%u objFamily=%u maskMat=%u mask=%u begin=%u current=%u "
-                               "end=%u expected=%u block=%u thread=%u\n",
+                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_masked part=ids sphere=%u "
+                               "owner=%u obj=%u objOwner=%u block=%u thread=%u\n",
                                static_cast<unsigned int>(sphereID), static_cast<unsigned int>(myOwnerID),
-                               static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), sphFamilyNum,
-                               objFamilyNum, maskMatID, static_cast<unsigned int>(granData->familyMasks[maskMatID]),
+                               static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), blockIdx.x,
+                               threadIdx.x);
+                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_masked part=family "
+                               "sphFamily=%u objFamily=%u maskMat=%u mask=%u\n",
+                               sphFamilyNum, objFamilyNum, maskMatID,
+                               static_cast<unsigned int>(granData->familyMasks[maskMatID]));
+                        printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_masked part=scan begin=%u "
+                               "current=%u end=%u expected=%u\n",
                                static_cast<unsigned int>(mySphereGeoReportOffset_begin),
                                static_cast<unsigned int>(mySphereGeoReportOffset),
                                static_cast<unsigned int>(mySphereGeoReportOffset_end),
-                               static_cast<unsigned int>(expectedSphereGeoContacts), blockIdx.x, threadIdx.x);
+                               static_cast<unsigned int>(expectedSphereGeoContacts));
                         continue;
                     }
 
@@ -382,40 +405,55 @@ DEME_KERNEL void populateBinSphereTouchingPairs(deme::DEMSimParams* simParams,
                         (granData->familyExtraMarginSize[sphFamilyNum] < granData->familyExtraMarginSize[objFamilyNum])
                             ? granData->familyExtraMarginSize[sphFamilyNum]
                             : granData->familyExtraMarginSize[objFamilyNum];
-                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck sphere=%u owner=%u "
-                           "obj=%u objOwner=%u sphFamily=%u objFamily=%u maskMat=%u mask=%u begin=%u current=%u "
-                           "end=%u expected=%u contactType=%u qualifies=%u overlapDepth=%.17g overlapArea=%.17g "
-                           "marginThres=%.17g spherePos=(%.17g,%.17g,%.17g) sphereRadius=%.17g "
-                           "objPos=(%.17g,%.17g,%.17g) objRot=(%.9g,%.9g,%.9g) objType=%u objNormal=%u "
-                           "objSize=(%.9g,%.9g,%.9g) analMargin=%.9g block=%u thread=%u\n",
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=ids sphere=%u "
+                           "owner=%u obj=%u objOwner=%u block=%u thread=%u\n",
                            static_cast<unsigned int>(sphereID), static_cast<unsigned int>(myOwnerID),
-                           static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), sphFamilyNum,
-                           objFamilyNum, maskMatID, static_cast<unsigned int>(granData->familyMasks[maskMatID]),
+                           static_cast<unsigned int>(objB), static_cast<unsigned int>(objBOwner), blockIdx.x,
+                           threadIdx.x);
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=scan begin=%u "
+                           "current=%u end=%u expected=%u contactType=%u qualifies=%u\n",
                            static_cast<unsigned int>(mySphereGeoReportOffset_begin),
                            static_cast<unsigned int>(mySphereGeoReportOffset),
                            static_cast<unsigned int>(mySphereGeoReportOffset_end),
                            static_cast<unsigned int>(expectedSphereGeoContacts), static_cast<unsigned int>(contact_type),
-                           static_cast<unsigned int>(contact_type && overlapDepth > marginThres), overlapDepth,
-                           overlapArea, marginThres, myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius, objBPosXYZ.x,
-                           objBPosXYZ.y, objBPosXYZ.z, static_cast<double>(objBRot.x), static_cast<double>(objBRot.y),
-                           static_cast<double>(objBRot.z), static_cast<unsigned int>(objType[objB]),
-                           static_cast<unsigned int>(objNormal[objB]), static_cast<double>(objSize1[objB]),
-                           static_cast<double>(objSize2[objB]), static_cast<double>(objSize3[objB]),
-                           static_cast<double>(granData->marginSizeAnalytical[objB]), blockIdx.x, threadIdx.x);
+                           static_cast<unsigned int>(contact_type && overlapDepth > marginThres));
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=family "
+                           "sphFamily=%u objFamily=%u maskMat=%u mask=%u\n",
+                           sphFamilyNum, objFamilyNum, maskMatID,
+                           static_cast<unsigned int>(granData->familyMasks[maskMatID]));
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=overlap "
+                           "overlapDepth=%.17g overlapArea=%.17g marginThres=%.17g\n",
+                           overlapDepth, overlapArea, marginThres);
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=sphere "
+                           "spherePos=(%.17g,%.17g,%.17g) sphereRadius=%.17g\n",
+                           myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius);
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=obj "
+                           "objPos=(%.17g,%.17g,%.17g) objRot=(%.9g,%.9g,%.9g)\n",
+                           objBPosXYZ.x, objBPosXYZ.y, objBPosXYZ.z, static_cast<double>(objBRot.x),
+                           static_cast<double>(objBRot.y), static_cast<double>(objBRot.z));
+                    printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_candidate_recheck part=obj_meta "
+                           "objType=%u objNormal=%u objSize=(%.9g,%.9g,%.9g) analMargin=%.9g\n",
+                           static_cast<unsigned int>(objType[objB]), static_cast<unsigned int>(objNormal[objB]),
+                           static_cast<double>(objSize1[objB]), static_cast<double>(objSize2[objB]),
+                           static_cast<double>(objSize3[objB]), static_cast<double>(granData->marginSizeAnalytical[objB]));
                 }
             }
             for (; mySphereGeoReportOffset < mySphereGeoReportOffset_end; ++mySphereGeoReportOffset) {
-                printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_write_zero sphere=%u owner=%u sphFamily=%u "
-                       "begin=%u current=%u end=%u expected=%u accepted=%u nAnalGM=%u spherePos=(%.17g,%.17g,%.17g) "
-                       "sphereRadius=%.17g block=%u thread=%u\n",
+                printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_write_zero part=ids sphere=%u owner=%u "
+                       "sphFamily=%u block=%u thread=%u\n",
                        static_cast<unsigned int>(sphereID), static_cast<unsigned int>(myOwnerID), sphFamilyNum,
+                       blockIdx.x, threadIdx.x);
+                printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_write_zero part=scan begin=%u current=%u "
+                       "end=%u expected=%u accepted=%u nAnalGM=%u\n",
                        static_cast<unsigned int>(mySphereGeoReportOffset_begin),
                        static_cast<unsigned int>(mySphereGeoReportOffset),
                        static_cast<unsigned int>(mySphereGeoReportOffset_end),
                        static_cast<unsigned int>(expectedSphereGeoContacts),
                        static_cast<unsigned int>(mySphereGeoReportOffset - mySphereGeoReportOffset_begin),
-                       static_cast<unsigned int>(simParams->nAnalGM), myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius,
-                       blockIdx.x, threadIdx.x);
+                       static_cast<unsigned int>(simParams->nAnalGM));
+                printf("[POPULATE_BIN_SPHERE_TYPE_ZERO] branch=fallback_write_zero part=sphere "
+                       "spherePos=(%.17g,%.17g,%.17g) sphereRadius=%.17g\n",
+                       myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius);
                 contactTypePrimitive[mySphereGeoReportOffset] = deme::NOT_A_CONTACT;
             }
         }
