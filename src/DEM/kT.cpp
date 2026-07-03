@@ -252,6 +252,15 @@ inline void DEMKinematicThread::unpackMyBuffer() {
 
 //// TODO: Fix the transfer; is primitive transfer needed at all?
 inline void DEMKinematicThread::sendToTheirBuffer() {
+    // Conservative barrier for the kT->dT contact-buffer handoff.
+    //
+    // kT produces contact arrays on streamInfo.stream, then copies them into dT-owned buffers. On two GPUs, the CPU
+    // "buffer is fresh" flag does not by itself guarantee that kT kernels and cross-device copies are complete/visible
+    // to dT. Keep this hard barrier until the handoff is replaced with explicit peer async copies plus CUDA events.
+    DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    DEME_GPU_CALL(cudaDeviceSynchronize());
+
     // Send over the sum of contacts
     DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_nPrimitiveContacts, &(solverScratchSpace.numPrimitiveContacts),
                              sizeof(size_t), cudaMemcpyDeviceToDevice));
@@ -294,7 +303,15 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
                                  (*solverScratchSpace.numContacts) * sizeof(contactPairs_t), cudaMemcpyDeviceToDevice));
         // DEME_MIGRATE_TO_DEVICE(dT->contactMapping_buffer, dT->streamInfo.device, streamInfo.stream);
     }
-    // DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+
+    // Complete the producer-side copy work before publishing the fresh flag on the CPU side. Also synchronize the dT
+    // device as a conservative visibility check for peer writes into dT-owned buffers.
+    DEME_GPU_CALL(cudaDeviceSynchronize());
+    if (dT->streamInfo.device != streamInfo.device) {
+        DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
+        DEME_GPU_CALL(cudaDeviceSynchronize());
+        DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
+    }
 }
 
 void DEMKinematicThread::workerThread() {
