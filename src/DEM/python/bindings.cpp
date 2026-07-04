@@ -601,8 +601,7 @@ PYBIND11_MODULE(DEME, obj) {
         .def("SetJitifyOptions", &deme::DEMSolver::SetJitifyOptions,
              "Set the jitification options. It is only needed by advanced users.")
         .def("SetCudaDebugSync", &deme::DEMSolver::SetCudaDebugSync,
-             "Set the process-wide switch that synchronizes after each CUDA operation that enqueues stream work. "
-             "Disable for normal asynchronous performance.",
+             "Set the process-wide switch that synchronizes after CUDA operations which enqueue stream work.",
              py::arg("enable") = true)
         .def("GetCudaDebugSync", &deme::DEMSolver::GetCudaDebugSync,
              "Return whether process-wide CUDA debug synchronization is enabled.")
@@ -664,10 +663,8 @@ PYBIND11_MODULE(DEME, obj) {
              "Set this to true if you later will call MarkPersistentContact series of methods.",
              py::arg("use") = true)
         .def("SetMeshParticlesLowPoly", &deme::DEMSolver::SetMeshParticlesLowPoly,
-             "Declare that all meshed particles have a low polygon count (e.g. box, tetrahedron). When enabled, the "
-             "per-triangle maxTriTriPenetration array is neither computed, transferred to kT, nor used to inflate "
-             "contact-detection margins, saving compute time. Toggle this on only when you are confident that no "
-             "triangle from one mesh will ever be completely submerged inside another mesh.",
+             "Declare that all meshed particles have a low polygon count. When enabled, per-triangle mesh-mesh "
+             "penetration-margin bookkeeping is skipped.",
              py::arg("use") = true)
 
         .def("SetExpandSafetyType", &deme::DEMSolver::SetExpandSafetyType,
@@ -696,14 +693,12 @@ PYBIND11_MODULE(DEME, obj) {
              "to discourage this error type. Defaulted to 100")
         .def("SetTriTriPenetration", &deme::DEMSolver::SetTriTriPenetration,
              "Manually set the current triangle-triangle penetration value in dT. This allows the user to directly "
-             "control the maxTriTriPenetration value which will ONLY be used in the NEXT contact detection run in kT.")
+             "fill the per-triangle maxTriTriPenetration array for use in the NEXT contact detection run in kT.")
         .def("SetMaxTriTriPenetration", &deme::DEMSolver::SetMaxTriTriPenetration,
              "Set the maximum allowed triangle-triangle penetration used as the margin added in kT contact detection. "
              "This value caps the penetration margin added to prevent excessively large values.")
         .def("SetTriTriContactRejectionRatio", &deme::DEMSolver::SetTriTriContactRejectionRatio,
-             "Set the ratio threshold for rejecting suspicious tri-tri contacts. A contact is rejected when the "
-             "penetration depth exceeds this fraction of the contact-point-to-mesh-center distance for either mesh "
-             "involved. A negative value disables the guard entirely.")
+             "Set the ratio threshold for rejecting suspicious triangle-triangle contacts.")
         .def("GetAvgSphContacts", &deme::DEMSolver::GetAvgSphContacts,
              "Get the current number of contacts each sphere has")
         .def("UseAdaptiveBinSize", &deme::DEMSolver::UseAdaptiveBinSize,
@@ -778,8 +773,7 @@ PYBIND11_MODULE(DEME, obj) {
              "Allow or suppress contacts among owners belonging to the same combined owner group.",
              py::arg("allow") = true)
         .def("SetVerbosity", static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetVerbosity),
-             "Set the verbosity level of the solver. Select from 'QUIET', 'ERROR', 'WARNING', 'INFO', 'METRIC' or "
-             "'DEBUG'. Recommend 'INFO'.")
+             "Set the verbosity level of the solver.")
         .def("EnableStoreNormals", &deme::DEMSolver::EnableStoreNormals,
              "Let the solver store the contact normal information for every contact (or disable it).",
              py::arg("enable") = true)
@@ -809,26 +803,6 @@ PYBIND11_MODULE(DEME, obj) {
                                                    const std::pair<float, float>&, const std::string& dir_exact)>(
                  &deme::DEMSolver::InstructBoxDomainDimension),
              "Set the span of the Box Domain", py::arg("x"), py::arg("y"), py::arg("z"), py::arg("dir_exact") = "none")
-        .def("LoadMeshType",
-             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(
-                 const std::string&, const std::shared_ptr<deme::DEMMaterial>&, bool, bool)>(
-                 &deme::DEMSolver::LoadMeshType),
-             "Load a mesh template into cache so it can be instantiated repeatedly.", py::arg("filename"),
-             py::arg("mat"), py::arg("load_normals") = true, py::arg("load_uv") = false)
-        .def("LoadMeshType",
-             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(const std::string&, bool, bool)>(
-                 &deme::DEMSolver::LoadMeshType),
-             "Load a mesh template into cache (without explicitly assigning material here).", py::arg("filename"),
-             py::arg("load_normals") = true, py::arg("load_uv") = false)
-        .def("LoadMeshType",
-             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(deme::DEMMesh&)>(
-                 &deme::DEMSolver::LoadMeshType),
-             "Load a user-constructed mesh object as a reusable template.", py::arg("mesh"))
-        .def("AddMeshFromTemplate",
-             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(
-                 const std::shared_ptr<deme::DEMMesh>&, const float3&)>(&deme::DEMSolver::AddMeshFromTemplate),
-             "Instantiate a mesh from a cached template at the requested initial position.", py::arg("mesh_template"),
-             py::arg("init_pos") = deme::make_float3(0))
         .def("InstructBoxDomainBoundingBC", &deme::DEMSolver::InstructBoxDomainBoundingBC,
              "Instruct if and how we should add boundaries to the simulation world upon initialization. Choose between "
              "`none', `all' (add 6 boundary planes) and `top_open' (add 5 boundary planes and leave the z-directon top "
