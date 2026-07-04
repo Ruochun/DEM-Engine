@@ -2340,6 +2340,12 @@ inline void DEMDynamicThread::unpackMyBuffer() {
     DEME_GPU_CALL(cudaMemcpy(granData->contactPatchIsland, contactPatchIsland_buffer.data(),
                              *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
 
+    // Conservative receive-side barrier for the kT->dT contact-buffer handoff. By this point dT has copied the
+    // dT-owned transfer buffers into its working contact arrays; synchronize before history mapping or force dispatch
+    // can consume a stale or partially visible counted prefix.
+    DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
+    DEME_GPU_CALL(cudaDeviceSynchronize());
+
     if (!solverFlags.isHistoryless) {
         // Note we don't have to use dedicated memory space for unpacking contactMapping_buffer contents, because we
         // only use it once per kT update, at the time of unpacking. So let us just use a temp vector to store it.
