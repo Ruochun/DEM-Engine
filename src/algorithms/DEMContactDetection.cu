@@ -13,7 +13,97 @@
 
 #include <DEM/utils/HostSideHelpers.hpp>
 
+#include <algorithm>
+#include <vector>
+
 namespace deme {
+
+#if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
+inline void errorIfPrimitiveContactTypesHaveNull(const char* stage,
+                                                 const bodyID_t* idA,
+                                                 const bodyID_t* idB,
+                                                 const contact_t* types,
+                                                 const notStupidBool_t* persistency,
+                                                 size_t n,
+                                                 cudaStream_t& stream) {
+    if (types == nullptr || n == 0) {
+        return;
+    }
+
+    DEME_GPU_CALL(cudaStreamSynchronize(stream));
+
+    std::vector<contact_t> host_types(n);
+    DEME_GPU_CALL(cudaMemcpy(host_types.data(), types, n * sizeof(contact_t), cudaMemcpyDeviceToHost));
+
+    size_t n_null = 0;
+    size_t first_null = n;
+    for (size_t i = 0; i < n; i++) {
+        if (host_types[i] == NOT_A_CONTACT) {
+            if (first_null == n) {
+                first_null = i;
+            }
+            n_null++;
+        }
+    }
+    if (n_null == 0) {
+        return;
+    }
+
+    std::vector<bodyID_t> host_idA(n, NULL_BODYID);
+    std::vector<bodyID_t> host_idB(n, NULL_BODYID);
+    std::vector<notStupidBool_t> host_persistency(n, CONTACT_NOT_PERSISTENT);
+    if (idA) {
+        DEME_GPU_CALL(cudaMemcpy(host_idA.data(), idA, n * sizeof(bodyID_t), cudaMemcpyDeviceToHost));
+    }
+    if (idB) {
+        DEME_GPU_CALL(cudaMemcpy(host_idB.data(), idB, n * sizeof(bodyID_t), cudaMemcpyDeviceToHost));
+    }
+    if (persistency) {
+        DEME_GPU_CALL(
+            cudaMemcpy(host_persistency.data(), persistency, n * sizeof(notStupidBool_t), cudaMemcpyDeviceToHost));
+    }
+
+    printf("[CONTACT_TYPE_ZERO_DEBUG] stage=%s n=%zu null_count=%zu first_null=%zu\n", stage, n, n_null, first_null);
+    constexpr size_t CHUNK = 64;
+    for (size_t begin = 0; begin < n; begin += CHUNK) {
+        const size_t end = std::min(begin + CHUNK, n);
+        printf("[CONTACT_TYPE_ZERO_DEBUG] stage=%s range=[%zu,%zu) types=", stage, begin, end);
+        for (size_t i = begin; i < end; i++) {
+            printf("%u%s", static_cast<unsigned int>(host_types[i]), (i + 1 < end) ? "," : "");
+        }
+        printf("\n");
+
+        printf("[CONTACT_TYPE_ZERO_DEBUG] stage=%s range=[%zu,%zu) idA=", stage, begin, end);
+        for (size_t i = begin; i < end; i++) {
+            printf("%u%s", static_cast<unsigned int>(host_idA[i]), (i + 1 < end) ? "," : "");
+        }
+        printf("\n");
+
+        printf("[CONTACT_TYPE_ZERO_DEBUG] stage=%s range=[%zu,%zu) idB=", stage, begin, end);
+        for (size_t i = begin; i < end; i++) {
+            printf("%u%s", static_cast<unsigned int>(host_idB[i]), (i + 1 < end) ? "," : "");
+        }
+        printf("\n");
+
+        printf("[CONTACT_TYPE_ZERO_DEBUG] stage=%s range=[%zu,%zu) persistency=", stage, begin, end);
+        for (size_t i = begin; i < end; i++) {
+            printf("%u%s", static_cast<unsigned int>(host_persistency[i]), (i + 1 < end) ? "," : "");
+        }
+        printf("\n");
+    }
+    DEME_ERROR("Primitive contact type array contains NOT_A_CONTACT entries at stage %s. First null index: %zu; "
+               "null count: %zu; counted contacts: %zu.",
+               stage, first_null, n_null, n);
+}
+#else
+inline void errorIfPrimitiveContactTypesHaveNull(const char*,
+                                                 const bodyID_t*,
+                                                 const bodyID_t*,
+                                                 const contact_t*,
+                                                 const notStupidBool_t*,
+                                                 size_t,
+                                                 cudaStream_t&) {}
+#endif
 
 // Forward declarations (helpers are defined later in this TU)
 inline void sortABTypePersistencyByA(bodyID_t* idA,
@@ -192,7 +282,9 @@ inline void removeDuplicateContacts(DualStruct<DEMDataKT>& granData,
     }
     scratchPad.syncDualStructDeviceToHost(
         "numRetainedCnts");  // In theory no need, but when CONTACT_IS_PERSISTENT is not 1...
-    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+    errorIfPrimitiveContactTypesHaveNull("removeDuplicateContacts.after_select", granData->idPrimitiveA,
+                                         granData->idPrimitiveB, granData->contactTypePrimitive,
+                                         granData->contactPersistency, *pNumRetainedCnts, this_stream);
     // DEME_DEBUG_PRINTF("CUB confirms there are %zu contacts, including user-specified persistent
     // contacts.", *pNumRetainedCnts);
     // std::cout << "Contacts after duplication check: " << std::endl;
@@ -662,6 +754,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         binIDsEachSphereTouches, sphereIDsEachBinTouches, granData->idPrimitiveA,
                         granData->idPrimitiveB, granData->contactTypePrimitive);
             DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            errorIfPrimitiveContactTypesHaveNull("after_sphere_analytical_fill", granData->idPrimitiveA,
+                                                 granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                 granData->contactPersistency, nSphereGeoContact, this_stream);
             // std::cout << "Unsorted bin IDs: ";
             // displayDeviceArray<binID_t>(binIDsEachSphereTouches, *pNumBinSphereTouchPairs);
             // std::cout << "Corresponding sphere IDs: ";
@@ -925,6 +1020,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         triIDsEachBinTouches, tri_vA1, tri_vB1, tri_vC1, tri_shift, tri_L1, tri_U1, tri_L2, tri_U2,
                         tri_ok1, tri_ok2, idTriA, idGeoB, dType, solverFlags.meshUniversalContact);
             DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            errorIfPrimitiveContactTypesHaveNull("after_triangle_analytical_fill", granData->idPrimitiveA,
+                                                 granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                 granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                                                 this_stream);
 
             scratchPad.finishUsingTempVector("tri_L1");
             scratchPad.finishUsingTempVector("tri_U1");
@@ -1200,6 +1299,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     .launch(&simParams, &granData, sphereIDsEachBinTouches_sorted, activeBinIDs, numSpheresBinTouches,
                             sphereIDsLookUpTable, sphSphContactReportOffsets, idSphA, idSphB, dType, *pNumActiveBins);
                 DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                errorIfPrimitiveContactTypesHaveNull(
+                    "after_sphere_sphere_fill", granData->idPrimitiveA, granData->idPrimitiveB,
+                    granData->contactTypePrimitive, granData->contactPersistency,
+                    nSphereGeoContact + nTriGeoContact + nSphereSphereContact, this_stream);
             }
 
             // Triangle--sphere contact pairs go after sphere--sphere contacts. Remember to mark their type.
@@ -1230,6 +1333,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             tri_vA1, tri_vB1, tri_vC1, tri_shift, *pNumActiveBinsForTri,
                             solverFlags.meshUniversalContact);
                 DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                errorIfPrimitiveContactTypesHaveNull(
+                    "after_sphere_triangle_triangle_triangle_fill", granData->idPrimitiveA, granData->idPrimitiveB,
+                    granData->contactTypePrimitive, granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                    this_stream);
             }
             // std::cout << "idPrimitiveA: " << std::endl;
             // displayDeviceArray<bodyID_t>(granData->idPrimitiveA, *scratchPad.numPrimitiveContacts);
@@ -1370,7 +1477,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             // Pay attention to that it does leverage the fact that RadixSort is stable.
             sortABTypePersistencyByA(total_idA, total_idB, total_types, total_persistency, idA_sorted, idB_sorted,
                                      contactType_sorted, persistency_sorted, numTotalCnts, this_stream, scratchPad);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            errorIfPrimitiveContactTypesHaveNull("persistent_merge.after_sort_by_A", idA_sorted, idB_sorted,
+                                                 contactType_sorted, persistency_sorted, numTotalCnts, this_stream);
 
             // std::cout << "Contacts before duplication check: " << std::endl;
             // displayDeviceArray<bodyID_t>(idA_sorted, numTotalCnts);
@@ -1388,7 +1496,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                     idPrimitiveA, idPrimitiveB, contactTypePrimitive, contactPersistency, true,
                                     DEME_MAX(simParams->nSpheresGM, simParams->nTriGM), numTotalCnts, this_stream,
                                     scratchPad);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            errorIfPrimitiveContactTypesHaveNull("persistent_merge.after_dedup", granData->idPrimitiveA,
+                                                 granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                 granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                                                 this_stream);
 
             scratchPad.finishUsingTempVector("contactType_sorted");
             scratchPad.finishUsingTempVector("idA_sorted");
@@ -1421,7 +1532,8 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             sortABTypePersistencyByA(granData->idPrimitiveA, granData->idPrimitiveB, granData->contactTypePrimitive,
                                      granData->contactPersistency, idA_sorted, idB_sorted, contactType_sorted,
                                      persistency_sorted, numTotalCnts, this_stream, scratchPad);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            errorIfPrimitiveContactTypesHaveNull("mesh_universal_dedup.after_sort_by_A", idA_sorted, idB_sorted,
+                                                 contactType_sorted, persistency_sorted, numTotalCnts, this_stream);
             // std::cout << "Contacts before duplication check: " << std::endl;
             // displayDeviceArray<bodyID_t>(idA_sorted, numTotalCnts);
             // displayDeviceArray<bodyID_t>(idB_sorted, numTotalCnts);
@@ -1431,7 +1543,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                     idPrimitiveA, idPrimitiveB, contactTypePrimitive, contactPersistency, false,
                                     DEME_MAX(simParams->nSpheresGM, simParams->nTriGM), numTotalCnts, this_stream,
                                     scratchPad);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            errorIfPrimitiveContactTypesHaveNull("mesh_universal_dedup.after_dedup", granData->idPrimitiveA,
+                                                 granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                 granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                                                 this_stream);
             // std::cout << "Contacts after duplication check: " << std::endl;
             // displayDeviceArray<bodyID_t>(granData->idPrimitiveA, *scratchPad.numPrimitiveContacts);
             // displayDeviceArray<bodyID_t>(granData->idPrimitiveB, *scratchPad.numPrimitiveContacts);
@@ -1516,15 +1631,20 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 scratchPad.finishUsingTempVector("combined_kept_type");
                 scratchPad.finishUsingTempVector("combined_kept_persist");
                 *scratchPad.numPrimitiveContacts = numKept;
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                errorIfPrimitiveContactTypesHaveNull("combined_owner_filter.after_select", granData->idPrimitiveA,
+                                                     granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                     granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                                                     this_stream);
             }
 
             scratchPad.finishUsingDualStruct("numCombinedKeptCnts");
             scratchPad.finishUsingTempVector("combined_keep_flags");
         }
 
-        // -----------------------------------------------------------------------------------------------------------
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        errorIfPrimitiveContactTypesHaveNull("before_primitive_sanity_check", granData->idPrimitiveA,
+                                             granData->idPrimitiveB, granData->contactTypePrimitive,
+                                             granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                                             this_stream);
 
         // -----------------------------------------------------------------------------------------------------------
         // We need to now do some sanity checks. If primitive contacts are already sorted by idA, we just use them (they
@@ -1622,7 +1742,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                              cudaMemcpyDeviceToDevice));
                     DEME_GPU_CALL(cudaMemcpy(granData->contactPersistency, contactPersistency_sorted,
                                              total_persistency_bytes, cudaMemcpyDeviceToDevice));
-                    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                    errorIfPrimitiveContactTypesHaveNull("simple_patch_path.after_sort_by_type", granData->idPrimitiveA,
+                                                         granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                         granData->contactPersistency, numTotalCnts, this_stream);
                     scratchPad.finishUsingTempVector("contactType_sorted");
                     scratchPad.finishUsingTempVector("idPrimitiveA_sorted");
                     scratchPad.finishUsingTempVector("idPrimitiveB_sorted");
@@ -1791,7 +1913,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                              cudaMemcpyDeviceToDevice));
                     DEME_GPU_CALL(cudaMemcpy(granData->contactTypePrimitive, contactType_sorted,
                                              numTotalCnts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
-                    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                    errorIfPrimitiveContactTypesHaveNull("simple_patch_path.after_patch_pair_segment_sort",
+                                                         granData->idPrimitiveA, granData->idPrimitiveB,
+                                                         granData->contactTypePrimitive, granData->contactPersistency,
+                                                         numTotalCnts, this_stream);
 
                     scratchPad.finishUsingTempVector("patchPairs_sorted");
                     scratchPad.finishUsingTempVector("idA_sorted");
@@ -1868,7 +1993,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             granData->contactPersistency, contactPersistency_sorted, sort_indices_sorted, numTotalCnts);
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 }
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                errorIfPrimitiveContactTypesHaveNull("flooded_patch_path.after_global_patch_pair_gather", idA_sorted,
+                                                     idB_sorted, contactType_sorted, contactPersistency_sorted,
+                                                     numTotalCnts, this_stream);
 
                 if (blocks_needed_for_patch_ids > 0) {
                     lineNumbers<<<dim3(blocks_needed_for_patch_ids), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
@@ -1899,7 +2026,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             patchPairs_sorted, contactPatchPairs, type_indices_sorted, numTotalCnts);
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 }
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                errorIfPrimitiveContactTypesHaveNull("flooded_patch_path.after_type_sort", granData->idPrimitiveA,
+                                                     granData->idPrimitiveB, granData->contactTypePrimitive,
+                                                     granData->contactPersistency, numTotalCnts, this_stream);
 
                 // Preserve the RefBranch invariant that primitive contacts are sorted by patch pair within each contact
                 // type segment before patch grouping. The flooded path builds extra island labels on top of these base
@@ -1972,7 +2101,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                              total_persistency_bytes, cudaMemcpyDeviceToDevice));
                     DEME_GPU_CALL(
                         cudaMemcpy(contactPatchPairs, patchPairs_sorted, patch_arr_bytes, cudaMemcpyDeviceToDevice));
-                    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                    errorIfPrimitiveContactTypesHaveNull("flooded_patch_path.after_patch_pair_segment_resort",
+                                                         granData->idPrimitiveA, granData->idPrimitiveB,
+                                                         granData->contactTypePrimitive, granData->contactPersistency,
+                                                         numTotalCnts, this_stream);
 
                     delete[] host_segment_counts;
                 }
@@ -2443,7 +2575,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(contactPatchPairs, patchPairs_sorted, patch_arr_bytes,
                                                         cudaMemcpyDeviceToDevice, this_stream),
                                         this_stream);
-                    DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                    errorIfPrimitiveContactTypesHaveNull("flooded_patch_path.after_island_reorder",
+                                                         granData->idPrimitiveA, granData->idPrimitiveB,
+                                                         granData->contactTypePrimitive, granData->contactPersistency,
+                                                         numTotalCnts, this_stream);
 
                     contactPairs_t* isNewIslandGroup = (contactPairs_t*)scratchPad.allocateTempVector(
                         "isNewIslandGroup", numTotalCnts * sizeof(contactPairs_t));
@@ -2715,7 +2850,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             // displayDeviceArray<contact_t>(granData->contactTypePatch, *scratchPad.numContacts);
             // displayDeviceArray<contactPairs_t>(granData->geomToPatchMap, *scratchPad.numPrimitiveContacts);
         }
-        DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+        errorIfPrimitiveContactTypesHaveNull("after_patch_derivation_before_history", granData->idPrimitiveA,
+                                             granData->idPrimitiveB, granData->contactTypePrimitive,
+                                             granData->contactPersistency, *scratchPad.numPrimitiveContacts,
+                                             this_stream);
 
         timers.GetTimer("Find contact pairs").stop();
 

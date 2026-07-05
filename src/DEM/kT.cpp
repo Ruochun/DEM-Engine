@@ -4,8 +4,10 @@
 //	SPDX-License-Identifier: BSD-3-Clause
 
 #include <cstring>
+#include <algorithm>
 #include <iostream>
 #include <thread>
+#include <vector>
 
 #include <core/ApiVersion.h>
 #include <core/utils/JitHelper.h>
@@ -17,6 +19,55 @@
 #include "kernel/DEMHelperKernels.cuh"
 
 namespace deme {
+
+#if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
+static void dumpContactTypeArrayIfHasNull(const char* side,
+                                          const char* stage,
+                                          const char* name,
+                                          const contact_t* device_types,
+                                          size_t n,
+                                          int device) {
+    if (device_types == nullptr || n == 0) {
+        return;
+    }
+
+    int previous_device = 0;
+    DEME_GPU_CALL(cudaGetDevice(&previous_device));
+    DEME_GPU_CALL(cudaSetDevice(device));
+    DEME_GPU_CALL(cudaDeviceSynchronize());
+
+    std::vector<contact_t> host_types(n);
+    DEME_GPU_CALL(cudaMemcpy(host_types.data(), device_types, n * sizeof(contact_t), cudaMemcpyDeviceToHost));
+
+    size_t n_null = 0;
+    size_t first_null = n;
+    for (size_t i = 0; i < n; i++) {
+        if (host_types[i] == NOT_A_CONTACT) {
+            if (first_null == n) {
+                first_null = i;
+            }
+            n_null++;
+        }
+    }
+
+    if (n_null > 0) {
+        printf("[CONTACT_TRANSFER_DEBUG] side=%s stage=%s array=%s device=%d n=%zu null_count=%zu first_null=%zu\n",
+               side, stage, name, device, n, n_null, first_null);
+        constexpr size_t CHUNK = 64;
+        for (size_t begin = 0; begin < n; begin += CHUNK) {
+            const size_t end = std::min(begin + CHUNK, n);
+            printf("[CONTACT_TRANSFER_DEBUG] side=%s stage=%s array=%s range=[%zu,%zu) values=", side, stage, name,
+                   begin, end);
+            for (size_t i = begin; i < end; i++) {
+                printf("%u%s", static_cast<unsigned int>(host_types[i]), (i + 1 < end) ? "," : "");
+            }
+            printf("\n");
+        }
+    }
+
+    DEME_GPU_CALL(cudaSetDevice(previous_device));
+}
+#endif
 
 inline void DEMKinematicThread::transferPrimitivesArraysResize(size_t nContactPairs) {
     // These buffers are on dT
@@ -252,14 +303,21 @@ inline void DEMKinematicThread::unpackMyBuffer() {
 
 //// TODO: Fix the transfer; is primitive transfer needed at all?
 inline void DEMKinematicThread::sendToTheirBuffer() {
-    // Conservative barrier for the kT->dT contact-buffer handoff.
+    // Conservative diagnostic barrier for the kT->dT contact-buffer handoff.
     //
     // kT produces contact arrays on streamInfo.stream, then copies them into dT-owned buffers. On two GPUs, the CPU
     // "buffer is fresh" flag does not by itself guarantee that kT kernels and cross-device copies are complete/visible
-    // to dT. Keep this hard barrier until the handoff is replaced with explicit peer async copies plus CUDA events.
+    // to dT. If dT sees the new contact count with a stale or partially copied contactType array, NOT_A_CONTACT entries
+    // can leak into the counted prefix and later trip force-kernel dispatch. Keep this hard barrier until the handoff is
+    // replaced with explicit peer async copies plus CUDA events.
     DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
     DEME_GPU_CALL(cudaDeviceSynchronize());
+
+#if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
+    dumpContactTypeArrayIfHasNull("kT", "before_copy_source", "contactTypePrimitive", granData->contactTypePrimitive,
+                                  *solverScratchSpace.numPrimitiveContacts, streamInfo.device);
+#endif
 
     // Send over the sum of contacts
     DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_nPrimitiveContacts, &(solverScratchSpace.numPrimitiveContacts),
@@ -312,6 +370,12 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
         DEME_GPU_CALL(cudaDeviceSynchronize());
         DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
     }
+
+#if DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
+    dumpContactTypeArrayIfHasNull("kT", "after_copy_dT_buffer", "contactTypePrimitive",
+                                  granData->pDTOwnedBuffer_contactType, *solverScratchSpace.numPrimitiveContacts,
+                                  dT->streamInfo.device);
+#endif
 }
 
 void DEMKinematicThread::workerThread() {
