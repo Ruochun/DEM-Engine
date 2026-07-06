@@ -53,7 +53,7 @@ constexpr uint8_t VOXEL_RES_POWER2 = sizeof(subVoxelPos_t) * DEME_BITS_PER_BYTE;
 constexpr uint8_t VOXEL_COUNT_POWER2 = sizeof(voxelID_t) * DEME_BITS_PER_BYTE;
 constexpr int64_t MAX_SUBVOXEL = (int64_t)1 << VOXEL_RES_POWER2;
 
-#define DEME_NUM_BODIES_PER_BLOCK 512
+#define DEME_NUM_BODIES_PER_BLOCK 1024
 #define DEME_NUM_MODERATORS_PER_BLOCK 512
 
 #define DEME_NUM_TRIANGLE_PER_BLOCK 512
@@ -65,11 +65,6 @@ constexpr int64_t MAX_SUBVOXEL = (int64_t)1 << VOXEL_RES_POWER2;
 // If there are more than this number of sphere components across all clumps (excluding the clumps that are considered
 // big clumps), then some of them may have to stay in global memory, rather than being jitified
 #define DEME_THRESHOLD_TOO_MANY_SPHERE_COMP 512
-// Debug branch switch for kT->dT contact-array handoff diagnostics. Set to 0 to compile out the transfer barriers and
-// contact-type dumps used to chase NOT_A_CONTACT entries inside counted contact prefixes.
-#ifndef DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT
-    #define DEME_ENABLE_CONTACT_TRANSFER_DEBUG_OUTPUT 1
-#endif
 // It should generally just be the warp size. When a block is launched, at least min(these_numbers) threads will be
 // launched so the template loading is always safe.
 constexpr clumpComponentOffset_t NUM_ACTIVE_TEMPLATE_LOADING_THREADS =

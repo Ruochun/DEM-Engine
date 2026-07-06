@@ -113,7 +113,7 @@ int main() {
 
     DEMSim.Initialize();
 
-    float sim_time = 9.0;
+    float sim_time = 3.0;
     float settle_time = 1.0;
     unsigned int fps = 20;
     float frame_time = 1.0 / fps;
@@ -171,9 +171,9 @@ int main() {
         DEMSim.DoDynamics(frame_time);
         DEMSim.ShowThreadCollaborationStats();
 
-        // if (std::abs(proj_tracker->Vel().z) < 1e-4) {
-        //     break;
-        // }
+        if (std::abs(proj_tracker->Vel().z) < 1e-4) {
+            break;
+        }
     }
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> time_sec = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
