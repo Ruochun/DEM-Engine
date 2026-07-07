@@ -245,7 +245,7 @@ class DEMDynamicThread {
     // Geometric entities' wildcards
     std::vector<std::unique_ptr<DualArray<float>>> sphereWildcards;
     std::vector<std::unique_ptr<DualArray<float>>> analWildcards;
-    std::vector<std::unique_ptr<DualArray<float>>> patchWildcards;
+    std::vector<std::unique_ptr<DualArray<float>>> triWildcards;
 
     // Storage for the names of the contact wildcards (whose order agrees with the impl-level wildcard numbering, from 1
     // to n)
@@ -473,8 +473,8 @@ class DEMDynamicThread {
     /// @brief Set all meshes in this family to have this material.
     void setFamilyMeshMaterial(unsigned int N, unsigned int mat_id);
 
-    /// @brief Set the geometry wildcards of mesh patches, starting from geoID, for the length of vals.
-    void setPatchWildcardValue(bodyID_t geoID, unsigned int wc_num, const std::vector<float>& vals);
+    /// @brief Set the geometry wildcards of mesh triangles, starting from geoID, for the length of vals.
+    void setTriWildcardValue(bodyID_t geoID, unsigned int wc_num, const std::vector<float>& vals);
     /// @brief Set the geometry wildcards of spheres, starting from geoID, for the length of vals.
     void setSphWildcardValue(bodyID_t geoID, unsigned int wc_num, const std::vector<float>& vals);
     /// @brief Set the geometry wildcards of analytical components, starting from geoID, for the length of vals.
@@ -489,8 +489,8 @@ class DEMDynamicThread {
 
     /// @brief Fill res with the `wc_num' wildcard values, for n spheres starting from ID.
     void getSphereWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n);
-    /// @brief Fill res with the `wc_num' wildcard values, for n mesh patches starting from ID.
-    void getPatchWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n);
+    /// @brief Fill res with the `wc_num' wildcard values, for n mesh triangles starting from ID.
+    void getTriWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n);
     /// @brief Fill res with the `wc_num' wildcard values, for n analytical entities starting from ID.
     void getAnalWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n);
 
@@ -553,7 +553,7 @@ class DEMDynamicThread {
                           std::vector<std::shared_ptr<DEMTrackedObj>>& tracked_objs,
                           size_t nExistOwners,
                           size_t nExistSpheres,
-                          size_t nExistingPatches,
+                          size_t nExistingFacets,
                           unsigned int nExistingAnalGM);
     void populateEntityArrays(const std::vector<std::shared_ptr<DEMClumpBatch>>& input_clump_batches,
                               const std::vector<float3>& input_ext_obj_xyz,
@@ -871,7 +871,7 @@ class DEMDynamicThread {
     void migrateClumpHighOrderInfoToHost();
     void migrateOwnerWildcardToHost();
     void migrateSphGeoWildcardToHost();
-    void migratePatchGeoWildcardToHost();
+    void migrateTriGeoWildcardToHost();
     void migrateAnalGeoWildcardToHost();
     void migrateContactInfoToHost();
     void migrateDeviceModifiableInfoToHost();

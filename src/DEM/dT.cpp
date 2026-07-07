@@ -87,7 +87,7 @@ void DEMDynamicThread::packDataPointers() {
     for (unsigned int i = 0; i < simParams->nGeoWildcards; i++) {
         sphereWildcards[i]->bindDevicePointer(&(granData->sphereWildcards[i]));
         analWildcards[i]->bindDevicePointer(&(granData->analWildcards[i]));
-        patchWildcards[i]->bindDevicePointer(&(granData->patchWildcards[i]));
+        triWildcards[i]->bindDevicePointer(&(granData->triWildcards[i]));
     }
 
     // The offset info that indexes into the template arrays
@@ -192,7 +192,7 @@ void DEMDynamicThread::migrateDataToDevice() {
     for (unsigned int i = 0; i < simParams->nGeoWildcards; i++) {
         sphereWildcards[i]->toDeviceAsync(streamInfo.stream);
         analWildcards[i]->toDeviceAsync(streamInfo.stream);
-        patchWildcards[i]->toDeviceAsync(streamInfo.stream);
+        triWildcards[i]->toDeviceAsync(streamInfo.stream);
     }
 
     ownerClumpBody.toDeviceAsync(streamInfo.stream);
@@ -239,7 +239,7 @@ void DEMDynamicThread::migrateDeviceModifiableInfoToHost() {
     migrateContactInfoToHost();
     migrateOwnerWildcardToHost();
     migrateSphGeoWildcardToHost();
-    migratePatchGeoWildcardToHost();
+    migrateTriGeoWildcardToHost();
     migrateAnalGeoWildcardToHost();
 }
 
@@ -309,9 +309,9 @@ void DEMDynamicThread::migrateSphGeoWildcardToHost() {
         sphereWildcards[i]->toHost();
     }
 }
-void DEMDynamicThread::migratePatchGeoWildcardToHost() {
+void DEMDynamicThread::migrateTriGeoWildcardToHost() {
     for (unsigned int i = 0; i < simParams->nGeoWildcards; i++) {
-        patchWildcards[i]->toHost();
+        triWildcards[i]->toHost();
     }
 }
 void DEMDynamicThread::migrateAnalGeoWildcardToHost() {
@@ -647,7 +647,7 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
         ownerWildcards.resize(simParams->nOwnerWildcards);
         sphereWildcards.resize(simParams->nGeoWildcards);
         analWildcards.resize(simParams->nGeoWildcards);
-        patchWildcards.resize(simParams->nGeoWildcards);
+        triWildcards.resize(simParams->nGeoWildcards);
         for (unsigned int i = 0; i < simParams->nContactWildcards; i++) {
             contactWildcards[i] =
                 std::make_unique<DualArray<float>>(cnt_arr_size, 0, &m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
@@ -661,8 +661,8 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
                 std::make_unique<DualArray<float>>(nSpheresGM, 0, &m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
             analWildcards[i] =
                 std::make_unique<DualArray<float>>(nAnalGM, 0, &m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
-            patchWildcards[i] =
-                std::make_unique<DualArray<float>>(nMeshPatches, 0, &m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+            triWildcards[i] =
+                std::make_unique<DualArray<float>>(nTriGM, 0, &m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
         }
     }
     // existingContactTypes has a fixed size depending on how many contact types are defined
@@ -1071,7 +1071,7 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         ownerMeshWatertight[owner_id] = input_mesh_objs.at(i)->IsWatertight() ? 1 : 0;
         ownerMeshShellHalfThickness[owner_id] = std::max(input_mesh_objs.at(i)->GetShellHalfThickness(), 0.f);
 
-        // Store inherent geo wildcards
+        // Store inherent geo wildcards (per-triangle: one value per triangle facet).
         {
             unsigned int w_num = 0;
             for (const auto& w_name : m_geo_wildcard_names) {
@@ -1082,8 +1082,8 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
                         "initial values are defauled to 0.",
                         w_name.c_str());
                 } else {
-                    for (size_t jj = 0; jj < input_mesh_objs.at(i)->GetNumPatches(); jj++) {
-                        (*patchWildcards[w_num])[nExistingMeshPatches + p + jj] =
+                    for (size_t jj = 0; jj < input_mesh_objs.at(i)->GetNumTriangles(); jj++) {
+                        (*triWildcards[w_num])[nExistingFacets + k + jj] =
                             input_mesh_objs.at(i)->geo_wildcards[w_name].at(jj);
                     }
                 }
@@ -1191,7 +1191,7 @@ void DEMDynamicThread::buildTrackedObjs(const std::vector<std::shared_ptr<DEMClu
                                         std::vector<std::shared_ptr<DEMTrackedObj>>& tracked_objs,
                                         size_t nExistOwners,
                                         size_t nExistSpheres,
-                                        size_t nExistingPatches,
+                                        size_t nExistingFacets,
                                         unsigned int nExistingAnalGM) {
     // We take notes on how many clumps each batch has, it will be useful when we assemble the tracker information
     std::vector<size_t> prescans_batch_size, prescans_batch_sphere_size;
@@ -1207,11 +1207,11 @@ void DEMDynamicThread::buildTrackedObjs(const std::vector<std::shared_ptr<DEMClu
     for (const auto& geo_num : ext_obj_comp_num) {
         prescans_ext_obj_size.push_back(prescans_ext_obj_size.back() + geo_num);
     }
-    // Also take notes of num of patches of each mesh obj
+    // Also take notes of num of triangles of each mesh obj (for per-triangle geo wildcard tracking)
     std::vector<size_t> prescans_mesh_size;
     prescans_mesh_size.push_back(0);
     for (const auto& a_mesh : input_mesh_objs) {
-        prescans_mesh_size.push_back(prescans_mesh_size.back() + a_mesh->GetNumPatches());
+        prescans_mesh_size.push_back(prescans_mesh_size.back() + a_mesh->GetNumTriangles());
     }
 
     // Provide feedback to the tracked objects, tell them the owner numbers they are looking for
@@ -1241,8 +1241,8 @@ void DEMDynamicThread::buildTrackedObjs(const std::vector<std::shared_ptr<DEMClu
                 tracked_obj->ownerID =
                     nExistOwners + ext_obj_comp_num.size() + prescans_batch_size.back() + tracked_obj->load_order;
                 tracked_obj->nSpanOwners = 1;
-                tracked_obj->geoID = nExistingPatches + prescans_mesh_size.at(tracked_obj->load_order);
-                // For mesh, nGeos is the number of patches
+                tracked_obj->geoID = nExistingFacets + prescans_mesh_size.at(tracked_obj->load_order);
+                // For mesh, nGeos is the number of triangles (per-triangle geo wildcard).
                 tracked_obj->nGeos =
                     prescans_mesh_size.at(tracked_obj->load_order + 1) - prescans_mesh_size.at(tracked_obj->load_order);
                 break;
@@ -1356,7 +1356,7 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
 
     // Make changes to tracked objects (potentially add more)
     buildTrackedObjs(input_clump_batches, ext_obj_comp_num, input_mesh_objs, tracked_objs, nExistingOwners,
-                     nExistingSpheres, nExistingPatches, nExistingAnalGM);
+                     nExistingSpheres, nExistingFacets, nExistingAnalGM);
 }
 
 #ifdef DEME_USE_CHPF
@@ -3451,8 +3451,8 @@ void DEMDynamicThread::deallocateEverything() {
     for (unsigned int i = 0; i < analWildcards.size(); i++) {
         analWildcards[i].reset();
     }
-    for (unsigned int i = 0; i < patchWildcards.size(); i++) {
-        patchWildcards[i].reset();
+    for (unsigned int i = 0; i < triWildcards.size(); i++) {
+        triWildcards[i].reset();
     }
 }
 
@@ -3682,12 +3682,12 @@ void DEMDynamicThread::setOwnerWildcardValue(bodyID_t ownerID, unsigned int wc_n
     ownerWildcards[wc_num]->toDevice(ownerID, vals.size());
 }
 
-void DEMDynamicThread::setPatchWildcardValue(bodyID_t geoID, unsigned int wc_num, const std::vector<float>& vals) {
+void DEMDynamicThread::setTriWildcardValue(bodyID_t geoID, unsigned int wc_num, const std::vector<float>& vals) {
     for (size_t i = 0; i < vals.size(); i++) {
-        (*patchWildcards[wc_num])[geoID + i] = vals.at(i);
+        (*triWildcards[wc_num])[geoID + i] = vals.at(i);
     }
     // Partial send to device
-    patchWildcards[wc_num]->toDevice(geoID, vals.size());
+    triWildcards[wc_num]->toDevice(geoID, vals.size());
 }
 
 void DEMDynamicThread::setSphWildcardValue(bodyID_t geoID, unsigned int wc_num, const std::vector<float>& vals) {
@@ -3728,8 +3728,8 @@ void DEMDynamicThread::getSphereWildcardValue(std::vector<float>& res, bodyID_t 
     res = std::move(sphereWildcards[wc_num]->getVal(ID, n));
 }
 
-void DEMDynamicThread::getPatchWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n) {
-    res = std::move(patchWildcards[wc_num]->getVal(ID, n));
+void DEMDynamicThread::getTriWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n) {
+    res = std::move(triWildcards[wc_num]->getVal(ID, n));
 }
 
 void DEMDynamicThread::getAnalWildcardValue(std::vector<float>& res, bodyID_t ID, unsigned int wc_num, size_t n) {

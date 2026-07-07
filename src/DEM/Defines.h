@@ -209,10 +209,7 @@ enum OUTPUT_CONTENT {
     FAMILY = 128,
     MAT = 256,
     OWNER_WILDCARD = 512,
-    GEO_WILDCARD = 1024,
-    // How much this clump expanded in size via ChangeClumpSizes, compared to its `vanilla' template. Can be useful if
-    // the user imposed some fine-grain clump size control.
-    EXP_FACTOR = 2048
+    GEO_WILDCARD = 1024
 };
 // Output particles as individual (component) spheres, or as owner clumps (clump CoMs for location, as an example)?
 enum class SPATIAL_DIR { X, Y, Z, NONE };
@@ -481,7 +478,7 @@ struct DEMDataDT {
     float* ownerWildcards[DEME_MAX_WILDCARD_NUM] = {nullptr};
     float* sphereWildcards[DEME_MAX_WILDCARD_NUM] = {nullptr};
     float* analWildcards[DEME_MAX_WILDCARD_NUM] = {nullptr};
-    float* patchWildcards[DEME_MAX_WILDCARD_NUM] = {nullptr};
+    float* triWildcards[DEME_MAX_WILDCARD_NUM] = {nullptr};
 };
 
 // A struct that holds pointers to data arrays that kT uses

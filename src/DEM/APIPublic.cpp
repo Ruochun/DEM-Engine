@@ -220,9 +220,6 @@ void DEMSolver::SetOutputContent(const std::vector<std::string>& content) {
             case ("OWNER_WILDCARD"_):
                 m_out_content = m_out_content | OUTPUT_CONTENT::OWNER_WILDCARD;
                 break;
-            case ("GEO_WILDCARD"_):
-                m_out_content = m_out_content | OUTPUT_CONTENT::GEO_WILDCARD;
-                break;
             default:
                 DEME_ERROR("Instruction %s is unknown in SetOutputContent call.", content[i].c_str());
         }
@@ -612,48 +609,6 @@ std::vector<float> DEMSolver::GetFamilyOwnerWildcardValue(unsigned int N, const 
     std::vector<float> res;
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getFamilyOwnerWildcardValue(res, N, m_owner_wc_num.at(name));
-    return res;
-}
-
-std::vector<float> DEMSolver::GetPatchWildcardValue(bodyID_t geoID, const std::string& name, size_t n) {
-    assertSysInit("GetPatchWildcardValue");
-    if (m_geo_wc_num.find(name) == m_geo_wc_num.end()) {
-        DEME_ERROR(
-            "No geometry wildcard in the force model is named %s.\nIf you need to use it, declare it via "
-            "SetPerGeometryWildcards in the force model first.",
-            name.c_str());
-    }
-    std::vector<float> res;
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
-    dT->getPatchWildcardValue(res, geoID, m_geo_wc_num.at(name), n);
-    return res;
-}
-
-std::vector<float> DEMSolver::GetSphereWildcardValue(bodyID_t geoID, const std::string& name, size_t n) {
-    assertSysInit("GetSphereWildcardValue");
-    if (m_geo_wc_num.find(name) == m_geo_wc_num.end()) {
-        DEME_ERROR(
-            "No geometry wildcard in the force model is named %s.\nIf you need to use it, declare it via "
-            "SetPerGeometryWildcards in the force model first.",
-            name.c_str());
-    }
-    std::vector<float> res;
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
-    dT->getSphereWildcardValue(res, geoID, m_geo_wc_num.at(name), n);
-    return res;
-}
-
-std::vector<float> DEMSolver::GetAnalWildcardValue(bodyID_t geoID, const std::string& name, size_t n) {
-    assertSysInit("GetAnalWildcardValue");
-    if (m_geo_wc_num.find(name) == m_geo_wc_num.end()) {
-        DEME_ERROR(
-            "No geometry wildcard in the force model is named %s.\nIf you need to use it, declare it via "
-            "SetPerGeometryWildcards in the force model first.",
-            name.c_str());
-    }
-    std::vector<float> res;
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
-    dT->getAnalWildcardValue(res, geoID, m_geo_wc_num.at(name), n);
     return res;
 }
 
@@ -1587,42 +1542,6 @@ void DEMSolver::CorrectFamilyQuaternion(unsigned int ID, const std::string& q_fo
     m_input_family_prescription.push_back(preInfo);
 }
 
-void DEMSolver::SetPatchWildcardValue(bodyID_t geoID, const std::string& name, const std::vector<float>& vals) {
-    assertSysInit("SetPatchWildcardValue");
-    if (m_geo_wc_num.find(name) == m_geo_wc_num.end()) {
-        DEME_ERROR(
-            "No geometry wildcard in the force model is named %s.\nIf you need to use it, declare it via "
-            "SetPerGeometryWildcards in the force model first.",
-            name.c_str());
-    }
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
-    dT->setPatchWildcardValue(geoID, m_geo_wc_num.at(name), vals);
-}
-
-void DEMSolver::SetSphereWildcardValue(bodyID_t geoID, const std::string& name, const std::vector<float>& vals) {
-    assertSysInit("SetSphereWildcardValue");
-    if (m_geo_wc_num.find(name) == m_geo_wc_num.end()) {
-        DEME_ERROR(
-            "No geometry wildcard in the force model is named %s.\nIf you need to use it, declare it via "
-            "SetPerGeometryWildcards in the force model first.",
-            name.c_str());
-    }
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
-    dT->setSphWildcardValue(geoID, m_geo_wc_num.at(name), vals);
-}
-
-void DEMSolver::SetAnalWildcardValue(bodyID_t geoID, const std::string& name, const std::vector<float>& vals) {
-    assertSysInit("SetAnalWildcardValue");
-    if (m_geo_wc_num.find(name) == m_geo_wc_num.end()) {
-        DEME_ERROR(
-            "No geometry wildcard in the force model is named %s.\nIf you need to use it, declare it via "
-            "SetPerGeometryWildcards in the force model first.",
-            name.c_str());
-    }
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
-    dT->setAnalWildcardValue(geoID, m_geo_wc_num.at(name), vals);
-}
-
 void DEMSolver::SetOwnerWildcardValue(bodyID_t ownerID, const std::string& name, const std::vector<float>& vals) {
     assertSysInit("SetOwnerWildcardValue");
     if (m_owner_wc_num.find(name) == m_owner_wc_num.end()) {
@@ -1709,10 +1628,6 @@ void DEMSolver::SetContactWildcards(const std::set<std::string>& wildcards) {
 
 void DEMSolver::SetOwnerWildcards(const std::set<std::string>& wildcards) {
     m_force_model->SetPerOwnerWildcards(wildcards);
-}
-
-void DEMSolver::SetGeometryWildcards(const std::set<std::string>& wildcards) {
-    m_force_model->SetPerGeometryWildcards(wildcards);
 }
 
 void DEMSolver::DisableFamilyOutput(unsigned int ID) {
