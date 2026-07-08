@@ -1271,44 +1271,51 @@ void DEMSolver::initializeGPUArrays() {
                                                    m_template_sp_radii, m_template_sp_relPos, m_template_clump_volume);
 
     // Now we can feed those GPU-side arrays with the cached API-level simulation info
-    dT->initGPUArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_input_mesh_obj_convex,
-        m_input_mesh_obj_never_winner, m_mesh_facet_owner, m_mesh_facet_patch, m_mesh_facet_neighbor1,
-        m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner, m_mesh_patch_materials,
-        // Clump template name mapping
-        m_template_number_name_map,
-        // Clump template info (mass, sphere components, materials etc.)
-        flattened_clump_templates,
-        // Analytical obj physics properties
-        m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
-        // Meshed obj physics properties
-        m_mesh_obj_mass, m_mesh_obj_moi,
-        // Universal template info
-        m_loaded_materials,
-        // Family mask
-        m_family_mask_matrix,
-        // I/O and misc.
-        m_no_output_families, m_tracked_objs);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->initGPUArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family,
+            m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner, m_mesh_facet_patch,
+            m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner,
+            m_mesh_patch_materials,
+            // Clump template name mapping
+            m_template_number_name_map,
+            // Clump template info (mass, sphere components, materials etc.)
+            flattened_clump_templates,
+            // Analytical obj physics properties
+            m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
+            // Meshed obj physics properties
+            m_mesh_obj_mass, m_mesh_obj_moi,
+            // Universal template info
+            m_loaded_materials,
+            // Family mask
+            m_family_mask_matrix,
+            // I/O and misc.
+            m_no_output_families, m_tracked_objs);
+    }
 
-    kT->initGPUArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
-        m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
-        // Analytical obj physics properties
-        m_ext_obj_comp_num,
-        // Family mask
-        m_family_mask_matrix,
-        // Templates and misc.
-        flattened_clump_templates);
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->initGPUArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
+            m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
+            // Analytical obj physics properties
+            m_ext_obj_comp_num,
+            // Family mask
+            m_family_mask_matrix,
+            // Templates and misc.
+            flattened_clump_templates);
+    }
 }
 
 /// When more clumps/meshed objects got loaded, this method should be called to transfer them to the GPU-side in
@@ -1327,45 +1334,52 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
     ClumpTemplateFlatten flattened_clump_templates(m_template_clump_mass, m_template_clump_moi, m_template_sp_mat_ids,
                                                    m_template_sp_radii, m_template_sp_relPos, m_template_clump_volume);
 
-    dT->updateClumpMeshArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family, m_input_mesh_obj_convex,
-        m_input_mesh_obj_never_winner, m_mesh_facet_owner, m_mesh_facet_patch, m_mesh_facet_neighbor1,
-        m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner, m_mesh_patch_materials,
-        // Clump template info (mass, sphere components, materials etc.)
-        flattened_clump_templates,
-        // Analytical obj physics properties
-        m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
-        // Meshed obj physics properties
-        m_mesh_obj_mass, m_mesh_obj_moi,
-        // Universal template info
-        m_loaded_materials,
-        // Family mask
-        m_family_mask_matrix,
-        // I/O and misc.
-        m_no_output_families, m_tracked_objs,
-        // Number of entities, old
-        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
-    kT->updateClumpMeshArrays(
-        // Clump batchs' initial stats
-        cached_input_clump_batches,
-        // Analytical objects' initial stats
-        m_input_ext_obj_family,
-        // Meshed objects' initial stats
-        m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
-        m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
-        // Analytical obj physics properties
-        m_ext_obj_comp_num,
-        // Family mask
-        m_family_mask_matrix,
-        // Templates and misc.
-        flattened_clump_templates,
-        // Number of entities, old
-        nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->updateClumpMeshArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_xyz, m_input_ext_obj_rot, m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            cached_mesh_objs, m_input_mesh_obj_xyz, m_input_mesh_obj_rot, m_input_mesh_obj_family,
+            m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner, m_mesh_facet_patch,
+            m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets, m_mesh_patch_owner,
+            m_mesh_patch_materials,
+            // Clump template info (mass, sphere components, materials etc.)
+            flattened_clump_templates,
+            // Analytical obj physics properties
+            m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
+            // Meshed obj physics properties
+            m_mesh_obj_mass, m_mesh_obj_moi,
+            // Universal template info
+            m_loaded_materials,
+            // Family mask
+            m_family_mask_matrix,
+            // I/O and misc.
+            m_no_output_families, m_tracked_objs,
+            // Number of entities, old
+            nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->updateClumpMeshArrays(
+            // Clump batchs' initial stats
+            cached_input_clump_batches,
+            // Analytical objects' initial stats
+            m_input_ext_obj_family,
+            // Meshed objects' initial stats
+            m_input_mesh_obj_family, m_input_mesh_obj_convex, m_input_mesh_obj_never_winner, m_mesh_facet_owner,
+            m_mesh_facet_patch, m_mesh_facet_neighbor1, m_mesh_facet_neighbor2, m_mesh_facet_neighbor3, m_mesh_facets,
+            // Analytical obj physics properties
+            m_ext_obj_comp_num,
+            // Family mask
+            m_family_mask_matrix,
+            // Templates and misc.
+            flattened_clump_templates,
+            // Number of entities, old
+            nOwners, nClumps, nSpheres, nTriMesh, nFacets, nTriNeighbors, nMeshPatches, nExtObj, nAnalGM);
+    }
 }
 
 void DEMSolver::packDataPointers() {

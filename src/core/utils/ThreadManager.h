@@ -51,6 +51,8 @@ class ThreadManager {
     std::atomic<bool> dynamicOwned_Prod2ConsBuffer_isFresh;
     std::atomic<bool> kinematicOwned_Cons2ProdBuffer_isFresh;
 
+    // Freshness flags are single-producer/single-consumer handoff guards. Loads that consume them should use acquire,
+    // and stores that publish/clear them should use release, so transfer-buffer writes are visible before use.
     std::mutex dynamicOwnedBuffer_AccessCoordination;
     std::mutex kinematicOwnedBuffer_AccessCoordination;
     std::mutex kinematicCanProceed;
@@ -78,8 +80,8 @@ class ThreadManager {
         kinematicIngredProdDateStamp = -1;
         currentStampOfDynamic = 0;
         dynamicDone = false;
-        dynamicOwned_Prod2ConsBuffer_isFresh = false;
-        kinematicOwned_Cons2ProdBuffer_isFresh = false;
+        dynamicOwned_Prod2ConsBuffer_isFresh.store(false, std::memory_order_relaxed);
+        kinematicOwned_Cons2ProdBuffer_isFresh.store(false, std::memory_order_relaxed);
     }
 
     ~ThreadManager() {}

@@ -3175,8 +3175,7 @@ float DEMSolver::dTInspectReduce(const std::shared_ptr<JitHelper::CachedProgram>
                                  bool all_domain,
                                  DualArray<scratch_t>& reduceResArr,
                                  DualArray<scratch_t>& reduceRes) {
-    // Note they are currently running in the device associated with the main, but it's not a big issue
-    //// TODO: Think about the implication on using more than 2 GPUs
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     float* pRes = dT->inspectCall(inspection_kernel, kernel_name, thing_to_insp, reduce_flavor, all_domain,
                                   reduceResArr, reduceRes, false);
     return (float)(*pRes);
@@ -3189,8 +3188,7 @@ float* DEMSolver::dTInspectNoReduce(const std::shared_ptr<JitHelper::CachedProgr
                                     bool all_domain,
                                     DualArray<scratch_t>& reduceResArr,
                                     DualArray<scratch_t>& reduceRes) {
-    // Note they are currently running in the device associated with the main, but it's not a big issue
-    //// TODO: Think about the implication on using more than 2 GPUs
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     float* pRes = dT->inspectCall(inspection_kernel, kernel_name, thing_to_insp, reduce_flavor, all_domain,
                                   reduceResArr, reduceRes, false);
     return pRes;
@@ -3203,8 +3201,7 @@ float DEMSolver::dTInspectReduceDevice(const std::shared_ptr<JitHelper::CachedPr
                                        bool all_domain,
                                        DualArray<scratch_t>& reduceResArr,
                                        DualArray<scratch_t>& reduceRes) {
-    // Note they are currently running in the device associated with the main, but it's not a big issue
-    //// TODO: Think about the implication on using more than 2 GPUs
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     float* pRes = dT->inspectCall(inspection_kernel, kernel_name, thing_to_insp, reduce_flavor, all_domain,
                                   reduceResArr, reduceRes, true);
     return (float)(*pRes);
@@ -3217,8 +3214,7 @@ float* DEMSolver::dTInspectNoReduceDevice(const std::shared_ptr<JitHelper::Cache
                                           bool all_domain,
                                           DualArray<scratch_t>& reduceResArr,
                                           DualArray<scratch_t>& reduceRes) {
-    // Note they are currently running in the device associated with the main, but it's not a big issue
-    //// TODO: Think about the implication on using more than 2 GPUs
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
     float* pRes = dT->inspectCall(inspection_kernel, kernel_name, thing_to_insp, reduce_flavor, all_domain,
                                   reduceResArr, reduceRes, true);
     return pRes;

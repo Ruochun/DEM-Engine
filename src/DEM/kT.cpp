@@ -322,14 +322,14 @@ void DEMKinematicThread::workerThread() {
         // via memcpy
         while (!pSchedSupport->dynamicDone) {
             // Before producing something, a new work order should be in place. Wait on it.
-            if (!pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh) {
+            if (!pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.load(std::memory_order_acquire)) {
                 timers.GetTimer("Wait for dT update").start();
                 pSchedSupport->schedulingStats.nTimesKinematicHeldBack++;
                 std::unique_lock<std::mutex> lock(pSchedSupport->kinematicCanProceed);
 
                 // kT never got locked in here indefinitely because, dT will always send a cv_KinematicCanProceed signal
                 // AFTER setting dynamicDone to true, if dT is about to finish
-                while (!pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh) {
+                while (!pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.load(std::memory_order_acquire)) {
                     // Loop to avoid spurious wakeups
                     pSchedSupport->cv_KinematicCanProceed.wait(lock);
                 }
@@ -354,7 +354,7 @@ void DEMKinematicThread::workerThread() {
 
             // Make it clear that the data for most recent work order has been used, in case there is interest in
             // updating it
-            pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh = false;
+            pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(false, std::memory_order_release);
 
             // figure out the amount of shared mem
             // cudaDeviceGetAttribute.cudaDevAttrMaxSharedMemoryPerBlock
@@ -380,7 +380,7 @@ void DEMKinematicThread::workerThread() {
                 std::lock_guard<std::mutex> lock(pSchedSupport->dynamicOwnedBuffer_AccessCoordination);
                 sendToTheirBuffer();
             }
-            pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh = true;
+            pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.store(true, std::memory_order_release);
             pSchedSupport->schedulingStats.nDynamicUpdates++;
             timers.GetTimer("Send to dT buffer").stop();
 
@@ -473,7 +473,7 @@ void DEMKinematicThread::breakWaitingStatus() {
     pSchedSupport->dynamicDone = true;
     // We distrubed kinematicOwned_Cons2ProdBuffer_isFresh and kTShouldReset here, but it matters not, as when
     // breakWaitingStatus is called, they will always be reset to default soon
-    pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh = true;
+    pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
     kTShouldReset = true;
 
     std::lock_guard<std::mutex> lock(pSchedSupport->kinematicCanProceed);
@@ -482,7 +482,7 @@ void DEMKinematicThread::breakWaitingStatus() {
 
 void DEMKinematicThread::resetUserCallStat() {
     // Reset kT stats variables, making ready for next user call
-    pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh = false;
+    pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(false, std::memory_order_release);
     kTShouldReset = false;
     // My ingredient production date is... unknown now
     pSchedSupport->kinematicIngredProdDateStamp = -1;

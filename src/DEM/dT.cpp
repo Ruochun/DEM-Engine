@@ -2897,7 +2897,7 @@ inline void DEMDynamicThread::unpack_impl() {
         // pSchedSupport->schedulingStats.nDynamicReceives++;
     }
     // dT got the produce, now mark its buffer to be no longer fresh.
-    pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh = false;
+    pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.store(false, std::memory_order_release);
     // Used for inspecting on average how stale kT's produce is.
     pSchedSupport->schedulingStats.accumKinematicLagSteps +=
         (pSchedSupport->currentStampOfDynamic).load() - (pSchedSupport->stampLastDynamicUpdateProdDate).load();
@@ -2966,7 +2966,7 @@ inline void DEMDynamicThread::unpack_impl() {
 }
 
 inline void DEMDynamicThread::ifProduceFreshThenUseIt() {
-    if (pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh) {
+    if (pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
         unpack_impl();
     }
 }
@@ -2997,7 +2997,7 @@ inline void DEMDynamicThread::calibrateParams() {
 }
 
 inline void DEMDynamicThread::ifProduceFreshThenUseItAndSendNewOrder() {
-    if (pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh) {
+    if (pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
         timers.GetTimer("Unpack updates from kT").start();
         unpack_impl();
         timers.GetTimer("Unpack updates from kT").stop();
@@ -3009,7 +3009,7 @@ inline void DEMDynamicThread::ifProduceFreshThenUseItAndSendNewOrder() {
             std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
             sendToTheirBuffer();
         }
-        pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh = true;
+        pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
         pSchedSupport->schedulingStats.nKinematicUpdates++;
         accumStepUpdater.AddUpdate();
 
@@ -3073,7 +3073,7 @@ void DEMDynamicThread::workerThread() {
                 std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
                 sendToTheirBuffer();
             }
-            pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh = true;
+            pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
             contactPairArr_isFresh = true;
             pSchedSupport->schedulingStats.nKinematicUpdates++;
             accumStepUpdater.AddUpdate();
@@ -3082,7 +3082,7 @@ void DEMDynamicThread::workerThread() {
             // Then dT will wait for kT to finish one initial run
             {
                 std::unique_lock<std::mutex> lock(pSchedSupport->dynamicCanProceed);
-                while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh) {
+                while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
                     // loop to avoid spurious wakeups
                     pSchedSupport->cv_DynamicCanProceed.wait(lock);
                 }
@@ -3112,7 +3112,7 @@ void DEMDynamicThread::workerThread() {
                 timers.GetTimer("Wait for kT update").start();
                 // Wait for a signal from kT to indicate that kT has caught up
                 std::unique_lock<std::mutex> lock(pSchedSupport->dynamicCanProceed);
-                while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh) {
+                while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
                     // Loop to avoid spurious wakeups
                     pSchedSupport->cv_DynamicCanProceed.wait(lock);
                 }
