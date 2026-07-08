@@ -517,7 +517,7 @@ PYBIND11_MODULE(DEME, obj) {
              static_cast<std::shared_ptr<deme::DEMCombinedInstances> (deme::DEMSolver::*)(
                  const std::shared_ptr<deme::DEMCombinedTemplate>&, const std::vector<float3>&,
                  const std::vector<float4>&)>(&deme::DEMSolver::AddCombinedFromTemplate),
-             "Instantiate a combined template at one or more user-specified global poses.",
+             "Instantiate a combined template at one or more user-specified global poses (batch).",
              py::arg("combined_template"), py::arg("init_pos"), py::arg("init_oriQ") = std::vector<float4>())
         .def("AddCombinedFromTemplate",
              static_cast<std::shared_ptr<deme::DEMCombinedInstances> (deme::DEMSolver::*)(
@@ -534,11 +534,12 @@ PYBIND11_MODULE(DEME, obj) {
                 std::vector<deme::bodyID_t> member_owner_ids;
                 std::vector<float3> member_rel_pos;
                 std::vector<float4> member_rel_oriQ;
-                bool ok = self.GetCombinedInstanceInfo(combined_instance_id, master_owner_id, member_owner_ids,
-                                                       member_rel_pos, member_rel_oriQ);
+                const bool ok = self.GetCombinedInstanceInfo(combined_instance_id, master_owner_id, member_owner_ids,
+                                                             member_rel_pos, member_rel_oriQ);
                 return py::make_tuple(ok, master_owner_id, member_owner_ids, member_rel_pos, member_rel_oriQ);
             },
-            "Return combined-owner metadata as (ok, master_owner_id, member_owner_ids, member_rel_pos, member_rel_oriQ).",
+            "Query combined-instance metadata; returns (ok, master_owner_id, member_owner_ids, member_rel_pos, "
+            "member_rel_oriQ).",
             py::arg("combined_instance_id"))
         .def("EnsureKernelErrMsgLineNum", &deme::DEMSolver::EnsureKernelErrMsgLineNum,
              "If true, each jitification string substitution will do a one-liner to one-liner replacement, so that if "

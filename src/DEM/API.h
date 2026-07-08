@@ -779,6 +779,11 @@ class DEMSolver {
     /// @details All components must be clump templates. The combined template stores member poses in a
     /// master-member-relative frame so the whole group can later be instantiated at arbitrary global pose.
     /// If `component_rel_oriQ` is empty, identity orientation is assumed for all members.
+    /// @param component_templates Member clump templates in this combined group.
+    /// @param component_rel_pos Member positions in the user-provided template frame.
+    /// @param component_rel_oriQ Member orientations in the user-provided template frame (optional).
+    /// @param master_component Index of the member chosen as the master reference frame.
+    /// @return A combined template handle that can be instantiated via AddCombinedFromTemplate.
     std::shared_ptr<DEMCombinedTemplate> LoadCombinedClumpType(
         const std::vector<std::shared_ptr<DEMClumpTemplate>>& component_templates,
         const std::vector<float3>& component_rel_pos,
@@ -788,14 +793,23 @@ class DEMSolver {
     /// @details All components must be mesh templates. The combined template stores member poses in a
     /// master-member-relative frame so the whole group can later be instantiated at arbitrary global pose.
     /// If `component_rel_oriQ` is empty, identity orientation is assumed for all members.
+    /// @param component_templates Member mesh templates in this combined group.
+    /// @param component_rel_pos Member positions in the user-provided template frame.
+    /// @param component_rel_oriQ Member orientations in the user-provided template frame (optional).
+    /// @param master_component Index of the member chosen as the master reference frame.
+    /// @return A combined template handle that can be instantiated via AddCombinedFromTemplate.
     std::shared_ptr<DEMCombinedTemplate> LoadCombinedMeshType(
         const std::vector<std::shared_ptr<DEMMesh>>& component_templates,
         const std::vector<float3>& component_rel_pos,
         const std::vector<float4>& component_rel_oriQ = std::vector<float4>(),
         size_t master_component = 0);
-    /// @brief Instantiate a combined template at user-specified global poses.
-    /// @details Creates n_instances * n_members owners and records combined-group runtime metadata used for
-    /// combined-owner contact/kinematics policies.
+    /// @brief Instantiate a combined template at a user-specified global pose.
+    /// @details Creates n_instances * n_members owners and records combined-group runtime metadata
+    /// used for combined-owner contact/kinematics policies.
+    /// @param combined_template A handle returned by LoadCombinedClumpType or LoadCombinedMeshType.
+    /// @param init_pos A vector of global positions for each instantiation in the batch.
+    /// @param init_oriQ A vector of global orientations for each instantiation in the batch.
+    /// @return A combined-instances handle that references all instantiated member owners in the batch.
     std::shared_ptr<DEMCombinedInstances> AddCombinedFromTemplate(
         const std::shared_ptr<DEMCombinedTemplate>& combined_template,
         const std::vector<float3>& init_pos,
@@ -812,6 +826,13 @@ class DEMSolver {
     /// @details Default is false (contacts within one combined group are suppressed).
     void SetAllowIntraCombinedOwnerContacts(bool allow = true);
     /// @brief Query resolved owner IDs and fixed relative transforms for one combined instance.
+    /// @details Returns `false` if the index is invalid or owner IDs are not resolved yet
+    /// (e.g., before Initialize/Update assigns owner numbering).
+    /// @param combined_instance_id Zero-based index in the combined-instance cache.
+    /// @param master_owner_id Output master owner ID of this combined group.
+    /// @param member_owner_ids Output owner IDs for all members (same order as template components).
+    /// @param member_rel_pos Output fixed member-relative positions in master frame.
+    /// @param member_rel_oriQ Output fixed member-relative orientations in master frame.
     /// @return True if metadata is available and outputs are populated.
     bool GetCombinedInstanceInfo(size_t combined_instance_id,
                                  bodyID_t& master_owner_id,
@@ -849,29 +870,37 @@ class DEMSolver {
         return Track<DEMInitializer>(obj);
     }
     /// @brief Create a single tracker that tracks all member owners in a combined-instances batch.
-    /// @details The tracker references all owners instantiated by the batch. Use tracker offsets to query individual
-    /// owners.
+    /// @details The tracker references all owners instantiated by the batch. Since AddCombinedFromTemplate
+    /// creates owners in consecutive memory, a single tracker with an offset range covers them all.
+    /// Use the offset parameter in tracker query methods to access individual owners.
     std::shared_ptr<DEMTracker> Track(const std::shared_ptr<DEMCombinedInstances>& combined_inst) {
         if (!combined_inst || combined_inst->member_objs.empty()) {
             DEME_ERROR("Track received a null or empty combined-instances handle.");
         }
+        // All member_objs were added consecutively. The first member_obj's load_order and obj_type
+        // define the tracker base; the tracker spans all owners across all member_objs.
         const auto& first_obj = combined_inst->member_objs.front();
         if (!first_obj) {
             DEME_ERROR("Track encountered a null member object in combined-instances handle.");
         }
         auto tracker = Track<DEMInitializer>(first_obj);
+
+        // Override nSpanOwners to cover all owners in this CombinedInstances, not just the first member's batch.
+        // member_objs.size() == n_instances * n_members, each contributing one owner.
         tracker->obj->nSpanOwnersOverride = combined_inst->member_objs.size();
 
+        // Compute total geometric entities across all members for nGeos override.
         size_t total_geos = 0;
         const auto& templ = combined_inst->type;
         if (templ->member_type == OWNER_TYPE::CLUMP) {
-            for (const auto& clump_template : templ->clump_templates) {
-                total_geos += clump_template->nComp;
+            for (size_t i = 0; i < templ->clump_templates.size(); i++) {
+                total_geos += templ->clump_templates[i]->nComp;
             }
+            // Multiply by number of instances
             total_geos *= combined_inst->n_instances;
         } else if (templ->member_type == OWNER_TYPE::MESH) {
-            for (const auto& mesh_template : templ->mesh_templates) {
-                total_geos += mesh_template->GetNumTriangles();
+            for (size_t i = 0; i < templ->mesh_templates.size(); i++) {
+                total_geos += templ->mesh_templates[i]->GetNumTriangles();
             }
             total_geos *= combined_inst->n_instances;
         }

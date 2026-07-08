@@ -2214,6 +2214,7 @@ std::shared_ptr<DEMCombinedInstances> DEMSolver::AddCombinedFromTemplate(
     }
 
     const size_t n_instances = init_pos.size();
+    // If orientations not supplied, default to identity quaternion for each instance.
     std::vector<float4> oriQ_vec = init_oriQ;
     if (oriQ_vec.empty()) {
         oriQ_vec.assign(n_instances, make_float4(0, 0, 0, 1));
@@ -2248,6 +2249,8 @@ std::shared_ptr<DEMCombinedInstances> DEMSolver::AddCombinedFromTemplate(
     inst->master_owner_ids.resize(n_instances, NULL_BODYID);
     inst->member_objs.reserve(total_members);
 
+    // Outer: combined template instances; inner: template members.
+    // This way, one combined owner's member owners are together in memory.
     for (size_t k = 0; k < n_instances; k++) {
         const float4 init_q = quatNormalizeSafe(oriQ_vec[k]);
 
@@ -2309,11 +2312,13 @@ bool DEMSolver::GetCombinedInstanceInfo(size_t combined_instance_id,
     if (combined_instance_id >= cached_combined_instances.size()) {
         return false;
     }
+    // Ensure owner IDs are resolved (and runtime mapping refreshed if needed) before returning metadata.
     resolveCombinedOwners();
     const auto& inst = cached_combined_instances[combined_instance_id];
     if (!inst->owners_resolved || inst->n_instances == 0) {
         return false;
     }
+    // Return info for the first instantiation in this batch entry.
     master_owner_id = inst->master_owner_ids[0];
     const size_t n_members_per_inst = (inst->type->member_type == OWNER_TYPE::CLUMP)
                                           ? inst->type->clump_templates.size()
@@ -2766,6 +2771,9 @@ void DEMSolver::UpdateStepSize(double ts) {
 }
 
 void DEMSolver::resolveCombinedOwners(size_t nExistOwners) {
+    // Combined-member owner IDs are only meaningful after Initialize/Update assigned owner numbering.
+    // This method resolves cached member initializer handles to stable owner IDs exactly once per combined instance,
+    // then triggers a runtime metadata refresh for kT/dT if anything new was resolved.
     if (!sys_initialized) {
         return;
     }
@@ -2818,6 +2826,7 @@ void DEMSolver::resolveCombinedOwners(size_t nExistOwners) {
         if (!ok || n_members_per_inst == 0 || inst->type->master_member >= n_members_per_inst) {
             continue;
         }
+        // Resolve master owner IDs for each instantiation in the batch.
         for (size_t k = 0; k < inst->n_instances; k++) {
             inst->master_owner_ids[k] = inst->member_owner_ids[k * n_members_per_inst + inst->type->master_member];
         }
@@ -2825,16 +2834,22 @@ void DEMSolver::resolveCombinedOwners(size_t nExistOwners) {
         m_combined_runtime_dirty = true;
     }
 
+    // If no new instance was resolved, this call is a no-op due to m_combined_runtime_dirty check.
     refreshCombinedRuntimeResources();
 }
 
 void DEMSolver::refreshCombinedRuntimeResources() {
+    // Refresh flattened combined-owner runtime arrays that device-side code consumes every step.
+    // This is intentionally host-driven and batched (Initialize/Update/getter resolution),
+    // not re-built inside high-frequency DoDynamics calls.
     if (!sys_initialized || !m_combined_runtime_dirty) {
         return;
     }
 
     const auto clear_combined_runtime_resources = [&]() {
         {
+            // DualArray allocations do not track their owning CUDA device, so free and repack each worker's resources
+            // while that worker's device is current.
             ScopedCudaDevice device_scope(dT->streamInfo.device);
             dT->ownerCombinedMaster.free();
             dT->ownerCombinedRelPos.free();
@@ -2863,13 +2878,14 @@ void DEMSolver::refreshCombinedRuntimeResources() {
         return;
     }
 
+    // Reset per-owner mapping to the "not in a combined group" default state.
     std::vector<bodyID_t> owner_combined_master(nOwnerBodies, NULL_BODYID);
     std::vector<float3> owner_combined_rel_pos(nOwnerBodies, make_float3(0));
     std::vector<float4> owner_combined_rel_oriQ(nOwnerBodies, make_float4(0, 0, 0, 1));
     std::vector<float> owner_combined_master_mass(nOwnerBodies, 0.f);
     std::vector<float3> owner_combined_master_moi(nOwnerBodies, make_float3(0));
 
-    bodyID_t n_combined_members = 0;
+    bodyID_t n_combined_owners = 0;
     constexpr float DEFAULT_COMBINED_MASTER_MASS = 1.f;
     for (const auto& inst : cached_combined_instances) {
         if (!inst || !inst->owners_resolved || !inst->type) {
@@ -2889,6 +2905,7 @@ void DEMSolver::refreshCombinedRuntimeResources() {
                 continue;
             }
 
+            // Cache equivalent group mass/MOI on the master owner slot for device-side aggregation.
             const float safe_mass = (inst->master_equiv_mass[k] > DEME_TINY_FLOAT) ? inst->master_equiv_mass[k]
                                                                                    : DEFAULT_COMBINED_MASTER_MASS;
             owner_combined_master_mass[master] = safe_mass;
@@ -2899,25 +2916,29 @@ void DEMSolver::refreshCombinedRuntimeResources() {
                 if (member == NULL_BODYID || member >= nOwnerBodies) {
                     continue;
                 }
+                // Membership map: every member points to its master; this is the key used by contact suppression.
                 owner_combined_master[member] = master;
                 owner_combined_master_moi[master] +=
                     rotateDiagonalMOIToFrame(inst->member_moi[flat_idx], inst->type->rel_oriQ[i]) +
                     parallelAxisDiagonal(inst->member_mass[flat_idx], inst->type->rel_pos[i]);
                 if (member != master) {
+                    // Only non-master members need fixed transforms for rigid re-imposition.
                     owner_combined_rel_pos[member] = inst->type->rel_pos[i];
                     owner_combined_rel_oriQ[member] = inst->type->rel_oriQ[i];
-                    n_combined_members++;
+                    n_combined_owners++;
                 }
             }
         }
     }
 
-    if (n_combined_members == 0) {
+    if (n_combined_owners == 0) {
         clear_combined_runtime_resources();
         m_combined_runtime_dirty = false;
         return;
     }
 
+    // DualArray uses the current CUDA device for allocation and migration. Scope each worker's runtime resources to its
+    // own device so the kT contact-suppression kernel never receives a dT-device membership pointer.
     {
         ScopedCudaDevice device_scope(dT->streamInfo.device);
         dT->ownerCombinedMaster.resize(nOwnerBodies, NULL_BODYID);
@@ -2934,14 +2955,16 @@ void DEMSolver::refreshCombinedRuntimeResources() {
         dT->ownerCombinedMasterMOI.setVal(owner_combined_master_moi, 0);
     }
     {
+        // kT only needs the membership mapping for contact suppression.
         ScopedCudaDevice device_scope(kT->streamInfo.device);
         kT->ownerCombinedMaster.resize(nOwnerBodies, NULL_BODYID);
         kT->granData.toDevice();
         kT->ownerCombinedMaster.setVal(owner_combined_master, 0);
     }
 
-    dT->simParams->nCombinedOwners = n_combined_members;
-    kT->simParams->nCombinedOwners = n_combined_members;
+    // Enable/disable combined-specific device logic by count. Zero count means no extra overhead in kernels.
+    dT->simParams->nCombinedOwners = n_combined_owners;
+    kT->simParams->nCombinedOwners = n_combined_owners;
     dT->simParams->allowIntraCombinedOwnerContacts = m_allow_intra_combined_owner_contacts ? 1 : 0;
     kT->simParams->allowIntraCombinedOwnerContacts = m_allow_intra_combined_owner_contacts ? 1 : 0;
     dT->simParams.toDevice();
