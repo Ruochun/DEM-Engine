@@ -323,6 +323,9 @@ class DEMMesh : public DEMInitializer {
     // Whether mass/MOI were explicitly specified by the user.
     bool mass_specified = false;
     bool moi_specified = false;
+    // API-level mesh template identity. Mesh instances created from LoadMeshType/AddMeshFromTemplate keep this mark so
+    // mass/MOI jitification can treat repeated mesh particles like repeated clump templates.
+    size_t mesh_template_mark = NULL_MESH_TEMPLATE_MARK;
     // If true, this mesh is treated as a shell surface with finite thickness in mesh utilities.
     bool is_shell = false;
     // Physical shell thickness (full thickness, not half-thickness), in simulation length unit.
@@ -424,6 +427,7 @@ class DEMMesh : public DEMInitializer {
         this->patches_explicitly_set = false;
         this->patch_locations_explicitly_set = false;
         this->owner = NULL_BODYID;
+        this->mesh_template_mark = NULL_MESH_TEMPLATE_MARK;
     }
 
     /// Set mass.

@@ -16,6 +16,7 @@
 #include <cstring>
 #include <limits>
 #include <algorithm>
+#include <map>
 
 namespace deme {
 
@@ -189,6 +190,10 @@ void DEMSolver::generateEntityResources() {
 
     // Count how many triangle tempaltes are there and flatten them
     preprocessTriangleObjs();
+
+    // Mesh-particle mass/MOI jitification is only useful while repeated template instances stay compact. If the compact
+    // table still grows too large, switch to flattened owner-level mass/MOI before kernel source is generated.
+    decideMeshMassJitification();
 }
 
 void DEMSolver::postResourceGen() {
@@ -200,9 +205,33 @@ void DEMSolver::postResourceGen() {
     postResourceGenChecksAndTabKeeping();
 }
 
+void DEMSolver::decideMeshMassJitification() {
+    if (!jitify_mass_moi) {
+        return;
+    }
+    if (m_mesh_mass_jit.size() <= THRESHOLD_CANT_JITIFY_ALL_MESH_TEMPLATES) {
+        return;
+    }
+
+    DEME_WARNING(
+        "There are %zu distinct mesh mass/MOI template entries, but only %u are configured for mass/MOI jitification. "
+        "Falling back to flattened mass/MOI arrays.\nFor mesh-particle runs, use LoadMeshType/AddMeshFromTemplate so "
+        "many particles share template-level mass/MOI entries. If this many distinct mesh mass/MOI entries is "
+        "intentional, calling DisableJitifyMassProperties() before Initialize() will select the same flattened path "
+        "explicitly.",
+        m_mesh_mass_jit.size(), THRESHOLD_CANT_JITIFY_ALL_MESH_TEMPLATES);
+    jitify_mass_moi = false;
+}
+
 void DEMSolver::updateTotalEntityNum() {
     nDistinctClumpBodyTopologies = m_template_clump_mass.size();
-    nDistinctMassProperties = nDistinctClumpBodyTopologies + nExtObj + nTriMeshes;
+    const size_t mesh_mass_entries = jitify_mass_moi ? m_mesh_mass_jit.size() : m_mesh_obj_mass.size();
+    const size_t total_mass_entries = nDistinctClumpBodyTopologies + nExtObj + mesh_mass_entries;
+    if (total_mass_entries > std::numeric_limits<unsigned int>::max()) {
+        DEME_ERROR("The number of mass/MOI entries (%zu) exceeds the supported unsigned int range.",
+                   total_mass_entries);
+    }
+    nDistinctMassProperties = static_cast<unsigned int>(total_mass_entries);
 
     // Also, external objects may introduce more material types
     nMatTuples = m_loaded_materials.size();
@@ -248,9 +277,37 @@ void DEMSolver::postResourceGenChecksAndTabKeeping() {
                 "%u different mass properties (from the contribution of clump templates, analytical objects and meshed "
                 "objects) are loaded, but the max allowance is %u (No.%u is reserved).\nYou may avoid this by calling "
                 "DisableJitifyMassProperties() before system initialization to disable jitification for mass "
-                "properties",
+                "properties. If many mesh particles are present, prefer LoadMeshType/AddMeshFromTemplate so repeated "
+                "instances share mesh-template mass/MOI entries.",
                 nDistinctMassProperties, std::numeric_limits<inertiaOffset_t>::max() - 1,
                 std::numeric_limits<inertiaOffset_t>::max());
+        }
+        // Mass + MOI jitification emits one mass array and three MOI arrays into constant memory. Catch the practical
+        // limit here so mesh-particle users get an API-level fix suggestion instead of a late CUDA_ERROR_INVALID_PTX.
+        {
+            constexpr size_t kBytesPerMassEntry = 4 * sizeof(float);
+            int devices[] = {dT->streamInfo.device, kT->streamInfo.device};
+            size_t min_const_mem = std::numeric_limits<size_t>::max();
+            for (int dev : devices) {
+                cudaDeviceProp prop{};
+                if (cudaGetDeviceProperties(&prop, dev) == cudaSuccess) {
+                    min_const_mem = std::min(min_const_mem, static_cast<size_t>(prop.totalConstMem));
+                }
+            }
+            if (min_const_mem != std::numeric_limits<size_t>::max()) {
+                const size_t needed_bytes = kBytesPerMassEntry * nDistinctMassProperties;
+                constexpr size_t kSafetyMargin = 1024;
+                if (needed_bytes + kSafetyMargin > min_const_mem) {
+                    DEME_ERROR(
+                        "Mass/MOI jitification would require %zu bytes of constant memory for %u entries, exceeding "
+                        "the available device constant memory (%zu bytes with a %zu-byte safety margin).\nIf many mesh "
+                        "particles were added with AddMesh/AddWavefrontMeshObject, load one mesh template with "
+                        "LoadMeshType and instantiate it with AddMeshFromTemplate so repeated particles share "
+                        "template-level mass/MOI entries. If you intentionally need this many distinct mass/MOI "
+                        "entries, call DisableJitifyMassProperties() before Initialize() to use flattened mass/MOI.",
+                        needed_bytes, nDistinctMassProperties, min_const_mem, kSafetyMargin);
+                }
+            }
         }
     }
 
@@ -771,6 +828,7 @@ void DEMSolver::preprocessClumps() {
 
 void DEMSolver::preprocessTriangleObjs() {
     nTriMeshes += cached_mesh_objs.size();
+    std::map<MeshMassJitKey, inertiaOffset_t> mesh_mass_map;
     bodyID_t thisMeshObj =
         0;  // In preprocessing, this starts from 0 since if this is an update, the previous mesh objects are already
             // loaded and processed. This is the offset for the new ones being added in this update.
@@ -796,6 +854,25 @@ void DEMSolver::preprocessTriangleObjs() {
         }
         m_mesh_obj_mass.push_back(mesh_obj->mass);
         m_mesh_obj_moi.push_back(mesh_obj->MOI);
+        const MeshMassJitKey mass_moi_key{mesh_obj->mesh_template_mark, mesh_obj->mass, mesh_obj->MOI.x,
+                                          mesh_obj->MOI.y, mesh_obj->MOI.z};
+        auto it = mesh_mass_map.find(mass_moi_key);
+        if (it != mesh_mass_map.end()) {
+            m_mesh_mass_offsets.push_back(it->second);
+        } else if (m_mesh_mass_jit.size() >= THRESHOLD_CANT_JITIFY_ALL_MESH_TEMPLATES) {
+            if (m_mesh_mass_jit.size() == THRESHOLD_CANT_JITIFY_ALL_MESH_TEMPLATES) {
+                m_mesh_mass_jit.push_back(mesh_obj->mass);
+                m_mesh_moi_jit.push_back(mesh_obj->MOI);
+            }
+            // Offsets are ignored once decideMeshMassJitification switches to flattened mass/MOI.
+            m_mesh_mass_offsets.push_back(0);
+        } else {
+            const inertiaOffset_t offset = static_cast<inertiaOffset_t>(mesh_mass_map.size());
+            mesh_mass_map.emplace(mass_moi_key, offset);
+            m_mesh_mass_jit.push_back(mesh_obj->mass);
+            m_mesh_moi_jit.push_back(mesh_obj->MOI);
+            m_mesh_mass_offsets.push_back(offset);
+        }
 
         m_input_mesh_obj_xyz.push_back(mesh_obj->init_pos);
         m_input_mesh_obj_rot.push_back(mesh_obj->init_oriQ);
@@ -1290,7 +1367,7 @@ void DEMSolver::initializeGPUArrays() {
             // Analytical obj physics properties
             m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
             // Meshed obj physics properties
-            m_mesh_obj_mass, m_mesh_obj_moi,
+            m_mesh_obj_mass, m_mesh_obj_moi, m_mesh_mass_jit, m_mesh_moi_jit, m_mesh_mass_offsets,
             // Universal template info
             m_loaded_materials,
             // Family mask
@@ -1351,7 +1428,7 @@ void DEMSolver::updateClumpMeshArrays(size_t nOwners,
             // Analytical obj physics properties
             m_ext_obj_mass, m_ext_obj_moi, m_ext_obj_comp_num,
             // Meshed obj physics properties
-            m_mesh_obj_mass, m_mesh_obj_moi,
+            m_mesh_obj_mass, m_mesh_obj_moi, m_mesh_mass_jit, m_mesh_moi_jit, m_mesh_mass_offsets,
             // Universal template info
             m_loaded_materials,
             // Family mask
@@ -1888,11 +1965,11 @@ inline void DEMSolver::equipMassMoiVolume(std::unordered_map<std::string, std::s
             moiY += to_string_with_precision(m_ext_obj_moi.at(i).y) + ",";
             moiZ += to_string_with_precision(m_ext_obj_moi.at(i).z) + ",";
         }
-        for (unsigned int i = 0; i < m_mesh_obj_mass.size(); i++) {
-            MassProperties += to_string_with_precision(m_mesh_obj_mass.at(i)) + ",";
-            moiX += to_string_with_precision(m_mesh_obj_moi.at(i).x) + ",";
-            moiY += to_string_with_precision(m_mesh_obj_moi.at(i).y) + ",";
-            moiZ += to_string_with_precision(m_mesh_obj_moi.at(i).z) + ",";
+        for (unsigned int i = 0; i < m_mesh_mass_jit.size(); i++) {
+            MassProperties += to_string_with_precision(m_mesh_mass_jit.at(i)) + ",";
+            moiX += to_string_with_precision(m_mesh_moi_jit.at(i).x) + ",";
+            moiY += to_string_with_precision(m_mesh_moi_jit.at(i).y) + ",";
+            moiZ += to_string_with_precision(m_mesh_moi_jit.at(i).z) + ",";
         }
         if (nDistinctMassProperties == 0) {
             MassProperties += "0";

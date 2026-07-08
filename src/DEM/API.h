@@ -1852,6 +1852,9 @@ class DEMSolver {
     size_t nMeshTemplateLoad = 0;
     // Number of combined templates loaded. Never decreases.
     size_t nCombinedTemplateLoad = 0;
+    // Internal mesh-template identity counter. Explicit LoadMeshType calls and legacy AddMesh calls both consume a
+    // mark, but AddMeshFromTemplate preserves the already-loaded template mark.
+    size_t nMeshTemplateMarks = 0;
     // Number of materials loaded. Never decreases.
     size_t nMaterialsLoad = 0;
 
@@ -1877,11 +1880,12 @@ class DEMSolver {
     // Num of clump templates types, basically. It's also the number of clump template mass properties.
     unsigned int nDistinctClumpBodyTopologies;
 
-    // A design choice is that each analytical obj and meshed obj is its own mass type, so the following 2 quantities
-    // are not independent, so we just won't use them Num of analytical objects loaded unsigned int
-    // nExtObjMassProperties; Num of meshed objects loaded unsigned int nMeshMassProperties;
+    // Analytical objects each keep their own mass type. Meshes use per-owner mass types when mass/MOI are flattened,
+    // and compact template-level mass/MOI entries when mass/MOI are jitified.
+    // Num of analytical objects loaded unsigned int nExtObjMassProperties; Num of meshed mass properties loaded
+    // unsigned int nMeshMassProperties;
 
-    // Sum of the above 3 items (but in fact nDistinctClumpBodyTopologies + nExtObj + nTriMeshes)
+    // Sum of clump template, analytical object and mesh mass/MOI entries for the active mass-property mode.
     unsigned int nDistinctMassProperties;
 
     // Num of material types
@@ -2049,6 +2053,10 @@ class DEMSolver {
     // Meshed objects that will be flatten and transferred into kernels upon Initialize()
     std::vector<float> m_mesh_obj_mass;
     std::vector<float3> m_mesh_obj_moi;
+    // Deduped mesh mass/MOI lists for jitified mass properties and per-mesh offsets into those lists.
+    std::vector<float> m_mesh_mass_jit;
+    std::vector<float3> m_mesh_moi_jit;
+    std::vector<inertiaOffset_t> m_mesh_mass_offsets;
     /*
     // Dan and Ruochun decided NOT to extract unique input values.
     // Instead, we trust users: we simply store all clump template info users give.
@@ -2103,6 +2111,8 @@ class DEMSolver {
     void preprocessClumpTemplates();
     /// Count the number of `things' that should be in the simulation now
     void updateTotalEntityNum();
+    /// Decide whether mesh mass/MOI can remain jitified or should use flattened owner-level arrays.
+    void decideMeshMassJitification();
     /// Jitify GPU kernels, based on pre-processed user inputs
     void jitifyKernels();
     /// Figure out the unit length l and numbers of voxels along each direction, based on domain size X, Y, Z

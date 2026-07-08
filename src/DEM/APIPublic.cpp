@@ -1982,6 +1982,9 @@ std::shared_ptr<DEMMesh> DEMSolver::AddMesh(DEMMesh& mesh) {
     if (mesh.GetNumTriangles() == 0) {
         DEME_WARNING(std::string("It seems that a mesh contains 0 triangle facet at the time it is loaded."));
     }
+    if (mesh.mesh_template_mark == NULL_MESH_TEMPLATE_MARK) {
+        mesh.mesh_template_mark = nMeshTemplateMarks++;
+    }
     if (!mesh.mass_specified || !mesh.moi_specified) {
         double volume = 0.0;
         float3 center = make_float3(0, 0, 0);
@@ -2052,6 +2055,7 @@ std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(DEMMesh& mesh) {
     if (mesh.GetNumTriangles() == 0) {
         DEME_WARNING(std::string("It seems that a mesh template contains 0 triangle facet at the time it is loaded."));
     }
+    mesh.mesh_template_mark = nMeshTemplateMarks++;
 
     // Store as a template (not in cached_mesh_objs)
     std::shared_ptr<DEMMesh> ptr = std::make_shared<DEMMesh>(std::move(mesh));
@@ -2084,6 +2088,15 @@ std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(const std::string& filename, bo
 
 std::shared_ptr<DEMMesh> DEMSolver::AddMeshFromTemplate(const std::shared_ptr<DEMMesh>& mesh_template,
                                                         const float3& init_pos) {
+    if (!mesh_template) {
+        DEME_ERROR("AddMeshFromTemplate received a null mesh template.");
+    }
+    if (mesh_template->mesh_template_mark == NULL_MESH_TEMPLATE_MARK) {
+        DEME_ERROR(
+            "AddMeshFromTemplate expects a mesh template returned by LoadMeshType. Use LoadMeshType first, then add "
+            "mesh particles with AddMeshFromTemplate so repeated instances share template-level mass/MOI "
+            "jitification.");
+    }
     // Create a copy of the template
     DEMMesh mesh = *mesh_template;
 
@@ -2709,6 +2722,9 @@ void DEMSolver::ReleaseFlattenedArrays() {
 
     deallocate_array(m_mesh_obj_mass);
     deallocate_array(m_mesh_obj_moi);
+    deallocate_array(m_mesh_mass_jit);
+    deallocate_array(m_mesh_moi_jit);
+    deallocate_array(m_mesh_mass_offsets);
 
     nExtraContacts = 0;
 }

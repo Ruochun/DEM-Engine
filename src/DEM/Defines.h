@@ -65,6 +65,9 @@ constexpr int64_t MAX_SUBVOXEL = (int64_t)1 << VOXEL_RES_POWER2;
 // If there are more than this number of sphere components across all clumps (excluding the clumps that are considered
 // big clumps), then some of them may have to stay in global memory, rather than being jitified
 #define DEME_THRESHOLD_TOO_MANY_SPHERE_COMP 512
+// Mesh mass/MOI jitification should stay template-like. If a run needs more distinct mesh template mass/MOI entries
+// than this, the solver falls back to flattened mass/MOI instead of emitting a very large constant-memory table.
+#define DEME_THRESHOLD_TOO_MANY_MESH_TEMPLATES 512
 // It should generally just be the warp size. When a block is launched, at least min(these_numbers) threads will be
 // launched so the template loading is always safe.
 constexpr clumpComponentOffset_t NUM_ACTIVE_TEMPLATE_LOADING_THREADS =
@@ -181,9 +184,14 @@ constexpr inertiaOffset_t RESERVED_INERTIA_OFFSET = ((size_t)1 << (sizeof(inerti
 // kernel, instead have to be brought from the global memory
 constexpr clumpComponentOffset_t RESERVED_CLUMP_COMPONENT_OFFSET =
     ((size_t)1 << (sizeof(clumpComponentOffset_t) * DEME_BITS_PER_BYTE)) - 1;
+constexpr size_t NULL_MESH_TEMPLATE_MARK = ((size_t)1 << (sizeof(size_t) * DEME_BITS_PER_BYTE - 1)) +
+                                           (((size_t)1 << (sizeof(size_t) * DEME_BITS_PER_BYTE - 1)) - 1);
 // Used to be compared against, so we know if some of the sphere components need to stay in global memory
-constexpr unsigned int THRESHOLD_CANT_JITIFY_ALL_COMP =
-    DEME_MIN(DEME_MIN(RESERVED_CLUMP_COMPONENT_OFFSET, DEME_THRESHOLD_BIG_CLUMP), DEME_THRESHOLD_TOO_MANY_SPHERE_COMP);
+constexpr unsigned int THRESHOLD_CANT_JITIFY_ALL_MESH_TEMPLATES =
+    DEME_MIN(RESERVED_INERTIA_OFFSET, DEME_THRESHOLD_TOO_MANY_MESH_TEMPLATES);
+constexpr unsigned int THRESHOLD_CANT_JITIFY_ALL_COMP = DEME_MIN(
+    DEME_MIN(DEME_MIN(RESERVED_CLUMP_COMPONENT_OFFSET, DEME_THRESHOLD_BIG_CLUMP), DEME_THRESHOLD_TOO_MANY_SPHERE_COMP),
+    THRESHOLD_CANT_JITIFY_ALL_MESH_TEMPLATES);
 // Max size change the bin auto-adjust algorithm can apply to the bin size per step
 constexpr float BIN_SIZE_MAX_CHANGE_RATE = 0.2;
 // Safety factor for hertz_const adaptive time step estimates.

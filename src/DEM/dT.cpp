@@ -765,6 +765,7 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
                                             const std::vector<unsigned int>& ext_obj_comp_num,
                                             const std::vector<float>& mesh_obj_mass_types,
                                             const std::vector<float3>& mesh_obj_moi_types,
+                                            const std::vector<inertiaOffset_t>& mesh_obj_mass_offsets,
                                             size_t nExistOwners,
                                             size_t nExistSpheres,
                                             size_t nExistingFacets,
@@ -1096,7 +1097,9 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         input_mesh_objs.at(i)->cache_offset = m_meshes.size();
         m_meshes.push_back(input_mesh_objs.at(i));
 
-        inertiaPropOffsets[owner_id] = i + offset_for_mesh_obj_mass_template;
+        inertiaPropOffsets[owner_id] = solverFlags.useMassJitify
+                                           ? offset_for_mesh_obj_mass_template + mesh_obj_mass_offsets.at(i)
+                                           : i + offset_for_mesh_obj_mass_template;
         if (!solverFlags.useMassJitify) {
             massOwnerBody[owner_id] = mesh_obj_mass_types.at(i);
             const float3 this_moi = mesh_obj_moi_types.at(i);
@@ -1285,6 +1288,9 @@ void DEMDynamicThread::initGPUArrays(const std::vector<std::shared_ptr<DEMClumpB
                                      const std::vector<unsigned int>& ext_obj_comp_num,
                                      const std::vector<float>& mesh_obj_mass_types,
                                      const std::vector<float3>& mesh_obj_moi_types,
+                                     const std::vector<float>& mesh_obj_mass_jit_types,
+                                     const std::vector<float3>& mesh_obj_moi_jit_types,
+                                     const std::vector<inertiaOffset_t>& mesh_obj_mass_offsets,
                                      const std::vector<std::shared_ptr<DEMMaterial>>& loaded_materials,
                                      const std::vector<notStupidBool_t>& family_mask_matrix,
                                      const std::set<unsigned int>& no_output_families,
@@ -1293,7 +1299,8 @@ void DEMDynamicThread::initGPUArrays(const std::vector<std::shared_ptr<DEMClumpB
     // initialization anyway.
 
     registerPolicies(template_number_name_map, clump_templates, ext_obj_mass_types, ext_obj_moi_types,
-                     mesh_obj_mass_types, mesh_obj_moi_types, loaded_materials, family_mask_matrix, no_output_families);
+                     mesh_obj_mass_jit_types, mesh_obj_moi_jit_types, loaded_materials, family_mask_matrix,
+                     no_output_families);
 
     // For initialization, owner array offset is 0
     populateEntityArrays(input_clump_batches, input_ext_obj_xyz, input_ext_obj_rot, input_ext_obj_family,
@@ -1301,7 +1308,8 @@ void DEMDynamicThread::initGPUArrays(const std::vector<std::shared_ptr<DEMClumpB
                          input_mesh_obj_convex, input_mesh_obj_never_winner, mesh_facet_owner, mesh_facet_patch,
                          mesh_facet_neighbor1, mesh_facet_neighbor2, mesh_facet_neighbor3, mesh_facets,
                          mesh_patch_owner, mesh_patch_materials, clump_templates, ext_obj_mass_types, ext_obj_moi_types,
-                         ext_obj_comp_num, mesh_obj_mass_types, mesh_obj_moi_types, 0, 0, 0, 0, 0);
+                         ext_obj_comp_num, mesh_obj_mass_types, mesh_obj_moi_types, mesh_obj_mass_offsets, 0, 0, 0, 0,
+                         0);
 
     buildTrackedObjs(input_clump_batches, ext_obj_comp_num, input_mesh_objs, tracked_objs, 0, 0, 0, 0);
 }
@@ -1330,6 +1338,9 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
                                              const std::vector<unsigned int>& ext_obj_comp_num,
                                              const std::vector<float>& mesh_obj_mass_types,
                                              const std::vector<float3>& mesh_obj_moi_types,
+                                             const std::vector<float>& mesh_obj_mass_jit_types,
+                                             const std::vector<float3>& mesh_obj_moi_jit_types,
+                                             const std::vector<inertiaOffset_t>& mesh_obj_mass_offsets,
                                              const std::vector<std::shared_ptr<DEMMaterial>>& loaded_materials,
                                              const std::vector<notStupidBool_t>& family_mask_matrix,
                                              const std::set<unsigned int>& no_output_families,
@@ -1344,6 +1355,8 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
                                              unsigned int nExistingObj,
                                              unsigned int nExistingAnalGM) {
     // No policy changes here
+    (void)mesh_obj_mass_jit_types;
+    (void)mesh_obj_moi_jit_types;
 
     // Analytical objects-related arrays should be empty
     populateEntityArrays(input_clump_batches, input_ext_obj_xyz, input_ext_obj_rot, input_ext_obj_family,
@@ -1351,8 +1364,8 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
                          input_mesh_obj_convex, input_mesh_obj_never_winner, mesh_facet_owner, mesh_facet_patch,
                          mesh_facet_neighbor1, mesh_facet_neighbor2, mesh_facet_neighbor3, mesh_facets,
                          mesh_patch_owner, mesh_patch_materials, clump_templates, ext_obj_mass_types, ext_obj_moi_types,
-                         ext_obj_comp_num, mesh_obj_mass_types, mesh_obj_moi_types, nExistingOwners, nExistingSpheres,
-                         nExistingFacets, nExistingPatches, nExistingTriNeighbors);
+                         ext_obj_comp_num, mesh_obj_mass_types, mesh_obj_moi_types, mesh_obj_mass_offsets,
+                         nExistingOwners, nExistingSpheres, nExistingFacets, nExistingPatches, nExistingTriNeighbors);
 
     // Make changes to tracked objects (potentially add more)
     buildTrackedObjs(input_clump_batches, ext_obj_comp_num, input_mesh_objs, tracked_objs, nExistingOwners,
