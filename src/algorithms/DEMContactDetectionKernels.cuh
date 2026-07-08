@@ -170,12 +170,6 @@ __global__ void markNewPatchPairGroups(patchIDPair_t* sortedPatchPairs, contactP
     }
 }
 
-__global__ void markFirstPatchPairGroup(contactPairs_t* isNewGroup, size_t n) {
-    if (n > 0) {
-        isNewGroup[0] = 1;
-    }
-}
-
 __global__ void markNewPatchPairGroupsByType(const patchIDPair_t* sortedPatchPairs,
                                              const contact_t* sortedContactTypes,
                                              contactPairs_t* isNewGroup,

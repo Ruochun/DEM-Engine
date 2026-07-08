@@ -1587,6 +1587,15 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         if (*scratchPad.numPrimitiveContacts > 0) {
             size_t numTotalCnts = *scratchPad.numPrimitiveContacts;
             if (solverFlags.useSimplePatchCombination) {
+                // ===============================================================================================
+                // BEGIN SIMPLE PATCH ROUTE (useSimplePatchCombination == true)
+                //
+                // This entire if-body, through the matching END marker below, collapses primitive contacts directly
+                // to one patch contact per (contact type, patch A, patch B). It deliberately does not run island
+                // flooding; contactPatchIsland is a deterministic dummy label so history keys depend only on type and
+                // patch pair.
+                // ===============================================================================================
+
                 // RefBranch-style simple grouping: sort and group patch pairs inside each contact-type segment.
                 if (!primitiveContactArraysAreSortedByType) {
                     size_t total_ids_bytes = numTotalCnts * sizeof(bodyID_t);
@@ -1661,6 +1670,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     size_t type_arr_bytes = numTotalCnts * sizeof(contact_t);
                     contact_t* contactType_sorted =
                         (contact_t*)scratchPad.allocateTempVector("contactType_sorted", type_arr_bytes);
+                    size_t persistency_arr_bytes = numTotalCnts * sizeof(notStupidBool_t);
+                    notStupidBool_t* contactPersistency_sorted = (notStupidBool_t*)scratchPad.allocateTempVector(
+                        "contactPersistency_sorted", persistency_arr_bytes);
 
                     size_t max_unique_per_segment = numTotalCnts;
                     patchIDPair_t* unique_patch_pairs = (patchIDPair_t*)scratchPad.allocateTempVector(
@@ -1699,6 +1711,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             contactPatchPairs + prim_offset, patchPairs_sorted + prim_offset,
                             granData->contactTypePrimitive + prim_offset, contactType_sorted + prim_offset, count,
                             this_stream, scratchPad);
+                        cubDEMSortByKeys<patchIDPair_t, notStupidBool_t>(
+                            contactPatchPairs + prim_offset, patchPairs_sorted + prim_offset,
+                            granData->contactPersistency + prim_offset, contactPersistency_sorted + prim_offset, count,
+                            this_stream, scratchPad);
 
                         cubDEMRunLengthEncode<patchIDPair_t, contactPairs_t>(
                             patchPairs_sorted + prim_offset, unique_patch_pairs, patch_pair_counts,
@@ -1730,6 +1746,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                                    this_stream>>>(granData->contactTypePatch + totalUniquePatchPairs,
                                                                   thisType, numUniqueInSegment);
                             DEME_GPU_DEBUG_SYNC(this_stream);
+
+                            // Simple patch combination has exactly one patch contact per (type, patchA, patchB).
+                            // Its history key must therefore not depend on whichever primitive happens to be first in
+                            // this patch-pair group; that representative can change between kT passes and make dT lose
+                            // contact history. Use one deterministic island label for all simple-mode patch contacts.
+                            DEME_GPU_CALL_ASYNC(cudaMemsetAsync(granData->contactPatchIsland + totalUniquePatchPairs, 0,
+                                                                numUniqueInSegment * sizeof(bodyID_t), this_stream),
+                                                this_stream);
                         }
 
                         contactPairs_t* isNewGroup = (contactPairs_t*)scratchPad.allocateTempVector(
@@ -1752,16 +1776,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                                               (contactPairs_t)totalUniquePatchPairs, count);
                             DEME_GPU_DEBUG_SYNC(this_stream);
                         }
-
-                        if (numUniqueInSegment > 0) {
-                            markFirstPatchPairGroup<<<1, 1, 0, this_stream>>>(isNewGroup, count);
-                            DEME_GPU_DEBUG_SYNC(this_stream);
-                            cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
-                                idA_sorted + prim_offset, granData->contactPatchIsland + totalUniquePatchPairs,
-                                isNewGroup, scratchPad.getDualStructDevice("numUniquePatchPairs"), count, this_stream,
-                                scratchPad);
-                        }
-
                         scratchPad.finishUsingTempVector("isNewGroup");
 
                         totalUniquePatchPairs += numUniqueInSegment;
@@ -1780,11 +1794,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                              cudaMemcpyDeviceToDevice));
                     DEME_GPU_CALL(cudaMemcpy(granData->contactTypePrimitive, contactType_sorted,
                                              numTotalCnts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+                    DEME_GPU_CALL(cudaMemcpy(granData->contactPersistency, contactPersistency_sorted,
+                                             numTotalCnts * sizeof(notStupidBool_t), cudaMemcpyDeviceToDevice));
 
                     scratchPad.finishUsingTempVector("patchPairs_sorted");
                     scratchPad.finishUsingTempVector("idA_sorted");
                     scratchPad.finishUsingTempVector("idB_sorted");
                     scratchPad.finishUsingTempVector("contactType_sorted");
+                    scratchPad.finishUsingTempVector("contactPersistency_sorted");
 
                     delete[] host_type_counts;
                     delete[] host_unique_types;
@@ -1794,7 +1811,20 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 scratchPad.finishUsingTempVector("type_counts");
                 scratchPad.finishUsingTempVector("contactPatchPairs");
                 scratchPad.finishUsingDualStruct("numUniqueTypes");
+
+                // ===============================================================================================
+                // END SIMPLE PATCH ROUTE
+                // ===============================================================================================
             } else {
+                // ===============================================================================================
+                // BEGIN COMPLEX ISLAND-FLOODING PATCH ROUTE (useSimplePatchCombination == false)
+                //
+                // This entire else-body, through the matching END marker after shared cleanup below, builds the
+                // RefBranch-style type/patch-pair segments first, then splits each patch pair into connected
+                // patch-islands via flooding. This path is for preserving multiple disconnected mesh-contact islands
+                // inside the same patch pair.
+                // ===============================================================================================
+
                 size_t total_ids_bytes = numTotalCnts * sizeof(bodyID_t);
                 size_t total_persistency_bytes = numTotalCnts * sizeof(notStupidBool_t);
                 size_t patch_arr_bytes = numTotalCnts * sizeof(patchIDPair_t);
@@ -2000,8 +2030,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 scratchPad.syncDualStructDeviceToHost("numUniqueGroups");
                 size_t numGroups = *scratchPad.getDualStructHost("numUniqueGroups");
 
-                if (!solverFlags.useSimplePatchCombination) {
-                    // ---- BEGIN COMPLEX (flooding-based) PATH ----
+                // This branch is already under useSimplePatchCombination == false. Keep the flooding path explicit
+                // here so the simple-mode patch identity rules above remain the only simple path in the code.
+                {
+                    // ---- BEGIN ISLAND-FLOODING CORE ----
                     contact_t* groupContactTypes = nullptr;
                     if (numGroups > 0) {
                         groupContactTypes = (contact_t*)scratchPad.allocateTempVector("groupContactTypes",
@@ -2587,96 +2619,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     scratchPad.finishUsingTempVector("islandSortIndices_sorted");
                     scratchPad.finishUsingTempVector("isNewIslandGroup");
                     scratchPad.finishUsingDualStruct("numUniqueIslands");
-                    // ---- END COMPLEX (flooding-based) PATH ----
-                } else {
-                    // ---- BEGIN SIMPLE (patch ID-based) PATH ----
-                    size_t numUniqueIslands = numGroups;
-
-                    if (numTotalCnts > geomToPatchMap.size()) {
-                        DEME_DUAL_ARRAY_RESIZE_NOVAL(geomToPatchMap, numTotalCnts);
-                        granData.toDevice();
-                    }
-                    if (numTotalCnts > 0) {
-                        DEME_GPU_CALL_ASYNC(
-                            cudaMemcpyAsync(granData->geomToPatchMap, groupIndex, numTotalCnts * sizeof(contactPairs_t),
-                                            cudaMemcpyDeviceToDevice, this_stream),
-                            this_stream);
-                    }
-
-                    if (numUniqueIslands > idPatchA.size()) {
-                        DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchA, numUniqueIslands);
-                        DEME_DUAL_ARRAY_RESIZE_NOVAL(idPatchB, numUniqueIslands);
-                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactTypePatch, numUniqueIslands);
-                        DEME_DUAL_ARRAY_RESIZE_NOVAL(contactPatchIsland, numUniqueIslands);
-                        granData.toDevice();
-                    }
-
-                    patchIDPair_t* unique_patch_pairs_simple = nullptr;
-                    if (numUniqueIslands > 0) {
-                        unique_patch_pairs_simple = (patchIDPair_t*)scratchPad.allocateTempVector(
-                            "unique_patch_pairs_simple", numUniqueIslands * sizeof(patchIDPair_t));
-                        cubDEMSelectFlagged<patchIDPair_t, contactPairs_t>(
-                            contactPatchPairs, unique_patch_pairs_simple, isNewGroup,
-                            scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                        cubDEMSelectFlagged<contact_t, contactPairs_t>(
-                            granData->contactTypePrimitive, granData->contactTypePatch, isNewGroup,
-                            scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                        cubDEMSelectFlagged<bodyID_t, contactPairs_t>(
-                            granData->idPrimitiveA, contactPatchIsland.data(), isNewGroup,
-                            scratchPad.getDualStructDevice("numUniqueGroups"), numTotalCnts, this_stream, scratchPad);
-                        size_t blocks_needed_for_decode =
-                            (numUniqueIslands + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-                        decodePatchPairsToSeparateArrays<<<dim3(blocks_needed_for_decode),
-                                                           dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                            unique_patch_pairs_simple, granData->idPatchA, granData->idPatchB, numUniqueIslands);
-                        DEME_GPU_DEBUG_SYNC(this_stream);
-                        scratchPad.finishUsingTempVector("unique_patch_pairs_simple");
-                    }
-
-                    *scratchPad.numContacts = numUniqueIslands;
-
-                    typeStartCountPatchMap_thisStep.SetAll({0, 0});
-                    if (numUniqueIslands > 0) {
-                        const size_t type_buf_len = DEME_MAX((size_t)1, numUniqueIslands);
-                        contact_t* unique_types_simple = (contact_t*)scratchPad.allocateTempVector(
-                            "unique_types_simple", type_buf_len * sizeof(contact_t));
-                        contactPairs_t* type_counts_simple = (contactPairs_t*)scratchPad.allocateTempVector(
-                            "type_counts_simple", type_buf_len * sizeof(contactPairs_t));
-                        scratchPad.allocateDualStruct("numUniqueTypes_simple");
-
-                        cubDEMRunLengthEncode<contact_t, contactPairs_t>(
-                            granData->contactTypePatch, unique_types_simple, type_counts_simple,
-                            scratchPad.getDualStructDevice("numUniqueTypes_simple"), numUniqueIslands, this_stream,
-                            scratchPad);
-                        scratchPad.syncDualStructDeviceToHost("numUniqueTypes_simple");
-                        size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes_simple");
-
-                        if (numTypes > 0) {
-                            contact_t* host_unique_types = new contact_t[numTypes];
-                            contactPairs_t* host_type_counts = new contactPairs_t[numTypes];
-                            DEME_GPU_CALL(cudaMemcpy(host_unique_types, unique_types_simple,
-                                                     numTypes * sizeof(contact_t), cudaMemcpyDeviceToHost));
-                            DEME_GPU_CALL(cudaMemcpy(host_type_counts, type_counts_simple,
-                                                     numTypes * sizeof(contactPairs_t), cudaMemcpyDeviceToHost));
-
-                            contactPairs_t offset = 0;
-                            for (size_t i = 0; i < numTypes; i++) {
-                                const contact_t type = host_unique_types[i];
-                                const contactPairs_t cnt = host_type_counts[i];
-                                if (isSupportedContactType(type) && cnt > 0) {
-                                    typeStartCountPatchMap_thisStep[type] = {offset, cnt};
-                                }
-                                offset += cnt;
-                            }
-                            delete[] host_unique_types;
-                            delete[] host_type_counts;
-                        }
-
-                        scratchPad.finishUsingTempVector("unique_types_simple");
-                        scratchPad.finishUsingTempVector("type_counts_simple");
-                        scratchPad.finishUsingDualStruct("numUniqueTypes_simple");
-                    }
-                    // ---- END SIMPLE (patch ID-based) PATH ----
+                    // ---- END ISLAND-FLOODING CORE ----
                 }
 
                 scratchPad.finishUsingTempVector("groupIndex");
@@ -2692,6 +2635,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 scratchPad.finishUsingTempVector("contactPersistency_sorted");
                 scratchPad.finishUsingTempVector("contactTypeIndices");
                 scratchPad.finishUsingTempVector("contactTypeIndices_sorted");
+
+                // ===============================================================================================
+                // END COMPLEX ISLAND-FLOODING PATCH ROUTE
+                // ===============================================================================================
             }
             // std::cout << "Patch contacts:" << std::endl;
             // displayDeviceArray<bodyID_t>(granData->idPatchA, *scratchPad.numContacts);
