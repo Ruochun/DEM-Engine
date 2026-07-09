@@ -646,6 +646,72 @@ __global__ void setNullMappingForType(contactPairs_t* contactMapping,
     }
 }
 
+inline __host__ __device__ uint64_t makePatchHistoryPairKey(bodyID_t patchA, bodyID_t patchB, contact_t type) {
+    if (type == TRIANGLE_TRIANGLE_CONTACT && patchB < patchA) {
+        const bodyID_t tmp = patchA;
+        patchA = patchB;
+        patchB = tmp;
+    }
+    return (static_cast<uint64_t>(patchA) << 32) | static_cast<uint64_t>(patchB);
+}
+
+__global__ void buildPatchHistoryPairKeys(const bodyID_t* idPatchA,
+                                          const bodyID_t* idPatchB,
+                                          uint64_t* pairKeys,
+                                          contactPairs_t* relativeIndices,
+                                          contactPairs_t start,
+                                          contactPairs_t count,
+                                          contact_t type) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < count) {
+        const contactPairs_t idx = start + myID;
+        pairKeys[myID] = makePatchHistoryPairKey(idPatchA[idx], idPatchB[idx], type);
+        relativeIndices[myID] = myID;
+    }
+}
+
+__global__ void buildPatchContactMappingByHistoryKeys(bodyID_t* curr_idPatchA,
+                                                      bodyID_t* curr_idPatchB,
+                                                      bodyID_t* curr_patchIsland,
+                                                      bodyID_t* prev_patchIsland,
+                                                      const uint64_t* prev_pairKeys_sorted,
+                                                      const contactPairs_t* prev_relativeIndices_sorted,
+                                                      contactPairs_t* contactMapping,
+                                                      contactPairs_t curr_start,
+                                                      contactPairs_t curr_count,
+                                                      contactPairs_t prev_start,
+                                                      contactPairs_t prev_count,
+                                                      contact_t type) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < curr_count) {
+        const contactPairs_t curr_idx = curr_start + myID;
+        const uint64_t curr_key = makePatchHistoryPairKey(curr_idPatchA[curr_idx], curr_idPatchB[curr_idx], type);
+        const bodyID_t curr_label = curr_patchIsland[curr_idx];
+        contactPairs_t my_partner = NULL_MAPPING_PARTNER;
+
+        contactPairs_t left = 0;
+        contactPairs_t right = prev_count;
+        while (left < right) {
+            const contactPairs_t mid = left + (right - left) / 2;
+            if (prev_pairKeys_sorted[mid] < curr_key) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        for (contactPairs_t i = left; i < prev_count && prev_pairKeys_sorted[i] == curr_key; i++) {
+            const contactPairs_t prev_idx = prev_start + prev_relativeIndices_sorted[i];
+            if (prev_patchIsland[prev_idx] == curr_label) {
+                my_partner = prev_idx;
+                break;
+            }
+        }
+
+        contactMapping[curr_idx] = my_partner;
+    }
+}
+
 // Build patch-based contact mapping for a single contact type segment.
 // This kernel operates on a specific segment of the contact arrays identified by start offsets and counts.
 // Each thread processes one current contact and searches for a match in the previous contacts of the same type.

@@ -2653,10 +2653,11 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
     // -----------------------------------------------------------------------------------------------------------
     // Constructing contact history (patch-based)
-    // The contact mapping is now being built between previous_idPatchA/B and current idPatchA/B.
+    // The contact mapping is now being built between previous and current patch contacts.
     // We have numContacts elements to work with (patch-based contacts), not numPrimitiveContacts.
-    // Both current and previous patch arrays are sorted by contact type, and within each type,
-    // they are sorted by the combined contact patch ID pair.
+    // The physics-facing patch arrays keep their original A/B order. For mesh-related history migration, we build
+    // temporary history keys; MM keys canonicalize the patch pair, so swapped A/B emission across kT passes does not
+    // make a physical contact look new.
     // -----------------------------------------------------------------------------------------------------------
 
     timers.GetTimer("Build history map").start();
@@ -2700,18 +2701,48 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         granData->contactMapping, curr_start, curr_count);
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 } else {
-                    // Both steps have contacts of this type - perform mapping
-                    if (solverFlags.useStablePatchIslandIDs && !solverFlags.useSimplePatchCombination &&
-                        usesStablePatchIslandHistory(thisType)) {
-                        // Stable island IDs can change secondary ordering within one patch pair, so binary-search the
-                        // pair range first and scan that small local range for the label.
-                        buildPatchContactMappingForStableType<<<dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK),
+                    // Both steps have contacts of this type - perform mapping.
+                    if (usesStablePatchIslandHistory(thisType)) {
+                        // Mesh-related contacts use a history-only identity that is independent of force-kernel A/B
+                        // ordering. MM contacts canonicalize the patch pair here, so a physical contact emitted as
+                        // (patchA, patchB) on one kT pass and (patchB, patchA) on another still migrates history.
+                        // idPatchA/idPatchB themselves are not modified, preserving force/material/owner semantics.
+                        const size_t prev_key_bytes = prev_count * sizeof(uint64_t);
+                        const size_t prev_idx_bytes = prev_count * sizeof(contactPairs_t);
+                        uint64_t* prev_history_keys =
+                            (uint64_t*)scratchPad.allocateTempVector("prevPatchHistoryKeys", prev_key_bytes);
+                        uint64_t* prev_history_keys_sorted =
+                            (uint64_t*)scratchPad.allocateTempVector("prevPatchHistoryKeys_sorted", prev_key_bytes);
+                        contactPairs_t* prev_history_indices =
+                            (contactPairs_t*)scratchPad.allocateTempVector("prevPatchHistoryIndices", prev_idx_bytes);
+                        contactPairs_t* prev_history_indices_sorted = (contactPairs_t*)scratchPad.allocateTempVector(
+                            "prevPatchHistoryIndices_sorted", prev_idx_bytes);
+
+                        const size_t prev_blocks_needed =
+                            (prev_count + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                        if (prev_blocks_needed > 0) {
+                            buildPatchHistoryPairKeys<<<dim3(prev_blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
+                                                        this_stream>>>(
+                                granData->previous_idPatchA, granData->previous_idPatchB, prev_history_keys,
+                                prev_history_indices, prev_start, prev_count, thisType);
+                            DEME_GPU_DEBUG_SYNC(this_stream);
+                        }
+                        cubDEMSortByKeys<uint64_t, contactPairs_t>(prev_history_keys, prev_history_keys_sorted,
+                                                                   prev_history_indices, prev_history_indices_sorted,
+                                                                   prev_count, this_stream, scratchPad);
+
+                        buildPatchContactMappingByHistoryKeys<<<dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK),
                                                                 0, this_stream>>>(
                             granData->idPatchA, granData->idPatchB, granData->contactPatchIsland,
-                            granData->previous_idPatchA, granData->previous_idPatchB,
-                            granData->previous_contactPatchIsland, granData->contactMapping, curr_start, curr_count,
-                            prev_start, prev_count);
+                            granData->previous_contactPatchIsland, prev_history_keys_sorted,
+                            prev_history_indices_sorted, granData->contactMapping, curr_start, curr_count, prev_start,
+                            prev_count, thisType);
                         DEME_GPU_DEBUG_SYNC(this_stream);
+
+                        scratchPad.finishUsingTempVector("prevPatchHistoryKeys");
+                        scratchPad.finishUsingTempVector("prevPatchHistoryKeys_sorted");
+                        scratchPad.finishUsingTempVector("prevPatchHistoryIndices");
+                        scratchPad.finishUsingTempVector("prevPatchHistoryIndices_sorted");
                     } else {
                         buildPatchContactMappingForType<<<dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0,
                                                           this_stream>>>(
