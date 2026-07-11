@@ -89,9 +89,26 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
         }
         // We hope that penetrationMargin is small, so it's absorbed into the velocity-induce margin.
         // But if not, it should prevail to avoid losing contacts involving triangles inside another mesh.
-        double finalMargin =
-            (double)(vel * simParams->dyn.expSafetyMulti + simParams->dyn.expSafetyAdder) * (*ts) * (*maxDrift) +
-            granData->familyExtraMarginSize[my_family];
+        const double futureDriftTime = (double)(*ts) * (*maxDrift);
+        const double velocityMargin = (double)(vel * simParams->dyn.expSafetyMulti + simParams->dyn.expSafetyAdder) *
+                                      futureDriftTime;
+        double triangleEnvelopeMargin = 0.0;
+        if (simParams->useAngVelMargin) {
+            // Debug/test branch: centroid velocity can under-cover the swept envelope of a large rotating triangle.
+            // Add a size-dependent rotational sweep term. Degenerate triangles have zero radius and get no extra margin.
+            const float triRadius =
+                fmaxf(length(triBNode1 - myRelPos),
+                      fmaxf(length(triBNode2 - myRelPos), length(triBNode3 - myRelPos)));
+            if (triRadius > 0.f) {
+                const float abs_angv = absAngVel_owner[ownerID];
+                const double angularSweepMargin =
+                    (double)(triRadius * abs_angv * simParams->dyn.expSafetyMulti) * futureDriftTime;
+                const double sizeVsDrift = velocityMargin > 0.0 ? (double)triRadius / velocityMargin : 1.0;
+                const double sizeWeight = sizeVsDrift < 1.0 ? sizeVsDrift : 1.0;
+                triangleEnvelopeMargin = angularSweepMargin * sizeWeight;
+            }
+        }
+        double finalMargin = velocityMargin + triangleEnvelopeMargin + granData->familyExtraMarginSize[my_family];
         if (!simParams->meshParticlesLowPoly && finalMargin < penetrationMargin) {
             finalMargin = penetrationMargin;
         }
