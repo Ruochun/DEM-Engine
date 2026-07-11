@@ -2552,6 +2552,46 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                 }
                 return os;
             };
+            auto printWildcardAverages = [&](const char* label, const std::vector<double>& averages, size_t count) {
+                std::cout << "[DEME LOST CONTACT DEBUG] " << label << "ContactWildcardAverages(count=" << count
+                          << ")={";
+                for (unsigned int wc = 0; wc < simParams->nContactWildcards; wc++) {
+                    if (wc > 0) {
+                        std::cout << ", ";
+                    }
+                    if (wc < wildcardNames.size()) {
+                        std::cout << wildcardNames[wc] << "#" << wc << "=" << averages[wc];
+                    } else {
+                        std::cout << "#" << wc << "=" << averages[wc];
+                    }
+                }
+                std::cout << "}\n";
+            };
+
+            std::vector<std::vector<float>> oldWildcardValues(simParams->nContactWildcards);
+            std::vector<double> oldWildcardAverages(simParams->nContactWildcards, 0.0);
+            std::vector<double> migratedNewWildcardAverages(simParams->nContactWildcards, 0.0);
+            for (unsigned int wc = 0; wc < simParams->nContactWildcards; wc++) {
+                oldWildcardValues[wc].resize(nPrevContacts);
+                DEME_GPU_CALL(cudaMemcpy(oldWildcardValues[wc].data(), granData->contactWildcards[wc],
+                                         nPrevContacts * sizeof(float), cudaMemcpyDeviceToHost));
+                double oldSum = 0.0;
+                for (float val : oldWildcardValues[wc]) {
+                    oldSum += val;
+                }
+                oldWildcardAverages[wc] = oldSum / static_cast<double>(nPrevContacts);
+
+                if (nNewContacts > 0) {
+                    std::vector<float> migratedValues(nNewContacts);
+                    DEME_GPU_CALL(cudaMemcpy(migratedValues.data(), newWildcards[wc], nNewContacts * sizeof(float),
+                                             cudaMemcpyDeviceToHost));
+                    double migratedSum = 0.0;
+                    for (float val : migratedValues) {
+                        migratedSum += val;
+                    }
+                    migratedNewWildcardAverages[wc] = migratedSum / static_cast<double>(nNewContacts);
+                }
+            }
 
             std::cout << "\n[DEME LOST CONTACT DEBUG] " << *lostContact
                       << " old live patch contact(s) had no migration partner at sim time " << simParams->dyn.timeElapsed
@@ -2563,6 +2603,8 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                       << ", dTStamp=" << pSchedSupport->currentStampOfDynamic.load()
                       << ", lastKinematicIngredStamp=" << pSchedSupport->stampLastDynamicUpdateProdDate.load()
                       << ", async=" << solverFlags.isAsync << "\n";
+            printWildcardAverages("oldAll", oldWildcardAverages, nPrevContacts);
+            printWildcardAverages("migratedNewAll", migratedNewWildcardAverages, nNewContacts);
             if (oldContactSnapshot.nPatchContacts != nPrevContacts ||
                 oldContactSnapshot.nPrimitiveContacts != nPrevPrimitiveContacts) {
                 std::cout << "[DEME LOST CONTACT DEBUG] WARNING: old-contact snapshot size mismatch: snapshotPatch="
@@ -2606,12 +2648,10 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
 
                 std::cout << ", wildcards={";
                 for (unsigned int wc = 0; wc < simParams->nContactWildcards; wc++) {
-                    float wildcardVal = 0.f;
-                    DEME_GPU_CALL(cudaMemcpy(&wildcardVal, granData->contactWildcards[wc] + oldCnt, sizeof(float),
-                                             cudaMemcpyDeviceToHost));
                     if (wc > 0) {
                         std::cout << ", ";
                     }
+                    float wildcardVal = oldCnt < oldWildcardValues[wc].size() ? oldWildcardValues[wc][oldCnt] : 0.f;
                     if (wc < wildcardNames.size()) {
                         std::cout << wildcardNames[wc] << "#" << wc << "=" << wildcardVal;
                     } else {
