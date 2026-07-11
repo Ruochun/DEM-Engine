@@ -95,17 +95,16 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
         double triangleEnvelopeMargin = 0.0;
         if (simParams->useAngVelMargin) {
             // Debug/test branch: centroid velocity can under-cover the swept envelope of a large rotating triangle.
-            // Add a size-dependent rotational sweep term. Degenerate triangles have zero radius and get no extra margin.
+            // Add a purely geometric size-vs-drift term. Degenerate triangles have zero radius and get no extra margin.
+            constexpr double TRIANGLE_RADIUS_MARGIN_MULTIPLIER = 0.5;
             const float triRadius =
                 fmaxf(length(triBNode1 - myRelPos),
                       fmaxf(length(triBNode2 - myRelPos), length(triBNode3 - myRelPos)));
             if (triRadius > 0.f) {
-                const float abs_angv = absAngVel_owner[ownerID];
-                const double angularSweepMargin =
-                    (double)(triRadius * abs_angv * simParams->dyn.expSafetyMulti) * futureDriftTime;
-                const double sizeVsDrift = velocityMargin > 0.0 ? (double)triRadius / velocityMargin : 1.0;
-                const double sizeWeight = sizeVsDrift < 1.0 ? sizeVsDrift : 1.0;
-                triangleEnvelopeMargin = angularSweepMargin * sizeWeight;
+                const double radiusBeyondVelocityMargin = (double)triRadius - velocityMargin;
+                if (radiusBeyondVelocityMargin > 0.0) {
+                    triangleEnvelopeMargin = TRIANGLE_RADIUS_MARGIN_MULTIPLIER * radiusBeyondVelocityMargin;
+                }
             }
         }
         double finalMargin = velocityMargin + triangleEnvelopeMargin + granData->familyExtraMarginSize[my_family];
