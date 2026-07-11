@@ -2553,10 +2553,10 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                 return os;
             };
 
-            std::cerr << "\n[DEME LOST CONTACT DEBUG] " << *lostContact
+            std::cout << "\n[DEME LOST CONTACT DEBUG] " << *lostContact
                       << " old live patch contact(s) had no migration partner at sim time " << simParams->dyn.timeElapsed
                       << ". This debug dump is unconditional on verbosity.\n";
-            std::cerr << "[DEME LOST CONTACT DEBUG] oldPatchContacts=" << nPrevContacts
+            std::cout << "[DEME LOST CONTACT DEBUG] oldPatchContacts=" << nPrevContacts
                       << ", newPatchContacts=" << nNewContacts
                       << ", oldPrimitiveContacts=" << nPrevPrimitiveContacts
                       << ", newPrimitiveContacts=" << nNewPrimitiveContacts
@@ -2565,7 +2565,7 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                       << ", async=" << solverFlags.isAsync << "\n";
             if (oldContactSnapshot.nPatchContacts != nPrevContacts ||
                 oldContactSnapshot.nPrimitiveContacts != nPrevPrimitiveContacts) {
-                std::cerr << "[DEME LOST CONTACT DEBUG] WARNING: old-contact snapshot size mismatch: snapshotPatch="
+                std::cout << "[DEME LOST CONTACT DEBUG] WARNING: old-contact snapshot size mismatch: snapshotPatch="
                           << oldContactSnapshot.nPatchContacts << ", sentryPatch=" << nPrevContacts
                           << ", snapshotPrimitive=" << oldContactSnapshot.nPrimitiveContacts
                           << ", expectedPrimitive=" << nPrevPrimitiveContacts << "\n";
@@ -2575,7 +2575,7 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                 if (!sentryHost[oldCnt]) {
                     continue;
                 }
-                std::cerr << "[DEME LOST CONTACT DEBUG] lostOldPatchIndex=" << oldCnt;
+                std::cout << "[DEME LOST CONTACT DEBUG] lostOldPatchIndex=" << oldCnt;
                 if (oldCnt < oldContactSnapshot.contactTypePatch.size() && oldCnt < oldContactSnapshot.idPatchA.size() &&
                     oldCnt < oldContactSnapshot.idPatchB.size() && oldCnt < oldContactSnapshot.contactPatchIsland.size()) {
                     contact_t patchType = oldContactSnapshot.contactTypePatch[oldCnt];
@@ -2586,39 +2586,39 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                     bodyID_t patchOwnerA = safePatchOwner(patchA, patchTypeA);
                     bodyID_t patchOwnerB = safePatchOwner(patchB, patchTypeB);
 
-                    std::cerr << ", type=" << contactTypeName(patchType) << "(" << static_cast<unsigned int>(patchType)
+                    std::cout << ", type=" << contactTypeName(patchType) << "(" << static_cast<unsigned int>(patchType)
                               << ")"
                               << ", patchA=" << patchA << "[" << geoTypeName(patchTypeA) << "]"
                               << ", patchB=" << patchB << "[" << geoTypeName(patchTypeB) << "]"
                               << ", ownerA=";
-                    printBodyID(std::cerr, patchOwnerA);
-                    std::cerr << ", ownerB=";
-                    printBodyID(std::cerr, patchOwnerB);
-                    std::cerr << ", combinedMasterA=";
-                    printBodyID(std::cerr, safeCombinedMaster(patchOwnerA));
-                    std::cerr << ", combinedMasterB=";
-                    printBodyID(std::cerr, safeCombinedMaster(patchOwnerB));
-                    std::cerr << ", patchIsland=";
-                    printBodyID(std::cerr, oldContactSnapshot.contactPatchIsland[oldCnt]);
+                    printBodyID(std::cout, patchOwnerA);
+                    std::cout << ", ownerB=";
+                    printBodyID(std::cout, patchOwnerB);
+                    std::cout << ", combinedMasterA=";
+                    printBodyID(std::cout, safeCombinedMaster(patchOwnerA));
+                    std::cout << ", combinedMasterB=";
+                    printBodyID(std::cout, safeCombinedMaster(patchOwnerB));
+                    std::cout << ", patchIsland=";
+                    printBodyID(std::cout, oldContactSnapshot.contactPatchIsland[oldCnt]);
                 } else {
-                    std::cerr << ", old patch identity unavailable";
+                    std::cout << ", old patch identity unavailable";
                 }
 
-                std::cerr << ", wildcards={";
+                std::cout << ", wildcards={";
                 for (unsigned int wc = 0; wc < simParams->nContactWildcards; wc++) {
                     float wildcardVal = 0.f;
                     DEME_GPU_CALL(cudaMemcpy(&wildcardVal, granData->contactWildcards[wc] + oldCnt, sizeof(float),
                                              cudaMemcpyDeviceToHost));
                     if (wc > 0) {
-                        std::cerr << ", ";
+                        std::cout << ", ";
                     }
                     if (wc < wildcardNames.size()) {
-                        std::cerr << wildcardNames[wc] << "#" << wc << "=" << wildcardVal;
+                        std::cout << wildcardNames[wc] << "#" << wc << "=" << wildcardVal;
                     } else {
-                        std::cerr << "#" << wc << "=" << wildcardVal;
+                        std::cout << "#" << wc << "=" << wildcardVal;
                     }
                 }
-                std::cerr << "}\n";
+                std::cout << "}\n";
 
                 size_t primitiveContributors = 0;
                 for (size_t prim = 0; prim < oldContactSnapshot.geomToPatchMap.size(); prim++) {
@@ -2635,24 +2635,24 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                         bodyID_t primB = oldContactSnapshot.idPrimitiveB[prim];
                         bodyID_t primOwnerA = safeGeoOwner(primA, primTypeA);
                         bodyID_t primOwnerB = safeGeoOwner(primB, primTypeB);
-                        std::cerr << "[DEME LOST CONTACT DEBUG]   primitiveIndex=" << prim
+                        std::cout << "[DEME LOST CONTACT DEBUG]   primitiveIndex=" << prim
                                   << ", primitiveType=" << contactTypeName(primType) << "("
                                   << static_cast<unsigned int>(primType) << ")"
                                   << ", geomA=" << primA << "[" << geoTypeName(primTypeA) << "]"
                                   << ", geomB=" << primB << "[" << geoTypeName(primTypeB) << "]"
                                   << ", ownerA=";
-                        printBodyID(std::cerr, primOwnerA);
-                        std::cerr << ", ownerB=";
-                        printBodyID(std::cerr, primOwnerB);
-                        std::cerr << ", patchMap=" << oldContactSnapshot.geomToPatchMap[prim] << "\n";
+                        printBodyID(std::cout, primOwnerA);
+                        std::cout << ", ownerB=";
+                        printBodyID(std::cout, primOwnerB);
+                        std::cout << ", patchMap=" << oldContactSnapshot.geomToPatchMap[prim] << "\n";
                     } else {
-                        std::cerr << "[DEME LOST CONTACT DEBUG]   primitiveIndex=" << prim
+                        std::cout << "[DEME LOST CONTACT DEBUG]   primitiveIndex=" << prim
                                   << ", primitive identity unavailable, patchMap="
                                   << oldContactSnapshot.geomToPatchMap[prim] << "\n";
                     }
                 }
                 if (primitiveContributors == 0) {
-                    std::cerr << "[DEME LOST CONTACT DEBUG]   no old primitive contributors pointed to lost patch index "
+                    std::cout << "[DEME LOST CONTACT DEBUG]   no old primitive contributors pointed to lost patch index "
                               << oldCnt << "\n";
                 }
             }
