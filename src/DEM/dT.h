@@ -771,8 +771,21 @@ class DEMDynamicThread {
     // The inspector for calculating angular velocity magnitude for this cycle
     std::shared_ptr<DEMInspector> approxAngVelFunc;
 
+    struct LostContactDebugSnapshot {
+        size_t nPatchContacts = 0;
+        size_t nPrimitiveContacts = 0;
+        std::vector<bodyID_t> idPatchA;
+        std::vector<bodyID_t> idPatchB;
+        std::vector<contact_t> contactTypePatch;
+        std::vector<bodyID_t> contactPatchIsland;
+        std::vector<bodyID_t> idPrimitiveA;
+        std::vector<bodyID_t> idPrimitiveB;
+        std::vector<contact_t> contactTypePrimitive;
+        std::vector<contactPairs_t> geomToPatchMap;
+    };
+
     // Migrate contact history to fit the structure of the newly received contact array
-    inline void migrateEnduringContacts();
+    inline void migrateEnduringContacts(const LostContactDebugSnapshot& oldContactSnapshot);
 
     // Impl of calculateForces
     inline void dispatchPrimitiveForceKernels(
