@@ -132,10 +132,13 @@ inline __device__ bool checkPrismPrismContact(deme::DEMSimParams* simParams,
                                               const float3& triBNode1_other,
                                               const float3& triBNode2_other,
                                               const float3& triBNode3_other) {
-    // Calculate the contact point between 2 prisms, and return whether they are in contact
-    bool in_contact =
-        calc_prism_contact(triANode1, triANode2, triANode3, triBNode1, triBNode2, triBNode3, triANode1_other,
-                           triANode2_other, triANode3_other, triBNode1_other, triBNode2_other, triBNode3_other);
+    // Debug/test branch: keep the prism node storage as float3, but run the actual prism-prism SAT in double precision
+    // to see whether FP32 kT contact detection is contributing to lost mesh contacts.
+    bool in_contact = calc_prism_contact(
+        to_double3(triANode1), to_double3(triANode2), to_double3(triANode3), to_double3(triBNode1),
+        to_double3(triBNode2), to_double3(triBNode3), to_double3(triANode1_other), to_double3(triANode2_other),
+        to_double3(triANode3_other), to_double3(triBNode1_other), to_double3(triBNode2_other),
+        to_double3(triBNode3_other));
     return in_contact;
 }
 
