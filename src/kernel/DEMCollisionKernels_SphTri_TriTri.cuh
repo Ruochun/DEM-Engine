@@ -965,10 +965,9 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
                                    const T1& prismBFaceBNode1,
                                    const T1& prismBFaceBNode2,
                                    const T1& prismBFaceBNode3) {
-    using T2 = decltype(dot(prismAFaceANode1, prismAFaceANode1));
     // Increased axis count to accommodate additional side face normals and height edge tests
     // Max axes: 2 base normals + 6 side face normals + 9 base edge-edge + 18 height edge cross products = 35
-    T1 axes[35];
+    float3 axes[35];
     int8_t axisCount = 0;
 
     // Pack as stack arrays for easier looping
@@ -981,12 +980,8 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     T1 A_faceNormal = cross(prismA[1] - prismA[0], prismA[2] - prismA[0]);
     T1 B_faceNormal = cross(prismB[1] - prismB[0], prismB[2] - prismB[0]);
 
-    T2 A_faceNormalLen = length(A_faceNormal);
-    if (A_faceNormalLen > DEME_TINY_FLOAT)
-        axes[axisCount++] = A_faceNormal / A_faceNormalLen;
-    T2 B_faceNormalLen = length(B_faceNormal);
-    if (B_faceNormalLen > DEME_TINY_FLOAT)
-        axes[axisCount++] = B_faceNormal / B_faceNormalLen;
+    axes[axisCount++] = normalize(A_faceNormal);
+    axes[axisCount++] = normalize(B_faceNormal);
 
     // Edges of each prism base and height edges (connecting corresponding vertices of the two bases)
     T1 A_baseEdges[3] = {prismA[1] - prismA[0], prismA[2] - prismA[1], prismA[0] - prismA[2]};
@@ -1004,7 +999,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         // For each base edge, compute the normal of the rectangular side face
         // The side face is formed by base edge i and the two height edges at its endpoints
         T1 sideNormal = cross(A_baseEdges[i], A_heightEdges[i]);
-        T2 len = length(sideNormal);
+        float len = length(sideNormal);
         if (len > DEME_TINY_FLOAT)
             axes[axisCount++] = sideNormal / len;
     }
@@ -1012,7 +1007,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     // Side face normals for prism B (3 rectangular side faces)
     for (int8_t i = 0; i < 3; ++i) {
         T1 sideNormal = cross(B_baseEdges[i], B_heightEdges[i]);
-        T2 len = length(sideNormal);
+        float len = length(sideNormal);
         if (len > DEME_TINY_FLOAT)
             axes[axisCount++] = sideNormal / len;
     }
@@ -1021,7 +1016,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     for (int8_t i = 0; i < 3; ++i) {
         for (int8_t j = 0; j < 3; ++j) {
             T1 cp = cross(A_baseEdges[i], B_baseEdges[j]);
-            T2 len = length(cp);
+            float len = length(cp);
             if (len > DEME_TINY_FLOAT)
                 axes[axisCount++] = cp / len;
         }
@@ -1031,7 +1026,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     for (int8_t i = 0; i < 3; ++i) {
         for (int8_t j = 0; j < 3; ++j) {
             T1 cp = cross(A_heightEdges[i], B_baseEdges[j]);
-            T2 len = length(cp);
+            float len = length(cp);
             if (len > DEME_TINY_FLOAT)
                 axes[axisCount++] = cp / len;
         }
@@ -1041,7 +1036,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     for (int8_t i = 0; i < 3; ++i) {
         for (int8_t j = 0; j < 3; ++j) {
             T1 cp = cross(A_baseEdges[i], B_heightEdges[j]);
-            T2 len = length(cp);
+            float len = length(cp);
             if (len > DEME_TINY_FLOAT)
                 axes[axisCount++] = cp / len;
         }
@@ -1053,7 +1048,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     // will be contained within the projection range of B [minB, maxB], causing all overlap
     // checks to pass. With no separating axis found, the function returns true (in contact).
     for (int8_t i = 0; i < axisCount; ++i) {
-        T2 minA, maxA, minB, maxB;
+        float minA, maxA, minB, maxB;
         project_points_on_axis(prismA, axes[i], minA, maxA);
         project_points_on_axis(prismB, axes[i], minB, maxB);
         if (!projections_overlap(minA, maxA, minB, maxB))
