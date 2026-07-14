@@ -2567,6 +2567,17 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                 }
                 std::cout << "}\n";
             };
+            auto unpackStoredDouble = [](const float3& storage) {
+                static_assert(sizeof(double) == 2 * sizeof(float),
+                              "Double must be exactly twice the size of float for contact-geometry debug unpacking.");
+                union {
+                    double d;
+                    float f[2];
+                } converter;
+                converter.f[0] = storage.x;
+                converter.f[1] = storage.y;
+                return converter.d;
+            };
 
             std::vector<std::vector<float>> oldWildcardValues(simParams->nContactWildcards);
             std::vector<double> oldWildcardAverages(simParams->nContactWildcards, 0.0);
@@ -2661,11 +2672,42 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                 std::cout << "}\n";
 
                 size_t primitiveContributors = 0;
+                size_t penetrationSamples = 0;
+                size_t positivePenetrationSamples = 0;
+                double minPenetration = 0.0;
+                double maxPenetration = 0.0;
+                double sumPenetration = 0.0;
+                double sumArea = 0.0;
+                double maxArea = 0.0;
                 for (size_t prim = 0; prim < oldContactSnapshot.geomToPatchMap.size(); prim++) {
                     if (oldContactSnapshot.geomToPatchMap[prim] != oldCnt) {
                         continue;
                     }
                     primitiveContributors++;
+                    const bool hasPenetration = prim < oldContactSnapshot.primitivePenetrationStorage.size();
+                    const bool hasArea = prim < oldContactSnapshot.primitiveAreaStorage.size();
+                    double penetration = 0.0;
+                    double area = 0.0;
+                    if (hasPenetration) {
+                        penetration = unpackStoredDouble(oldContactSnapshot.primitivePenetrationStorage[prim]);
+                        if (penetrationSamples == 0) {
+                            minPenetration = penetration;
+                            maxPenetration = penetration;
+                        } else {
+                            minPenetration = std::min(minPenetration, penetration);
+                            maxPenetration = std::max(maxPenetration, penetration);
+                        }
+                        sumPenetration += penetration;
+                        penetrationSamples++;
+                        if (penetration > 0.0) {
+                            positivePenetrationSamples++;
+                        }
+                    }
+                    if (hasArea) {
+                        area = unpackStoredDouble(oldContactSnapshot.primitiveAreaStorage[prim]);
+                        sumArea += area;
+                        maxArea = std::max(maxArea, area);
+                    }
                     if (prim < oldContactSnapshot.contactTypePrimitive.size() &&
                         prim < oldContactSnapshot.idPrimitiveA.size() && prim < oldContactSnapshot.idPrimitiveB.size()) {
                         contact_t primType = oldContactSnapshot.contactTypePrimitive[prim];
@@ -2684,16 +2726,45 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                         printBodyID(std::cout, primOwnerA);
                         std::cout << ", ownerB=";
                         printBodyID(std::cout, primOwnerB);
-                        std::cout << ", patchMap=" << oldContactSnapshot.geomToPatchMap[prim] << "\n";
+                        std::cout << ", patchMap=" << oldContactSnapshot.geomToPatchMap[prim];
+                        if (hasPenetration) {
+                            std::cout << ", penetration=" << penetration;
+                        } else {
+                            std::cout << ", penetration=unavailable";
+                        }
+                        if (hasArea) {
+                            std::cout << ", area=" << area;
+                        } else {
+                            std::cout << ", area=unavailable";
+                        }
+                        std::cout << "\n";
                     } else {
                         std::cout << "[DEME LOST CONTACT DEBUG]   primitiveIndex=" << prim
                                   << ", primitive identity unavailable, patchMap="
-                                  << oldContactSnapshot.geomToPatchMap[prim] << "\n";
+                                  << oldContactSnapshot.geomToPatchMap[prim];
+                        if (hasPenetration) {
+                            std::cout << ", penetration=" << penetration;
+                        } else {
+                            std::cout << ", penetration=unavailable";
+                        }
+                        if (hasArea) {
+                            std::cout << ", area=" << area;
+                        } else {
+                            std::cout << ", area=unavailable";
+                        }
+                        std::cout << "\n";
                     }
                 }
                 if (primitiveContributors == 0) {
                     std::cout << "[DEME LOST CONTACT DEBUG]   no old primitive contributors pointed to lost patch index "
                               << oldCnt << "\n";
+                } else if (penetrationSamples > 0) {
+                    const double avgPenetration = sumPenetration / static_cast<double>(penetrationSamples);
+                    std::cout << "[DEME LOST CONTACT DEBUG]   primitivePenetrationSummary(count="
+                              << penetrationSamples << ", positive=" << positivePenetrationSamples
+                              << ", min=" << minPenetration << ", max=" << maxPenetration
+                              << ", avg=" << avgPenetration << ", areaSum=" << sumArea << ", areaMax=" << maxArea
+                              << ")\n";
                 }
             }
         }
@@ -3127,6 +3198,10 @@ inline void DEMDynamicThread::unpack_impl() {
         copySnapshot(oldContactSnapshot.contactTypePrimitive, contactTypePrimitive.data(),
                      oldContactSnapshot.nPrimitiveContacts);
         copySnapshot(oldContactSnapshot.geomToPatchMap, geomToPatchMap.data(), oldContactSnapshot.nPrimitiveContacts);
+        copySnapshot(oldContactSnapshot.primitivePenetrationStorage, contactPointGeometryA.data(),
+                     oldContactSnapshot.nPrimitiveContacts);
+        copySnapshot(oldContactSnapshot.primitiveAreaStorage, contactPointGeometryB.data(),
+                     oldContactSnapshot.nPrimitiveContacts);
     }
 
     {

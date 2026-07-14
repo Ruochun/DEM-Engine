@@ -782,6 +782,8 @@ class DEMDynamicThread {
         std::vector<bodyID_t> idPrimitiveB;
         std::vector<contact_t> contactTypePrimitive;
         std::vector<contactPairs_t> geomToPatchMap;
+        std::vector<float3> primitivePenetrationStorage;
+        std::vector<float3> primitiveAreaStorage;
     };
 
     // Migrate contact history to fit the structure of the newly received contact array
