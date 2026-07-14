@@ -5,7 +5,7 @@
 
 // =============================================================================
 // Rotating drum centrifuge demo with only cube mesh particles.
-// Matches the output style of DEMdemo_Centrifuge but uses 4 mm cubes by default
+// Matches the output style of DEMdemo_Centrifuge but uses scaled 4 mm cubes by default
 // (12-triangle mesh) inside an analytically defined cylinder and lids.
 // =============================================================================
 
@@ -38,11 +38,18 @@ int main() {
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetMeshParticlesLowPoly(true);
 
-    auto mat_type_cube = DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
-    auto mat_type_drum = DEMSim.LoadMaterial({{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
+    constexpr float scale = 10.0f;
+    constexpr float length_scale = scale;
+    constexpr float youngs_modulus_scale = scale;
+    constexpr float mass_scale = length_scale * length_scale * length_scale;
+
+    auto mat_type_cube =
+        DEMSim.LoadMaterial({{"E", 1e6 * youngs_modulus_scale}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
+    auto mat_type_drum =
+        DEMSim.LoadMaterial({{"E", 2e6 * youngs_modulus_scale}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
     DEMSim.SetMaterialPropertyPair("mu", mat_type_cube, mat_type_drum, 0.5);
 
-    const float cube_size = 0.004f;
+    const float cube_size = 0.004f * length_scale;
     const float cube_density = 2600.0f;
     const float cube_mass = cube_density * cube_size * cube_size * cube_size;
     const float cube_moi = cube_mass * cube_size * cube_size / 6.0f;
@@ -57,10 +64,10 @@ int main() {
     // Drum definition
     float3 CylCenter = make_float3(0, 0, 0);
     float3 CylAxis = make_float3(0, 0, 1);
-    float CylRad = 0.08f;
-    float CylHeight = 0.2f;
-    float CylMass = 1.0f;
-    float safe_delta = 0.003f;
+    float CylRad = 0.08f * length_scale;
+    float CylHeight = 0.2f * length_scale;
+    float CylMass = 1.0f * mass_scale;
+    float safe_delta = 0.003f * length_scale;
     float IZZ = CylMass * CylRad * CylRad / 2;
     float IYY = (CylMass / 12) * (3 * CylRad * CylRad + CylHeight * CylHeight);
     auto Drum = DEMSim.AddExternalObject();
@@ -123,7 +130,7 @@ int main() {
     auto max_v_finder = DEMSim.CreateInspector("max_absv");
     float max_v = 0.f;
 
-    DEMSim.InstructBoxDomainDimension(0.4, 0.4, 0.4);
+    DEMSim.InstructBoxDomainDimension(0.4 * length_scale, 0.4 * length_scale, 0.4 * length_scale);
     float step_size = 1e-5f;
     DEMSim.SetInitTimeStep(step_size);
     DEMSim.SetGPUTimersEnabled(true);
@@ -141,7 +148,8 @@ int main() {
     float frame_time = 1.0f / fps;
 
     std::cout << "Output at " << fps << " FPS" << std::endl;
-    std::cout << "DrumCubes config: cube_size=" << cube_size << "m, target_cubes=" << target_cubes << std::endl;
+    std::cout << "DrumCubes config: scale=" << scale << ", cube_size=" << cube_size
+              << "m, target_cubes=" << target_cubes << std::endl;
     unsigned int currframe = 0;
     unsigned int curr_step = 0;
     std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
