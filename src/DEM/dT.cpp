@@ -5,6 +5,8 @@
 
 #include <cstring>
 #include <cstdint>
+#include <filesystem>
+#include <iomanip>
 #include <iostream>
 #include <thread>
 #include <algorithm>
@@ -2427,6 +2429,152 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
     pSchedSupport->kinematicIngredProdDateStamp = (pSchedSupport->currentStampOfDynamic).load();
 }
 
+inline void DEMDynamicThread::writeLostContactMeshOwnersAsVtk(size_t oldPatchIndex,
+                                                              contact_t patchType,
+                                                              geoType_t patchTypeA,
+                                                              geoType_t patchTypeB,
+                                                              bodyID_t patchA,
+                                                              bodyID_t patchB,
+                                                              bodyID_t ownerA,
+                                                              bodyID_t ownerB) {
+    struct MeshDumpEntry {
+        std::shared_ptr<DEMMesh> mesh;
+        bodyID_t owner = NULL_BODYID;
+        bodyID_t patch = NULL_BODYID;
+        unsigned int role = 0;
+        float3 ownerPos = make_float3(0);
+        float4 ownerOriQ = make_float4(0, 0, 0, 1);
+        size_t vertexOffset = 0;
+    };
+
+    auto findMeshForOwner = [&](bodyID_t owner) -> std::shared_ptr<DEMMesh> {
+        if (owner == NULL_BODYID) {
+            return nullptr;
+        }
+        for (const auto& mesh : m_meshes) {
+            if (mesh && mesh->owner == owner) {
+                return mesh;
+            }
+        }
+        return nullptr;
+    };
+
+    std::vector<MeshDumpEntry> entries;
+    auto addTriangleOwner = [&](geoType_t type, bodyID_t patch, bodyID_t owner, unsigned int role) {
+        if (type != GEO_T_TRIANGLE) {
+            return;
+        }
+        if (owner == NULL_BODYID || owner >= simParams->nOwnerBodies) {
+            std::cout << "[DEME LOST CONTACT DEBUG]   cannot dump mesh role " << role
+                      << ": owner is invalid for patch " << patch << "\n";
+            return;
+        }
+        auto mesh = findMeshForOwner(owner);
+        if (!mesh) {
+            std::cout << "[DEME LOST CONTACT DEBUG]   cannot dump mesh role " << role
+                      << ": no cached mesh found for owner " << owner << "\n";
+            return;
+        }
+
+        MeshDumpEntry entry;
+        entry.mesh = mesh;
+        entry.owner = owner;
+        entry.patch = patch;
+        entry.role = role;
+        entry.ownerPos = getOwnerPos(owner)[0];
+        entry.ownerOriQ = getOwnerOriQ(owner)[0];
+        entries.push_back(entry);
+    };
+
+    addTriangleOwner(patchTypeA, patchA, ownerA, 0);
+    addTriangleOwner(patchTypeB, patchB, ownerB, 1);
+
+    if (entries.empty()) {
+        std::cout << "[DEME LOST CONTACT DEBUG]   no mesh owners available for VTK dump of lost patch index "
+                  << oldPatchIndex << "\n";
+        return;
+    }
+
+    size_t totalVertices = 0;
+    size_t totalFaces = 0;
+    for (auto& entry : entries) {
+        entry.vertexOffset = totalVertices;
+        totalVertices += entry.mesh->GetCoordsVertices().size();
+        totalFaces += entry.mesh->GetIndicesVertexes().size();
+    }
+
+    std::error_code ec;
+    const std::filesystem::path outDir = std::filesystem::current_path() / "DEME_LostContactMeshes";
+    std::filesystem::create_directories(outDir, ec);
+    if (ec) {
+        std::cout << "[DEME LOST CONTACT DEBUG]   failed to create mesh dump directory " << outDir.string()
+                  << ": " << ec.message() << "\n";
+        return;
+    }
+
+    const size_t dumpID = lostContactMeshDumpCounter++;
+    std::ostringstream filename;
+    filename << "lost_contact_mesh_pair_" << std::setw(6) << std::setfill('0') << dumpID << ".vtk";
+    const std::filesystem::path outPath = outDir / filename.str();
+    std::ofstream out(outPath.string());
+    if (!out) {
+        std::cout << "[DEME LOST CONTACT DEBUG]   failed to open mesh dump file " << outPath.string() << "\n";
+        return;
+    }
+
+    out << "# vtk DataFile Version 2.0\n";
+    out << "DEME lost contact mesh pair"
+        << " time=" << simParams->dyn.timeElapsed << " oldPatchIndex=" << oldPatchIndex
+        << " contactType=" << static_cast<unsigned int>(patchType) << "\n";
+    out << "ASCII\n";
+    out << "DATASET UNSTRUCTURED_GRID\n";
+
+    out << "POINTS " << totalVertices << " float\n";
+    for (const auto& entry : entries) {
+        for (const auto& vertex : entry.mesh->GetCoordsVertices()) {
+            float3 point = vertex;
+            applyFrameTransformLocalToGlobal(point, entry.ownerPos, entry.ownerOriQ);
+            out << point.x << " " << point.y << " " << point.z << "\n";
+        }
+    }
+
+    out << "\nCELLS " << totalFaces << " " << 4 * totalFaces << "\n";
+    for (const auto& entry : entries) {
+        for (const auto& face : entry.mesh->GetIndicesVertexes()) {
+            out << "3 " << static_cast<size_t>(face.x) + entry.vertexOffset << " "
+                << static_cast<size_t>(face.y) + entry.vertexOffset << " "
+                << static_cast<size_t>(face.z) + entry.vertexOffset << "\n";
+        }
+    }
+
+    out << "\nCELL_TYPES " << totalFaces << "\n";
+    for (const auto& entry : entries) {
+        for (size_t i = 0; i < entry.mesh->GetIndicesVertexes().size(); i++) {
+            out << "5\n";
+        }
+    }
+
+    auto writeUnsignedLongCellScalar = [&](const char* name, auto valueOfEntry) {
+        out << "\nSCALARS " << name << " unsigned_long 1\n";
+        out << "LOOKUP_TABLE default\n";
+        for (const auto& entry : entries) {
+            const auto value = valueOfEntry(entry);
+            for (size_t i = 0; i < entry.mesh->GetIndicesVertexes().size(); i++) {
+                out << static_cast<unsigned long>(value) << "\n";
+            }
+        }
+    };
+
+    out << "\nCELL_DATA " << totalFaces << "\n";
+    writeUnsignedLongCellScalar("owner_id", [](const MeshDumpEntry& entry) { return entry.owner; });
+    writeUnsignedLongCellScalar("mesh_role", [](const MeshDumpEntry& entry) { return entry.role; });
+    writeUnsignedLongCellScalar("contact_patch_id", [](const MeshDumpEntry& entry) { return entry.patch; });
+    writeUnsignedLongCellScalar("lost_patch_index", [&](const MeshDumpEntry&) { return oldPatchIndex; });
+
+    std::cout << "[DEME LOST CONTACT DEBUG]   wrote mesh-owner VTK dump " << outPath.string()
+              << " for lost patch index " << oldPatchIndex << "\n";
+}
+
 inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnapshot& oldContactSnapshot) {
     // Use granData->contactMapping's information (stored in temp device vector) to map old and new contacts
     if (simParams->nContactWildcards == 0) {
@@ -2628,16 +2776,26 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                 if (!sentryHost[oldCnt]) {
                     continue;
                 }
+                bool havePatchIdentity = false;
+                contact_t patchType = NOT_A_CONTACT;
+                geoType_t patchTypeA = GEO_T_SPHERE;
+                geoType_t patchTypeB = GEO_T_SPHERE;
+                bodyID_t patchA = NULL_BODYID;
+                bodyID_t patchB = NULL_BODYID;
+                bodyID_t patchOwnerA = NULL_BODYID;
+                bodyID_t patchOwnerB = NULL_BODYID;
+
                 std::cout << "[DEME LOST CONTACT DEBUG] lostOldPatchIndex=" << oldCnt;
                 if (oldCnt < oldContactSnapshot.contactTypePatch.size() && oldCnt < oldContactSnapshot.idPatchA.size() &&
                     oldCnt < oldContactSnapshot.idPatchB.size() && oldCnt < oldContactSnapshot.contactPatchIsland.size()) {
-                    contact_t patchType = oldContactSnapshot.contactTypePatch[oldCnt];
-                    geoType_t patchTypeA = decodeTypeA<contact_t, geoType_t>(patchType);
-                    geoType_t patchTypeB = decodeTypeB<contact_t, geoType_t>(patchType);
-                    bodyID_t patchA = oldContactSnapshot.idPatchA[oldCnt];
-                    bodyID_t patchB = oldContactSnapshot.idPatchB[oldCnt];
-                    bodyID_t patchOwnerA = safePatchOwner(patchA, patchTypeA);
-                    bodyID_t patchOwnerB = safePatchOwner(patchB, patchTypeB);
+                    havePatchIdentity = true;
+                    patchType = oldContactSnapshot.contactTypePatch[oldCnt];
+                    patchTypeA = decodeTypeA<contact_t, geoType_t>(patchType);
+                    patchTypeB = decodeTypeB<contact_t, geoType_t>(patchType);
+                    patchA = oldContactSnapshot.idPatchA[oldCnt];
+                    patchB = oldContactSnapshot.idPatchB[oldCnt];
+                    patchOwnerA = safePatchOwner(patchA, patchTypeA);
+                    patchOwnerB = safePatchOwner(patchB, patchTypeB);
 
                     std::cout << ", type=" << contactTypeName(patchType) << "(" << static_cast<unsigned int>(patchType)
                               << ")"
@@ -2670,6 +2828,10 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
                     }
                 }
                 std::cout << "}\n";
+                if (havePatchIdentity) {
+                    writeLostContactMeshOwnersAsVtk(oldCnt, patchType, patchTypeA, patchTypeB, patchA, patchB,
+                                                    patchOwnerA, patchOwnerB);
+                }
 
                 size_t primitiveContributors = 0;
                 size_t penetrationSamples = 0;

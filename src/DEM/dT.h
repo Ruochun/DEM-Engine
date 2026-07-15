@@ -756,6 +756,9 @@ class DEMDynamicThread {
     // Meshes cached on dT side that has corresponding owner number associated. Useful for outputting meshes.
     std::vector<std::shared_ptr<DEMMesh>> m_meshes;
 
+    // Debug-branch time-series counter for missing-contact mesh-pair VTK dumps.
+    size_t lostContactMeshDumpCounter = 0;
+
     // Number of trackers I already processed before (if I see a tracked_obj array longer than this in initialization, I
     // know I have to process the new-comers)
     unsigned int nTrackersProcessed = 0;
@@ -785,6 +788,15 @@ class DEMDynamicThread {
         std::vector<float3> primitivePenetrationStorage;
         std::vector<float3> primitiveAreaStorage;
     };
+
+    inline void writeLostContactMeshOwnersAsVtk(size_t oldPatchIndex,
+                                                contact_t patchType,
+                                                geoType_t patchTypeA,
+                                                geoType_t patchTypeB,
+                                                bodyID_t patchA,
+                                                bodyID_t patchB,
+                                                bodyID_t ownerA,
+                                                bodyID_t ownerB);
 
     // Migrate contact history to fit the structure of the newly received contact array
     inline void migrateEnduringContacts(const LostContactDebugSnapshot& oldContactSnapshot);
