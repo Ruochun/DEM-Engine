@@ -3,6 +3,9 @@
 #include <DEMCollisionKernels_SphTri_TriTri.cuh>
 _kernelIncludes_;
 
+__device__ unsigned int deme_prism_sat_gap_debug_print_count = 0;
+constexpr unsigned int DEME_PRISM_SAT_GAP_DEBUG_PRINT_LIMIT = 512;
+
 inline __device__ float triRadiusFromNodes(const float3& center,
                                            const float3& a1,
                                            const float3& a2,
@@ -17,6 +20,33 @@ inline __device__ float triRadiusFromNodes(const float3& center,
     r2 = fmaxf(r2, dot(b2 - center, b2 - center));
     r2 = fmaxf(r2, dot(b3 - center, b3 - center));
     return sqrtf(r2);
+}
+
+inline __device__ void maybePrintPrismSATGapDebug(int phase,
+                                                  deme::binID_t binID,
+                                                  deme::bodyID_t triA,
+                                                  deme::bodyID_t ownerA,
+                                                  deme::bodyID_t triB,
+                                                  deme::bodyID_t ownerB,
+                                                  int axis,
+                                                  float gap,
+                                                  float tolerance,
+                                                  float prismScale) {
+    if (axis < 0) {
+        return;
+    }
+    // Debug branch: report only close-ish SAT rejections, otherwise ordinary non-contact candidates dominate output.
+    const float logThreshold = DEME_MAX(100.0f * tolerance, DEME_MAX(1.0e-6f, 0.10f * prismScale));
+    if (gap > logThreshold) {
+        return;
+    }
+    const unsigned int printSlot = atomicAdd(&deme_prism_sat_gap_debug_print_count, 1);
+    if (printSlot >= DEME_PRISM_SAT_GAP_DEBUG_PRINT_LIMIT) {
+        return;
+    }
+    printf("[PrismSATGap] slot=%u phase=%d bin=%u triA=%u ownerA=%u triB=%u ownerB=%u axis=%d gap=%.9e tol=%.9e scale=%.9e threshold=%.9e\n",
+           printSlot, phase, (unsigned int)binID, (unsigned int)triA, (unsigned int)ownerA, (unsigned int)triB,
+           (unsigned int)ownerB, axis, gap, tolerance, prismScale, logThreshold);
 }
 
 // #include <cub/block/block_load.cuh>
@@ -131,11 +161,16 @@ inline __device__ bool checkPrismPrismContact(deme::DEMSimParams* simParams,
                                               const float3& triANode3_other,
                                               const float3& triBNode1_other,
                                               const float3& triBNode2_other,
-                                              const float3& triBNode3_other) {
+                                              const float3& triBNode3_other,
+                                              float* rejectGapOut = nullptr,
+                                              int* rejectAxisOut = nullptr,
+                                              float* rejectToleranceOut = nullptr,
+                                              float* prismScaleOut = nullptr) {
     // Calculate the contact point between 2 prisms, and return whether they are in contact
     bool in_contact =
         calc_prism_contact(triANode1, triANode2, triANode3, triBNode1, triBNode2, triBNode3, triANode1_other,
-                           triANode2_other, triANode3_other, triBNode1_other, triBNode2_other, triBNode3_other);
+                           triANode2_other, triANode3_other, triBNode1_other, triBNode2_other, triBNode3_other,
+                           rejectGapOut, rejectAxisOut, rejectToleranceOut, prismScaleOut);
     return in_contact;
 }
 
@@ -326,10 +361,19 @@ DEME_KERNEL void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParam
                 }
 
                 // Tri--tri contact does not take into account bins, as duplicates will be removed in the end
+                float satRejectGap = 0.0f;
+                float satRejectTol = 0.0f;
+                float satPrismScale = 0.0f;
+                int satRejectAxis = -1;
                 bool in_contact = checkPrismPrismContact(
                     simParams, triANode1[bodyA], triANode2[bodyA], triANode3[bodyA], triBNode1[bodyA], triBNode2[bodyA],
                     triBNode3[bodyA], triANode1[bodyB], triANode2[bodyB], triANode3[bodyB], triBNode1[bodyB],
-                    triBNode2[bodyB], triBNode3[bodyB]);
+                    triBNode2[bodyB], triBNode3[bodyB], &satRejectGap, &satRejectAxis, &satRejectTol, &satPrismScale);
+                if (!in_contact) {
+                    maybePrintPrismSATGapDebug(0, binID, triIDs[bodyA], triOwnerIDs[bodyA], triIDs[bodyB],
+                                               triOwnerIDs[bodyB], satRejectAxis, satRejectGap, satRejectTol,
+                                               satPrismScale);
+                }
 
                 /*
                 if (in_contact && (contactPntBin != binID)) {
@@ -380,10 +424,20 @@ DEME_KERNEL void getNumberOfTriangleContactsEachBin(deme::DEMSimParams* simParam
                     }
 
                     // Tri--tri contact does not take into account bins, as duplicates will be removed in the end
+                    float satRejectGap = 0.0f;
+                    float satRejectTol = 0.0f;
+                    float satPrismScale = 0.0f;
+                    int satRejectAxis = -1;
                     bool in_contact = checkPrismPrismContact(
                         simParams, triANode1[myThreadID], triANode2[myThreadID], triANode3[myThreadID],
                         triBNode1[myThreadID], triBNode2[myThreadID], triBNode3[myThreadID], cur_triANode1,
-                        cur_triANode2, cur_triANode3, cur_triBNode1, cur_triBNode2, cur_triBNode3);
+                        cur_triANode2, cur_triANode3, cur_triBNode1, cur_triBNode2, cur_triBNode3, &satRejectGap,
+                        &satRejectAxis, &satRejectTol, &satPrismScale);
+                    if (!in_contact) {
+                        maybePrintPrismSATGapDebug(1, binID, triIDs[myThreadID], triOwnerIDs[myThreadID], cur_bodyID,
+                                                   cur_ownerID, satRejectAxis, satRejectGap, satRejectTol,
+                                                   satPrismScale);
+                    }
 
                     if (in_contact) {
                         atomicAdd(&blockTriTriPairCnt, 1);
@@ -597,10 +651,19 @@ DEME_KERNEL void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                 }
 
                 // Tri--tri contact does not take into account bins, as duplicates will be removed in the end
+                float satRejectGap = 0.0f;
+                float satRejectTol = 0.0f;
+                float satPrismScale = 0.0f;
+                int satRejectAxis = -1;
                 bool in_contact = checkPrismPrismContact(
                     simParams, triANode1[bodyA], triANode2[bodyA], triANode3[bodyA], triBNode1[bodyA], triBNode2[bodyA],
                     triBNode3[bodyA], triANode1[bodyB], triANode2[bodyB], triANode3[bodyB], triBNode1[bodyB],
-                    triBNode2[bodyB], triBNode3[bodyB]);
+                    triBNode2[bodyB], triBNode3[bodyB], &satRejectGap, &satRejectAxis, &satRejectTol, &satPrismScale);
+                if (!in_contact) {
+                    maybePrintPrismSATGapDebug(2, binID, triIDs[bodyA], triOwnerIDs[bodyA], triIDs[bodyB],
+                                               triOwnerIDs[bodyB], satRejectAxis, satRejectGap, satRejectTol,
+                                               satPrismScale);
+                }
 
                 if (in_contact) {
                     deme::contactPairs_t inBlockOffset = mmReportOffset + atomicAdd(&blockTriTriPairCnt, 1);
@@ -663,10 +726,20 @@ DEME_KERNEL void populateTriangleContactsEachBin(deme::DEMSimParams* simParams,
                     }
 
                     // Tri--tri contact does not take into account bins, as duplicates will be removed in the end
+                    float satRejectGap = 0.0f;
+                    float satRejectTol = 0.0f;
+                    float satPrismScale = 0.0f;
+                    int satRejectAxis = -1;
                     bool in_contact = checkPrismPrismContact(
                         simParams, triANode1[myThreadID], triANode2[myThreadID], triANode3[myThreadID],
                         triBNode1[myThreadID], triBNode2[myThreadID], triBNode3[myThreadID], cur_triANode1,
-                        cur_triANode2, cur_triANode3, cur_triBNode1, cur_triBNode2, cur_triBNode3);
+                        cur_triANode2, cur_triANode3, cur_triBNode1, cur_triBNode2, cur_triBNode3, &satRejectGap,
+                        &satRejectAxis, &satRejectTol, &satPrismScale);
+                    if (!in_contact) {
+                        maybePrintPrismSATGapDebug(3, binID, triIDs[myThreadID], triOwnerIDs[myThreadID], cur_bodyID,
+                                                   cur_ownerID, satRejectAxis, satRejectGap, satRejectTol,
+                                                   satPrismScale);
+                    }
 
                     if (in_contact) {
                         deme::contactPairs_t inBlockOffset = mmReportOffset + atomicAdd(&blockTriTriPairCnt, 1);
