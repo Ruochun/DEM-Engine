@@ -693,8 +693,8 @@ __device__ void project_points_on_axis(const T1* prism, const T1& axis, T2& out_
 }
 
 template <typename T>
-__device__ bool projections_overlap(T minA, T maxA, T minB, T maxB) {
-    return !(maxA < minB || maxB < minA);
+__device__ bool projections_overlap(T minA, T maxA, T minB, T maxB, T tolerance = T(0)) {
+    return !((maxA + tolerance) < minB || (maxB + tolerance) < minA);
 }
 
 /**
@@ -976,13 +976,6 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     T1 prismB[6] = {prismBFaceANode1, prismBFaceANode2, prismBFaceANode3,
                     prismBFaceBNode1, prismBFaceBNode2, prismBFaceBNode3};
 
-    // Base triangle normals (both top and bottom faces)
-    T1 A_faceNormal = cross(prismA[1] - prismA[0], prismA[2] - prismA[0]);
-    T1 B_faceNormal = cross(prismB[1] - prismB[0], prismB[2] - prismB[0]);
-
-    axes[axisCount++] = normalize(A_faceNormal);
-    axes[axisCount++] = normalize(B_faceNormal);
-
     // Edges of each prism base and height edges (connecting corresponding vertices of the two bases)
     T1 A_baseEdges[3] = {prismA[1] - prismA[0], prismA[2] - prismA[1], prismA[0] - prismA[2]};
     T1 B_baseEdges[3] = {prismB[1] - prismB[0], prismB[2] - prismB[1], prismB[0] - prismB[2]};
@@ -993,6 +986,39 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     T1 A_heightEdges[3] = {prismA[3] - prismA[0], prismA[5] - prismA[1], prismA[4] - prismA[2]};
     T1 B_heightEdges[3] = {prismB[3] - prismB[0], prismB[5] - prismB[1], prismB[4] - prismB[2]};
 
+    float prismScale = (float)DEME_TINY_FLOAT;
+    for (int8_t i = 0; i < 3; ++i) {
+        float lenA = length(A_baseEdges[i]);
+        float lenB = length(B_baseEdges[i]);
+        float lenAH = length(A_heightEdges[i]);
+        float lenBH = length(B_heightEdges[i]);
+        if (lenA > prismScale)
+            prismScale = lenA;
+        if (lenB > prismScale)
+            prismScale = lenB;
+        if (lenAH > prismScale)
+            prismScale = lenAH;
+        if (lenBH > prismScale)
+            prismScale = lenBH;
+    }
+
+    // Debug-tolerant SAT: missing contacts observed in grazing corner/edge cases are more damaging than
+    // occasional false positives here. Use scale-aware projection slack and skip numerically noisy axes that
+    // come from nearly parallel edge pairs.
+    const float satProjectionTol = DEME_MAX(1.0e-7f, 1.0e-3f * prismScale);
+    const float satParallelSinTol = 1.0e-4f;
+
+    // Base triangle normals (both top and bottom faces)
+    T1 A_faceNormal = cross(prismA[1] - prismA[0], prismA[2] - prismA[0]);
+    T1 B_faceNormal = cross(prismB[1] - prismB[0], prismB[2] - prismB[0]);
+
+    float lenA = length(A_faceNormal);
+    if (lenA > DEME_TINY_FLOAT)
+        axes[axisCount++] = A_faceNormal / lenA;
+    float lenB = length(B_faceNormal);
+    if (lenB > DEME_TINY_FLOAT)
+        axes[axisCount++] = B_faceNormal / lenB;
+
     // Side face normals for prism A (3 rectangular side faces)
     // Each side face is formed by an edge of the base and the corresponding height edges
     for (int8_t i = 0; i < 3; ++i) {
@@ -1000,7 +1026,8 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         // The side face is formed by base edge i and the two height edges at its endpoints
         T1 sideNormal = cross(A_baseEdges[i], A_heightEdges[i]);
         float len = length(sideNormal);
-        if (len > DEME_TINY_FLOAT)
+        float minLen = DEME_MAX((float)DEME_TINY_FLOAT, satParallelSinTol * length(A_baseEdges[i]) * length(A_heightEdges[i]));
+        if (len > minLen)
             axes[axisCount++] = sideNormal / len;
     }
 
@@ -1008,7 +1035,8 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     for (int8_t i = 0; i < 3; ++i) {
         T1 sideNormal = cross(B_baseEdges[i], B_heightEdges[i]);
         float len = length(sideNormal);
-        if (len > DEME_TINY_FLOAT)
+        float minLen = DEME_MAX((float)DEME_TINY_FLOAT, satParallelSinTol * length(B_baseEdges[i]) * length(B_heightEdges[i]));
+        if (len > minLen)
             axes[axisCount++] = sideNormal / len;
     }
 
@@ -1017,7 +1045,9 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         for (int8_t j = 0; j < 3; ++j) {
             T1 cp = cross(A_baseEdges[i], B_baseEdges[j]);
             float len = length(cp);
-            if (len > DEME_TINY_FLOAT)
+            float minLen =
+                DEME_MAX((float)DEME_TINY_FLOAT, satParallelSinTol * length(A_baseEdges[i]) * length(B_baseEdges[j]));
+            if (len > minLen)
                 axes[axisCount++] = cp / len;
         }
     }
@@ -1027,7 +1057,9 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         for (int8_t j = 0; j < 3; ++j) {
             T1 cp = cross(A_heightEdges[i], B_baseEdges[j]);
             float len = length(cp);
-            if (len > DEME_TINY_FLOAT)
+            float minLen =
+                DEME_MAX((float)DEME_TINY_FLOAT, satParallelSinTol * length(A_heightEdges[i]) * length(B_baseEdges[j]));
+            if (len > minLen)
                 axes[axisCount++] = cp / len;
         }
     }
@@ -1037,7 +1069,9 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         for (int8_t j = 0; j < 3; ++j) {
             T1 cp = cross(A_baseEdges[i], B_heightEdges[j]);
             float len = length(cp);
-            if (len > DEME_TINY_FLOAT)
+            float minLen =
+                DEME_MAX((float)DEME_TINY_FLOAT, satParallelSinTol * length(A_baseEdges[i]) * length(B_heightEdges[j]));
+            if (len > minLen)
                 axes[axisCount++] = cp / len;
         }
     }
@@ -1051,7 +1085,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         float minA, maxA, minB, maxB;
         project_points_on_axis(prismA, axes[i], minA, maxA);
         project_points_on_axis(prismB, axes[i], minB, maxB);
-        if (!projections_overlap(minA, maxA, minB, maxB))
+        if (!projections_overlap(minA, maxA, minB, maxB, satProjectionTol))
             return false;  // separating axis found -> no contact
     }
 
