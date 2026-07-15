@@ -28,6 +28,7 @@ namespace deme {
 class DEMKinematicThread;
 class DEMDynamicThread;
 class DEMSolverScratchData;
+struct LostContactDebugSnapshot;
 
 /// DynamicThread class
 class DEMDynamicThread {
@@ -772,7 +773,12 @@ class DEMDynamicThread {
     std::shared_ptr<DEMInspector> approxAngVelFunc;
 
     // Migrate contact history to fit the structure of the newly received contact array
-    inline void migrateEnduringContacts();
+    inline void migrateEnduringContacts(const LostContactDebugSnapshot& oldContactSnapshot);
+    // DEBUG-verbosity only: print detailed records for old live patch contacts that lost their migration partner.
+    inline void reportLostContactDebugDetails(const LostContactDebugSnapshot& oldContactSnapshot,
+                                              const notStupidBool_t* contactSentry,
+                                              float* const* newWildcards,
+                                              size_t lostContactCount);
 
     // Impl of calculateForces
     inline void dispatchPrimitiveForceKernels(
