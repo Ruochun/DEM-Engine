@@ -400,13 +400,55 @@ DEME_KERNEL void getNumberOfBinsEachTriangleTouches(deme::DEMSimParams* simParam
         Uz = (deme::binID_t)UB.z;
     }
 
-    // Debug/conservative route: register every bin in the union AABB of the two sandwich faces.
-    // This deliberately bypasses the triangle-box filter, which can miss bins touched only by the prism side volume.
-    const size_t nx = (size_t)Ux - (size_t)Lx + 1;
-    const size_t ny = (size_t)Uy - (size_t)Ly + 1;
-    const size_t nz = (size_t)Uz - (size_t)Lz + 1;
-    const deme::binsTriangleTouches_t numSDsTouched =
-        (deme::binsTriangleTouches_t)(nx * ny * nz);
+    unsigned int numSDsTouched = 0;
+    const float binSizeF = (float)simParams->dyn.binSize;
+    const float binHalfSpan = binSizeF * (0.5f + (float)DEME_BIN_ENLARGE_RATIO_FOR_FACETS);
+    const float startX = binSizeF * (float)Lx + 0.5f * binSizeF;
+    const float startY = binSizeF * (float)Ly + 0.5f * binSizeF;
+    const float startZ = binSizeF * (float)Lz + 0.5f * binSizeF;
+
+    // Incremental bin-local coordinates: avoid recomputing (v - c) for every bin.
+    for (deme::binID_t i = Lx, ix = 0; i <= Ux; i++, ix++) {
+        const float cx = startX + (float)ix * binSizeF;
+
+        const float a0x = vA1.x - cx;
+        const float a1x = vB1.x - cx;
+        const float a2x = vC1.x - cx;
+
+        float cy = startY;
+        for (deme::binID_t j = Ly; j <= Uy; j++) {
+            const float a0y = vA1.y - cy;
+            const float a1y = vB1.y - cy;
+            const float a2y = vC1.y - cy;
+
+            float3 a0 = make_float3(a0x, a0y, vA1.z - startZ);
+            float3 a1 = make_float3(a1x, a1y, vB1.z - startZ);
+            float3 a2 = make_float3(a2x, a2y, vC1.z - startZ);
+
+            for (deme::binID_t k = Lz; k <= Uz; k++) {
+                const bool inA =
+                    ok1 && (i >= (deme::binID_t)LA.x && i <= (deme::binID_t)UA.x && j >= (deme::binID_t)LA.y &&
+                            j <= (deme::binID_t)UA.y && k >= (deme::binID_t)LA.z && k <= (deme::binID_t)UA.z);
+                const bool inB =
+                    ok2 && (i >= (deme::binID_t)LB.x && i <= (deme::binID_t)UB.x && j >= (deme::binID_t)LB.y &&
+                            j <= (deme::binID_t)UB.y && k >= (deme::binID_t)LB.z && k <= (deme::binID_t)UB.z);
+
+                if (inA || inB) {
+                    const bool hit =
+                        triBoxOverlapBinLocalEdgesUnionShiftFP32(a0, a1, a2, shift_world, binHalfSpan, inA, inB);
+                    if (hit) {
+                        numSDsTouched++;
+                    }
+                }
+
+                // Advance bin center in +Z => (v.z - cz) decreases.
+                a0.z -= binSizeF;
+                a1.z -= binSizeF;
+                a2.z -= binSizeF;
+            }
+            cy += binSizeF;
+        }
+    }
     numBinsTriTouches[triID] = numSDsTouched;
 
     if (meshUniversalContact) {
@@ -541,19 +583,57 @@ DEME_KERNEL void populateBinTriangleTouchingPairs(deme::DEMSimParams* simParams,
     const deme::binsTriangleTouchPairs_t myUpperBound = numBinsTriTouchesScan[triID + 1];
 
     deme::binsTriangleTouchPairs_t count = 0;
-    // Debug/conservative route: write every bin in the union AABB of the two sandwich faces.
-    // The prism-prism narrow phase still decides actual contact; this just prevents broad-phase false negatives.
-    for (deme::binID_t i = Lx; i <= Ux; i++) {
+    const float binSizeF = (float)simParams->dyn.binSize;
+    const float binHalfSpan = binSizeF * (0.5f + (float)DEME_BIN_ENLARGE_RATIO_FOR_FACETS);
+    const float startX = binSizeF * (float)Lx + 0.5f * binSizeF;
+    const float startY = binSizeF * (float)Ly + 0.5f * binSizeF;
+    const float startZ = binSizeF * (float)Lz + 0.5f * binSizeF;
+
+    // Incremental bin-local coordinates: avoid recomputing (v - c) for every bin.
+    for (deme::binID_t i = Lx, ix = 0; i <= Ux; i++, ix++) {
+        const float cx = startX + (float)ix * binSizeF;
+
+        const float a0x = vA1.x - cx;
+        const float a1x = vB1.x - cx;
+        const float a2x = vC1.x - cx;
+
+        float cy = startY;
         for (deme::binID_t j = Ly; j <= Uy; j++) {
+            const float a0y = vA1.y - cy;
+            const float a1y = vB1.y - cy;
+            const float a2y = vC1.y - cy;
+
+            float3 a0 = make_float3(a0x, a0y, vA1.z - startZ);
+            float3 a1 = make_float3(a1x, a1y, vB1.z - startZ);
+            float3 a2 = make_float3(a2x, a2y, vC1.z - startZ);
+
             for (deme::binID_t k = Lz; k <= Uz; k++) {
-                const deme::binsTriangleTouchPairs_t outIdx = myReportOffset + count;
-                if (outIdx < myUpperBound) {
-                    binIDsEachTriTouches[outIdx] =
-                        binIDFrom3Indices<deme::binID_t>(i, j, k, simParams->nbX, simParams->nbY, simParams->nbZ);
-                    triIDsEachBinTouches[outIdx] = triID;
+                const bool inA =
+                    ok1 && (i >= (deme::binID_t)LA.x && i <= (deme::binID_t)UA.x && j >= (deme::binID_t)LA.y &&
+                            j <= (deme::binID_t)UA.y && k >= (deme::binID_t)LA.z && k <= (deme::binID_t)UA.z);
+                const bool inB =
+                    ok2 && (i >= (deme::binID_t)LB.x && i <= (deme::binID_t)UB.x && j >= (deme::binID_t)LB.y &&
+                            j <= (deme::binID_t)UB.y && k >= (deme::binID_t)LB.z && k <= (deme::binID_t)UB.z);
+
+                if (inA || inB) {
+                    const bool hit =
+                        triBoxOverlapBinLocalEdgesUnionShiftFP32(a0, a1, a2, shift_world, binHalfSpan, inA, inB);
+                    if (hit) {
+                        const deme::binsTriangleTouchPairs_t outIdx = myReportOffset + count;
+                        if (outIdx < myUpperBound) {
+                            binIDsEachTriTouches[outIdx] = binIDFrom3Indices<deme::binID_t>(
+                                i, j, k, simParams->nbX, simParams->nbY, simParams->nbZ);
+                            triIDsEachBinTouches[outIdx] = triID;
+                        }
+                        count++;
+                    }
                 }
-                count++;
+
+                a0.z -= binSizeF;
+                a1.z -= binSizeF;
+                a2.z -= binSizeF;
             }
+            cy += binSizeF;
         }
     }
     // As an ultra-safety net, neutralize any reserved-but-unwritten slots.
