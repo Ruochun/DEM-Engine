@@ -964,11 +964,7 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
                                    const T1& prismBFaceANode3,
                                    const T1& prismBFaceBNode1,
                                    const T1& prismBFaceBNode2,
-                                   const T1& prismBFaceBNode3,
-                                   float* rejectGapOut = nullptr,
-                                   int* rejectAxisOut = nullptr,
-                                   float* rejectToleranceOut = nullptr,
-                                   float* prismScaleOut = nullptr) {
+                                   const T1& prismBFaceBNode3) {
     // Increased axis count to accommodate additional side face normals and height edge tests
     // Max axes: 2 base normals + 6 side face normals + 9 base edge-edge + 18 height edge cross products = 35
     float3 axes[35];
@@ -1011,14 +1007,6 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
     // come from nearly parallel edge pairs.
     const float satProjectionTol = DEME_MAX(1.0e-7f, 1.0e-3f * prismScale);
     const float satParallelSinTol = 1.0e-4f;
-    if (rejectGapOut != nullptr)
-        *rejectGapOut = 0.0f;
-    if (rejectAxisOut != nullptr)
-        *rejectAxisOut = -1;
-    if (rejectToleranceOut != nullptr)
-        *rejectToleranceOut = satProjectionTol;
-    if (prismScaleOut != nullptr)
-        *prismScaleOut = prismScale;
 
     // Base triangle normals (both top and bottom faces)
     T1 A_faceNormal = cross(prismA[1] - prismA[0], prismA[2] - prismA[0]);
@@ -1097,14 +1085,8 @@ __device__ bool calc_prism_contact(const T1& prismAFaceANode1,
         float minA, maxA, minB, maxB;
         project_points_on_axis(prismA, axes[i], minA, maxA);
         project_points_on_axis(prismB, axes[i], minB, maxB);
-        if (!projections_overlap(minA, maxA, minB, maxB, satProjectionTol)) {
-            const float gap = DEME_MAX(minB - maxA, minA - maxB);
-            if (rejectGapOut != nullptr)
-                *rejectGapOut = gap;
-            if (rejectAxisOut != nullptr)
-                *rejectAxisOut = (int)i;
+        if (!projections_overlap(minA, maxA, minB, maxB, satProjectionTol))
             return false;  // separating axis found -> no contact
-        }
     }
 
     /*
