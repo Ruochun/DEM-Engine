@@ -5,11 +5,9 @@
 
 #include <cstring>
 #include <cstdint>
-#include <cstdlib>
 #include <iostream>
 #include <thread>
 #include <algorithm>
-#include <limits>
 
 #include <core/ApiVersion.h>
 #include <core/utils/JitHelper.h>
@@ -126,77 +124,6 @@ void DEMDynamicThread::packDataPointers() {
     mmiXX.bindDevicePointer(&(granData->mmiXX));
     mmiYY.bindDevicePointer(&(granData->mmiYY));
     mmiZZ.bindDevicePointer(&(granData->mmiZZ));
-}
-
-void DEMDynamicThread::recordAndSyncEvent() {
-    DEME_GPU_CALL(cudaEventRecord(streamSyncEvent, streamInfo.stream));
-    DEME_GPU_CALL(cudaEventSynchronize(streamSyncEvent));
-}
-
-void DEMDynamicThread::recordEventOnly() {
-    DEME_GPU_CALL(cudaEventRecord(streamSyncEvent, streamInfo.stream));
-}
-
-void DEMDynamicThread::recordProgressEvent(int64_t stamp) {
-    drainProgressEvents();
-    if (progressEventCount == kProgressEventDepth) {
-        const int idx = progressEventHead;
-        DEME_GPU_CALL(cudaEventSynchronize(progressEvents[idx]));
-        pSchedSupport->completedStampOfDynamic.store(progressEventStamps[idx], std::memory_order_release);
-        progressEventHead = (progressEventHead + 1) % kProgressEventDepth;
-        progressEventCount--;
-    }
-    const int idx = (progressEventHead + progressEventCount) % kProgressEventDepth;
-    progressEventStamps[idx] = stamp;
-    DEME_GPU_CALL(cudaEventRecord(progressEvents[idx], streamInfo.stream));
-    progressEventCount++;
-}
-
-void DEMDynamicThread::drainProgressEvents() {
-    while (progressEventCount > 0) {
-        const int idx = progressEventHead;
-        cudaError_t err = cudaEventQuery(progressEvents[idx]);
-        if (err == cudaSuccess) {
-            pSchedSupport->completedStampOfDynamic.store(progressEventStamps[idx], std::memory_order_release);
-            progressEventHead = (progressEventHead + 1) % kProgressEventDepth;
-            progressEventCount--;
-            continue;
-        }
-        if (err != cudaErrorNotReady) {
-            DEME_GPU_CALL(err);
-        }
-        break;
-    }
-}
-
-void DEMDynamicThread::throttleInFlightProgress() {
-    drainProgressEvents();
-    while (progressEventCount >= kMaxInFlightProgress) {
-        const int idx = progressEventHead;
-        DEME_GPU_CALL(cudaEventSynchronize(progressEvents[idx]));
-        pSchedSupport->completedStampOfDynamic.store(progressEventStamps[idx], std::memory_order_release);
-        progressEventHead = (progressEventHead + 1) % kProgressEventDepth;
-        progressEventCount--;
-        drainProgressEvents();
-    }
-}
-
-void DEMDynamicThread::syncRecordedEvent() {
-    DEME_GPU_CALL(cudaEventSynchronize(streamSyncEvent));
-}
-
-void DEMDynamicThread::startCycleStopwatch() {
-    if (!cycle_stopwatch_started) {
-        cycle_stopwatch_start = std::chrono::steady_clock::now();
-        cycle_stopwatch_started = true;
-    }
-}
-
-double DEMDynamicThread::getCycleElapsedSeconds() const {
-    if (!cycle_stopwatch_started) {
-        return 0.0;
-    }
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - cycle_stopwatch_start).count();
 }
 
 void DEMDynamicThread::migrateDataToDevice() {
@@ -2265,14 +2192,6 @@ inline void DEMDynamicThread::contactPatchArrayResize(size_t nPatchPairs) {
 }
 
 inline void DEMDynamicThread::unpackMyBuffer() {
-    if (kT) {
-        const bool same_dev = (streamInfo.device == kT->streamInfo.device);
-        if (same_dev && kT->kT_to_dT_BufferReadyEvent) {
-            // Same-device fast path: consume kT's transfer buffer only after kT's stream has finished writing it.
-            DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, kT->kT_to_dT_BufferReadyEvent, 0));
-        }
-    }
-
     // Make a note on the contact number of the previous time step
     *solverScratchSpace.numPrevContacts = *solverScratchSpace.numContacts;
     *solverScratchSpace.numPrevPrimitiveContacts = *solverScratchSpace.numPrimitiveContacts;
@@ -2280,7 +2199,6 @@ inline void DEMDynamicThread::unpackMyBuffer() {
     pSchedSupport->dynamicMaxFutureDrift = (pSchedSupport->kinematicMaxFutureDrift).load();
     // DEME_DEBUG_PRINTF("dynamicMaxFutureDrift is %u", (pSchedSupport->dynamicMaxFutureDrift).load());
 
-    contactMappingUsesBuffer = false;
     DEME_GPU_CALL(cudaMemcpy(&(solverScratchSpace.numPrimitiveContacts), &nPrimitiveContactPairs_buffer, sizeof(size_t),
                              cudaMemcpyDeviceToDevice));
     DEME_GPU_CALL(cudaMemcpy(&(solverScratchSpace.numContacts), &nPatchContactPairs_buffer, sizeof(size_t),
@@ -2295,163 +2213,98 @@ inline void DEMDynamicThread::unpackMyBuffer() {
         contactPatchArrayResize(*solverScratchSpace.numContacts);
     }
 
-    const size_t nPrimitive = *solverScratchSpace.numPrimitiveContacts;
-    const size_t nPatch = *solverScratchSpace.numContacts;
-    const int read_idx = kt_write_buf;
-    const int dev = streamInfo.device;
-    static const bool allow_swap = []() {
-        const char* env = std::getenv("DEME_DT_UNPACK_SWAP");
-        if (!env || !*env) {
-            return true;
-        }
-        return !(env[0] == '0' && env[1] == '\0');
-    }();
-    static const bool allow_direct_mapping = []() {
-        const char* env = std::getenv("DEME_DT_UNPACK_DIRECT_MAPPING");
-        if (!env || !*env) {
-            return true;
-        }
-        return !(env[0] == '0' && env[1] == '\0');
-    }();
+    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveA, idPrimitiveA_buffer.data(),
+                             *solverScratchSpace.numPrimitiveContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveB, idPrimitiveB_buffer.data(),
+                             *solverScratchSpace.numPrimitiveContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->contactTypePrimitive, contactTypePrimitive_buffer.data(),
+                             *solverScratchSpace.numPrimitiveContacts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->geomToPatchMap, geomToPatchMap_buffer.data(),
+                             *solverScratchSpace.numPrimitiveContacts * sizeof(contactPairs_t),
+                             cudaMemcpyDeviceToDevice));
 
-    bool swapped = false;
-    if (kT && allow_swap && streamInfo.device == kT->streamInfo.device) {
-        swapped = swap_device_buffer(idPrimitiveA, idPrimitiveA_buffer[read_idx]);
-        swapped = swap_device_buffer(idPrimitiveB, idPrimitiveB_buffer[read_idx]) && swapped;
-        swapped = swap_device_buffer(contactTypePrimitive, contactTypePrimitive_buffer[read_idx]) && swapped;
-        swapped = swap_device_buffer(geomToPatchMap, geomToPatchMap_buffer[read_idx]) && swapped;
-        swapped = swap_device_buffer(idPatchA, idPatchA_buffer[read_idx]) && swapped;
-        swapped = swap_device_buffer(idPatchB, idPatchB_buffer[read_idx]) && swapped;
-        swapped = swap_device_buffer(contactTypePatch, contactTypePatch_buffer[read_idx]) && swapped;
-        swapped = swap_device_buffer(contactPatchIsland, contactPatchIsland_buffer[read_idx]) && swapped;
-    }
-
-    xfer::XferList xu;
-    if (!swapped) {
-        xu.add(granData->idPrimitiveA, idPrimitiveA_buffer[read_idx].data(), nPrimitive * sizeof(bodyID_t));
-        xu.add(granData->idPrimitiveB, idPrimitiveB_buffer[read_idx].data(), nPrimitive * sizeof(bodyID_t));
-        xu.add(granData->contactTypePrimitive, contactTypePrimitive_buffer[read_idx].data(),
-               nPrimitive * sizeof(contact_t));
-        xu.add(granData->geomToPatchMap, geomToPatchMap_buffer[read_idx].data(), nPrimitive * sizeof(contactPairs_t));
-
-        xu.add(granData->idPatchA, idPatchA_buffer[read_idx].data(), nPatch * sizeof(bodyID_t));
-        xu.add(granData->idPatchB, idPatchB_buffer[read_idx].data(), nPatch * sizeof(bodyID_t));
-        xu.add(granData->contactTypePatch, contactTypePatch_buffer[read_idx].data(), nPatch * sizeof(contact_t));
-        xu.add(granData->contactPatchIsland, contactPatchIsland_buffer[read_idx].data(), nPatch * sizeof(bodyID_t));
-    }
+    // Unpack separate patch ID arrays
+    DEME_GPU_CALL(cudaMemcpy(granData->idPatchA, idPatchA_buffer.data(),
+                             *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->idPatchB, idPatchB_buffer.data(),
+                             *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->contactTypePatch, contactTypePatch_buffer.data(),
+                             *solverScratchSpace.numContacts * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->contactPatchIsland, contactPatchIsland_buffer.data(),
+                             *solverScratchSpace.numContacts * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
 
     if (!solverFlags.isHistoryless) {
-        if (kT && allow_direct_mapping && streamInfo.device == kT->streamInfo.device) {
-            granData->contactMapping = contactMapping_buffer[read_idx].data();
-            contactMappingUsesBuffer = true;
-        } else {
-            const size_t mapping_bytes = nPatch * sizeof(contactPairs_t);
-            granData->contactMapping =
-                (contactPairs_t*)solverScratchSpace.allocateTempVector("contactMapping", mapping_bytes);
-            xu.add(granData->contactMapping, contactMapping_buffer[read_idx].data(), mapping_bytes);
-            contactMappingUsesBuffer = false;
-        }
-    } else {
-        granData->contactMapping = nullptr;
-        contactMappingUsesBuffer = false;
-    }
-    xu.run(dev, dev, streamInfo.stream);
-
-    // Flip the ping-pong buffer that kT will fill next.
-    kt_write_buf = 1 - read_idx;
-    if (kT) {
-        kT->granData->pDTOwnedBuffer_idPrimitiveA = idPrimitiveA_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_idPrimitiveB = idPrimitiveB_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_contactType = contactTypePrimitive_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_geomToPatchMap = geomToPatchMap_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_idPatchA = idPatchA_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_idPatchB = idPatchB_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_contactTypePatch = contactTypePatch_buffer[kt_write_buf].data();
-        kT->granData->pDTOwnedBuffer_contactPatchIsland = contactPatchIsland_buffer[kt_write_buf].data();
-        if (!solverFlags.isHistoryless) {
-            kT->granData->pDTOwnedBuffer_contactMapping = contactMapping_buffer[kt_write_buf].data();
-        }
+        // Note we don't have to use dedicated memory space for unpacking contactMapping_buffer contents, because we
+        // only use it once per kT update, at the time of unpacking. So let us just use a temp vector to store it.
+        size_t mapping_bytes = (*solverScratchSpace.numContacts) * sizeof(contactPairs_t);
+        granData->contactMapping =
+            (contactPairs_t*)solverScratchSpace.allocateTempVector("contactMapping", mapping_bytes);
+        DEME_GPU_CALL(cudaMemcpy(granData->contactMapping, contactMapping_buffer.data(), mapping_bytes,
+                                 cudaMemcpyDeviceToDevice));
+        // std::cout << "Unpacked contactMapping: " << std::endl;
+        // displayDeviceArray<contactPairs_t>(granData->contactMapping, *solverScratchSpace.numContacts);
     }
     // Prepare for kernel calls immediately after; queue this pointer-bundle refresh after the unpack copies.
     granData.toDeviceAsync(streamInfo.stream);
 }
 
 inline void DEMDynamicThread::sendToTheirBuffer() {
-    const int srcDev = streamInfo.device;
-    const int dstDev = kT->streamInfo.device;
-    const size_t nOwners = (size_t)simParams->nOwnerBodies;
-    const bool same_dev = (srcDev == dstDev);
-
-    if (!same_dev && kT->dT_to_kT_BufferConsumedEvent) {
-        // Do not overwrite dT-owned input buffers until kT's previous peer transfers have finished reading them.
-        ScopedCudaDevice device_scope(dstDev);
-        DEME_GPU_CALL(cudaEventSynchronize(kT->dT_to_kT_BufferConsumedEvent));
-    }
-
-    // These input buffers are dT-owned. dT fills them locally, then publishes dT_to_kT_BufferReadyEvent before the CPU
-    // freshness flag is set so kT never consumes partially populated work-order data.
-    xfer::XferList xt;
-    xt.add(granData->pKTOwnedBuffer_voxelID, granData->voxelID, nOwners * sizeof(voxelID_t));
-    xt.add(granData->pKTOwnedBuffer_locX, granData->locX, nOwners * sizeof(subVoxelPos_t));
-    xt.add(granData->pKTOwnedBuffer_locY, granData->locY, nOwners * sizeof(subVoxelPos_t));
-    xt.add(granData->pKTOwnedBuffer_locZ, granData->locZ, nOwners * sizeof(subVoxelPos_t));
-    xt.add(granData->pKTOwnedBuffer_oriQ0, granData->oriQw, nOwners * sizeof(oriQ_t));
-    xt.add(granData->pKTOwnedBuffer_oriQ1, granData->oriQx, nOwners * sizeof(oriQ_t));
-    xt.add(granData->pKTOwnedBuffer_oriQ2, granData->oriQy, nOwners * sizeof(oriQ_t));
-    xt.add(granData->pKTOwnedBuffer_oriQ3, granData->oriQz, nOwners * sizeof(oriQ_t));
-    xt.add(granData->pKTOwnedBuffer_absVel, pCycleVel, nOwners * sizeof(float));
-    xt.add(granData->pKTOwnedBuffer_absAngVel, pCycleAngVel, nOwners * sizeof(float));
-    xt.run(srcDev, srcDev, streamInfo.stream);
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_voxelID, granData->voxelID,
+                             simParams->nOwnerBodies * sizeof(voxelID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_locX, granData->locX,
+                             simParams->nOwnerBodies * sizeof(subVoxelPos_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_locY, granData->locY,
+                             simParams->nOwnerBodies * sizeof(subVoxelPos_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_locZ, granData->locZ,
+                             simParams->nOwnerBodies * sizeof(subVoxelPos_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_oriQ0, granData->oriQw, simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_oriQ1, granData->oriQx, simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_oriQ2, granData->oriQy, simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_oriQ3, granData->oriQz, simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_absVel, pCycleVel, simParams->nOwnerBodies * sizeof(float),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_absAngVel, pCycleAngVel, simParams->nOwnerBodies * sizeof(float),
+                             cudaMemcpyDeviceToDevice));
 
     // Send simulation metrics for kT's reference.
-    if (same_dev) {
-        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float),
-                                            cudaMemcpyHostToDevice, streamInfo.stream),
-                            streamInfo.stream);
-    } else {
-        DEME_GPU_CALL(
-            cudaMemcpy(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float), cudaMemcpyHostToDevice));
-    }
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_ts, &(simParams->dyn.h), sizeof(float), cudaMemcpyHostToDevice));
     // Note that perhapsIdealFutureDrift is non-negative, and it will be used to determine the margin size; however, if
     // scheduleHelper is instructed to have negative future drift then perhapsIdealFutureDrift no longer affects them.
-    if (same_dev) {
-        DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
-                                            sizeof(unsigned int), cudaMemcpyHostToDevice, streamInfo.stream),
-                            streamInfo.stream);
-    } else {
-        DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
-                                 sizeof(unsigned int), cudaMemcpyHostToDevice));
-    }
+    DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_maxDrift, perhapsIdealFutureDrift.getHostPointer(),
+                             sizeof(unsigned int), cudaMemcpyHostToDevice));
 
     // Send per-triangle max tri-tri penetration values for kT's margin computation.
-    xfer::XferList xm;
     if (!simParams->meshParticlesLowPoly && simParams->nTriGM > 0) {
-        xm.add(granData->pKTOwnedBuffer_maxTriTriPenetration, maxTriTriPenetration.data(),
-               (size_t)simParams->nTriGM * sizeof(float));
+        DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_maxTriTriPenetration, maxTriTriPenetration.data(),
+                                 (size_t)simParams->nTriGM * sizeof(float), cudaMemcpyDeviceToDevice));
     }
-    xm.run(srcDev, srcDev, streamInfo.stream);
 
-    xfer::XferList xk;
+    // Family number is a typical changable quantity on-the-fly. If this flag is on, dT is responsible for sending this
+    // info to kT.
     if (solverFlags.canFamilyChangeOnDevice) {
-        xk.add(granData->pKTOwnedBuffer_familyID, granData->familyID, nOwners * sizeof(family_t));
+        DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_familyID, granData->familyID,
+                                 simParams->nOwnerBodies * sizeof(family_t), cudaMemcpyDeviceToDevice));
     }
+
+    // May need to send updated mesh
     if (solverFlags.willMeshDeform) {
-        xk.add(granData->pKTOwnedBuffer_relPosNode1, granData->relPosNode1, (size_t)simParams->nTriGM * sizeof(float3));
-        xk.add(granData->pKTOwnedBuffer_relPosNode2, granData->relPosNode2, (size_t)simParams->nTriGM * sizeof(float3));
-        xk.add(granData->pKTOwnedBuffer_relPosNode3, granData->relPosNode3, (size_t)simParams->nTriGM * sizeof(float3));
+        DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_relPosNode1, granData->relPosNode1,
+                                 simParams->nTriGM * sizeof(float3), cudaMemcpyDeviceToDevice));
+        DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_relPosNode2, granData->relPosNode2,
+                                 simParams->nTriGM * sizeof(float3), cudaMemcpyDeviceToDevice));
+        DEME_GPU_CALL(cudaMemcpy(granData->pKTOwnedBuffer_relPosNode3, granData->relPosNode3,
+                                 simParams->nTriGM * sizeof(float3), cudaMemcpyDeviceToDevice));
         solverFlags.willMeshDeform = false;
+        // kT can't be loading buffer when dT is sending, so it is safe
         kT->solverFlags.willMeshDeform = true;
     }
-    xk.run(srcDev, srcDev, streamInfo.stream);
 
     // This subroutine also includes recording the time stamp of this batch ingredient dT sent to kT
     pSchedSupport->kinematicIngredProdDateStamp = (pSchedSupport->currentStampOfDynamic).load();
-
-    if (dT_to_kT_BufferReadyEvent) {
-        // Cross-device kT synchronizes this event before staging/copying the work order; same-device kT waits on it in
-        // stream order.
-        DEME_GPU_CALL(cudaEventRecord(dT_to_kT_BufferReadyEvent, streamInfo.stream));
-    }
 }
 
 inline void DEMDynamicThread::reportLostContactDebugDetails(const LostContactDebugSnapshot& oldContactSnapshot,
@@ -3232,9 +3085,6 @@ inline void DEMDynamicThread::integrateOwnerMotions() {
         DEME_GPU_DEBUG_SYNC(streamInfo.stream);
     }
     timers.StopGpuTimer("Integration", streamInfo.stream);
-    recordEventOnly();
-    const int64_t stamp = pSchedSupport->currentStampOfDynamic.load(std::memory_order_relaxed) + 1;
-    recordProgressEvent(stamp);
 }
 
 inline void DEMDynamicThread::routineChecks() {
@@ -3257,7 +3107,6 @@ inline void DEMDynamicThread::determineSysVel() {
 }
 
 inline void DEMDynamicThread::unpack_impl() {
-    drainProgressEvents();
     LostContactDebugSnapshot oldContactSnapshot;
     if (!solverFlags.isHistoryless && DEME_GET_VERBOSITY() >= VERBOSITY_DEBUG) {
         oldContactSnapshot.nPatchContacts = *solverScratchSpace.numContacts;
@@ -3289,29 +3138,22 @@ inline void DEMDynamicThread::unpack_impl() {
                      oldContactSnapshot.nPrimitiveContacts);
     }
 
-    // Use the content of the dynamic-owned transfer buffer.
-    unpackMyBuffer();
-    contactPairArr_isFresh = true;
-    // pSchedSupport->schedulingStats.nDynamicReceives++;
-
+    {
+        // Acquire lock and use the content of the dynamic-owned transfer buffer
+        std::lock_guard<std::mutex> lock(pSchedSupport->dynamicOwnedBuffer_AccessCoordination);
+        unpackMyBuffer();
+        // Leave myself a mental note that I just obtained new produce from kT
+        contactPairArr_isFresh = true;
+        // pSchedSupport->schedulingStats.nDynamicReceives++;
+    }
     // dT got the produce, now mark its buffer to be no longer fresh.
     pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.store(false, std::memory_order_release);
-    // Used for inspecting on average how stale kT's produce is (in dT steps). We reference the ingredient stamp that
-    // produced this update and exclude the 1-step pipeline delay.
-    const int64_t recv_stamp =
-        (recv_stamp_override >= 0) ? recv_stamp_override : (pSchedSupport->completedStampOfDynamic).load();
-    const int64_t send_stamp = (pSchedSupport->kinematicIngredProdDateStamp).load();
-    int64_t lag_steps = recv_stamp - send_stamp;
-    if (lag_steps > 0) {
-        lag_steps -= 1;
-    }
-    if (lag_steps < 0) {
-        lag_steps = 0;
-    }
-    pSchedSupport->schedulingStats.accumKinematicLagSteps += static_cast<uint64_t>(lag_steps);
+    // Used for inspecting on average how stale kT's produce is.
+    pSchedSupport->schedulingStats.accumKinematicLagSteps +=
+        (pSchedSupport->currentStampOfDynamic).load() - (pSchedSupport->stampLastDynamicUpdateProdDate).load();
     // dT needs to know how fresh the contact pair info is, and that is determined by when kT received this batch of
     // ingredients.
-    pSchedSupport->stampLastDynamicUpdateProdDate = send_stamp;
+    pSchedSupport->stampLastDynamicUpdateProdDate = (pSchedSupport->kinematicIngredProdDateStamp).load();
 
     // If this is a history-based run, then when contacts are received, we need to migrate the contact
     // history info, to match the structure of the new contact array
@@ -3320,9 +3162,7 @@ inline void DEMDynamicThread::unpack_impl() {
     }
 
     // With unpacking finished, contactMapping temp array is no longer needed
-    if (!solverFlags.isHistoryless && !contactMappingUsesBuffer) {
-        solverScratchSpace.finishUsingTempVector("contactMapping");
-    }
+    solverScratchSpace.finishUsingTempVector("contactMapping");
 
     // On dT side, we also calculate how many (the offsets in contact arrays) contacts they are for each type.
     // But note here we are working on primitive-based contact types, not patch-based contact types yet.
@@ -3375,252 +3215,57 @@ inline void DEMDynamicThread::unpack_impl() {
     solverScratchSpace.finishUsingDualStruct("numExistingTypes");
 }
 
-inline void DEMDynamicThread::ifProduceFreshThenUseIt(bool allow_blocking) {
-    tryConsumeKinematicProduce(allow_blocking, false, true);
-}
-
-bool DEMDynamicThread::tryConsumeKinematicProduce(bool allow_blocking, bool mark_receive, bool use_logical_stamp) {
-    (void)allow_blocking;
-    if (!kT) {
-        return false;
+inline void DEMDynamicThread::ifProduceFreshThenUseIt() {
+    if (pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
+        unpack_impl();
     }
-    if (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
-        return false;
-    }
-    const int64_t logical_recv = use_logical_stamp
-                                     ? (pSchedSupport->currentStampOfDynamic.load(std::memory_order_relaxed) + 1)
-                                     : pSchedSupport->currentStampOfDynamic.load(std::memory_order_relaxed);
-    if (use_logical_stamp) {
-        recv_stamp_override = logical_recv;
-    }
-    timers.GetTimer("Unpack updates from kT").start();
-    unpack_impl();
-    timers.GetTimer("Unpack updates from kT").stop();
-    recv_stamp_override = -1;
-    if (mark_receive) {
-        auto& reg = futureDriftRegulator;
-        reg.receive_pending = true;
-        drainProgressEvents();
-        reg.pending_recv_stamp = static_cast<uint64_t>(logical_recv);
-    }
-    return true;
 }
 
 inline void DEMDynamicThread::calibrateParams() {
-    auto& r = futureDriftRegulator;
-    const unsigned MAX = solverFlags.upperBoundFutureDrift;
-    if (!r.receive_pending) {
-        return;
-    }
-    const bool aut = solverFlags.autoUpdateFreq;
-    const double ur = std::clamp((double)solverFlags.futureDriftSendUpperBoundRatio, 0.0, 1.0);
-    const double lr = std::clamp((double)solverFlags.futureDriftSendLowerBoundRatio, 0.0, 1.0);
-    const uint64_t recv = r.pending_recv_stamp;
-    double tnow = r.pending_total_time;
-    r.receive_pending = false;
-    if (tnow <= 0.0) {
-        tnow = getCycleElapsedSeconds();
-    }
-    int64_t send_i = pSchedSupport->stampLastDynamicUpdateProdDate.load();
-    if (send_i < 0) {
-        send_i = (int64_t)recv;
-    }
-    const uint64_t send = (uint64_t)send_i;
-    const unsigned lag_steps = (recv > send + 1) ? (unsigned)(recv - send - 1) : 0u;
-    r.last_observed_kinematic_lag_steps = lag_steps;
-    uint64_t prev = r.has_last_step_sample ? r.last_step_sample : recv;
-    if (prev > recv) {
-        prev = recv;
-    }
-    const uint64_t steps = recv - prev;
-    double dt = 0.0;
-    if (r.has_last_step_sample) {
-        const double dbg = std::max(0.0, r.debug_cum_time - r.last_debug_cum_time);
-        dt = tnow - r.last_total_time - dbg;
-        if (dt < 0.0) {
-            dt = 0.0;
-        }
-    }
-    r.has_last_step_sample = true;
-    r.last_step_sample = recv;
-    r.last_total_time = tnow;
-    r.last_debug_cum_time = r.debug_cum_time;
-    const unsigned drift_total = (steps > 0) ? (unsigned)std::min<uint64_t>(steps - 1, MAX) : 0u;
-    if (r.lag_ema_initialized || lag_steps > 0) {
-        ema_asym(r.lag_ema, r.lag_ema_initialized, (double)lag_steps, 0.35, 0.10, 0.0);
-    }
-    const double lag_pred = std::max(r.lag_ema, (double)lag_steps);
-    int lag_i = (int)std::floor(lag_pred + 0.5);
-    if (lag_i < 0) {
-        lag_i = 0;
-    }
-    if ((unsigned)lag_i > MAX) {
-        lag_i = (int)MAX;
-    }
-    const unsigned lag_u = (unsigned)lag_i;
-    const bool meas = (aut && steps > 0 && dt > 0.0 && drift_total > 0u);
-    const double cost = meas ? dt / (double)steps : 0.0;
-    const unsigned dmin = std::max(1u, lag_u);
-    const double drift_floor = std::max(5.0, (double)dmin);
-    double drift_ref = drift_floor;
-    if (meas) {
-        const unsigned obs = clamp_drift_u(drift_total, MAX);
-        const double c_now = std::max(1e-9, cost);
-        const double c_ref = r.cost_scale_initialized ? r.cost_scale_ema : c_now;
-        const bool outlier = r.cost_scale_initialized && (c_now > c_ref * 10.0);
-        const double c_for_scale = r.cost_scale_initialized ? std::min(c_now, c_ref * 5.0) : c_now;
-        ema_asym(r.cost_scale_ema, r.cost_scale_initialized, c_for_scale, 0.10, 0.02, 1e-9);
-        ema_asym(r.drift_scale_ema, r.drift_scale_initialized, (double)obs, 0.15, 0.15, 1.0);
-        ring_push(r, cost, obs);
-        drift_ref = drift_ref_quantile(r, drift_floor);
-        if (!outlier) {
-            r.drift_rls.update(obs, drift_ref, cost);
-            const double scale = r.cost_scale_ema;
-            if (rls_is_bad(r.drift_rls, obs, drift_ref, scale)) {
-                r.drift_rls.reset();
-                r.drift_rls_samples = 0;
-                r.window_size = 0;
-                r.window_pos = 0;
-                r.drift_scale_initialized = true;
-                r.drift_scale_ema = std::max(1.0, (double)dmin);
-                drift_ref = drift_ref_quantile(r, drift_floor);
-            } else {
-                r.drift_rls_samples++;
-            }
-        }
-    } else {
-        drift_ref = drift_ref_quantile(r, drift_floor);
-    }
-    const uint64_t n = r.drift_rls_samples;
-    const unsigned cmd_cur = clamp_drift_u(std::max(1u, *perhapsIdealFutureDrift), MAX);
-    const double safety = (double)solverFlags.futureDriftEffDriftSafetyFactor;
-    const unsigned true_cmd = clamp_drift_u((unsigned)std::max(1.0, std::floor(((double)cmd_cur / safety) + 0.5)), MAX);
-    unsigned dcur = (r.last_proposed > 0) ? clamp_drift_u(r.last_proposed, MAX) : true_cmd;
-    if (dcur < dmin) {
-        dcur = dmin;
-    }
-    constexpr uint64_t PROBE_N = 24, ACT_N = 40;
-    constexpr double MOVE_FR = 0.1, ANC_FR = 0.05, IMP_FR = 0.01, CAP_R = 1.5, LAG_M = 2.0;
-    constexpr unsigned STEP = 2;
-    unsigned dtgt = dcur;
-    if (!aut) {
-        dtgt = std::max(true_cmd, dmin);
-    } else if (r.drift_rls.initialized && n > 0) {
-        const unsigned pstep = std::max(1u, std::min(STEP, dcur / 10u));
-        const unsigned dup = clamp_drift_u(std::min(MAX, dcur + pstep), MAX);
-        const unsigned ddn = clamp_drift_u(std::max(dmin, (dcur > pstep) ? (dcur - pstep) : dmin), MAX);
-        if (n < PROBE_N) {
-            const unsigned phase = (unsigned)(n % 3u);
-            const int dir = (((n / 3u) % 2u) == 0u) ? +1 : -1;
-            if (phase == 1u) {
-                dtgt = (dir > 0) ? dup : ddn;
-            } else if (phase == 2u) {
-                dtgt = (dir > 0) ? ddn : dup;
-            }
-        } else if (n >= ACT_N) {
-            unsigned lo = (dcur > STEP) ? (dcur - STEP) : 1u;
-            if (lo < dmin) {
-                lo = dmin;
-            }
-            unsigned hi = std::min(MAX, dcur + STEP);
-            const double pen_ref = std::max(drift_floor, lag_pred * LAG_M);
-            const unsigned cap_hi = std::max(dmin, (unsigned)std::ceil(std::min(drift_ref, pen_ref) * CAP_R));
-            if (hi > cap_hi) {
-                hi = cap_hi;
-            }
-            if (hi < lo) {
-                lo = hi;
-            }
-            const double scale = r.cost_scale_initialized ? r.cost_scale_ema : std::max(1e-9, cost);
-            const double mp = MOVE_FR * scale, ap = ANC_FR * scale;
-            const double sigma = std::sqrt(std::max(0.0, r.drift_rls.sigma2_ema));
-            const double improve0 = std::max(IMP_FR * scale, 2.5 * sigma);
-            const double rr = ((double)dcur - pen_ref) / pen_ref;
-            const double bs = std::min(1.0, std::abs(rr));
-            const double upb = (rr > 0.0) ? (1.0 + bs) : 1.0;
-            const double dnb = (rr < 0.0) ? (1.0 + bs) : 1.0;
-            double best = std::numeric_limits<double>::infinity();
-            unsigned best_tot = dcur;
-            const double inv = 1.0 / (double)std::max(1u, dcur);
-            for (unsigned d = lo; d <= hi; ++d) {
-                const unsigned w = apply_wait_policy_u(clamp_wait_i((int)d - lag_i, MAX), lag_pred, ur, lr, MAX);
-                const unsigned tot = clamp_drift_u(w + lag_u, MAX);
-                const double y = r.drift_rls.predict(tot, drift_ref);
-                const double rel = (double)((int)tot - (int)dcur) * inv;
-                const double score = y + mp * std::abs(rel) + ap * (rel * rel);
-                if (score < best) {
-                    best = score;
-                    best_tot = tot;
-                }
-            }
-            const double ycur = r.drift_rls.predict(dcur, drift_ref);
-            double need = improve0;
-            if (best_tot > dcur) {
-                need *= upb;
-            } else if (best_tot < dcur) {
-                need *= dnb;
-            }
-            if (best <= ycur - need) {
-                dtgt = best_tot;
-            }
-        }
-    }
-    if (aut) {
-        const double cap_ref = std::max(drift_floor, lag_pred * LAG_M);
-        const unsigned cap1 = std::max(dmin, (unsigned)std::ceil(drift_ref * CAP_R));
-        const unsigned cap2 = std::max(dmin, (unsigned)std::ceil(cap_ref * CAP_R));
-        const unsigned cap = std::min(cap1, cap2);
-        if (dtgt > cap) {
-            dtgt = cap;
-        }
-        const unsigned slo = (dcur > STEP) ? (dcur - STEP) : 1u;
-        const unsigned shi = dcur + STEP;
-        dtgt = std::clamp(dtgt, slo, shi);
-    }
-    dtgt = clamp_drift_u(std::max(dtgt, dmin), MAX);
-    const unsigned wait = apply_wait_policy_u(clamp_wait_i((int)dtgt - lag_i, MAX), lag_pred, ur, lr, MAX);
-    const unsigned total = clamp_drift_u(wait + lag_u, MAX);
-    r.last_wait_cmd = wait;
-    r.last_proposed = total;
-    if (aut) {
-        const unsigned cmd_out = clamp_drift_u((unsigned)std::ceil((double)total * safety), MAX);
-        *perhapsIdealFutureDrift = cmd_out;
-    }
-    r.next_send_step = recv + (uint64_t)wait;
-    r.next_send_wait = wait;
-    r.pending_send = true;
+    // Unpacking is done; now we can use temp arrays again to derive max velocity and send to kT
+    determineSysVel();  // This will set pCycleVel and pCycleAngVel
 
-    DEME_DEBUG_PRINTF(
-        "[calibrateParams] recv=%llu send=%llu steps=%llu dt=%.6g cost=%.6g drift_total=%u lag=%u lag_ema=%.3g "
-        "dcur=%u dtgt=%u wait=%u next_send=%llu drift_ref=%.3g",
-        (unsigned long long)recv, (unsigned long long)send, (unsigned long long)steps, dt, cost, drift_total, lag_steps,
-        r.lag_ema, dcur, dtgt, wait, (unsigned long long)r.next_send_step, drift_ref);
+    if (solverFlags.autoUpdateFreq) {
+        unsigned int comfortable_drift;
+        if (accumStepUpdater.Query(comfortable_drift)) {
+            // If perhapsIdealFutureDrift needs to increase, then the following value much = perhapsIdealFutureDrift.
+            comfortable_drift =
+                (float)comfortable_drift * solverFlags.targetDriftMultipleOfAvg + solverFlags.targetDriftMoreThanAvg;
+            if (*perhapsIdealFutureDrift > comfortable_drift) {
+                *perhapsIdealFutureDrift -= FUTURE_DRIFT_TWEAK_STEP_SIZE;
+            } else if (*perhapsIdealFutureDrift < comfortable_drift) {
+                *perhapsIdealFutureDrift += FUTURE_DRIFT_TWEAK_STEP_SIZE;
+            }
+            *perhapsIdealFutureDrift = clampBetween<unsigned int, unsigned int>(*perhapsIdealFutureDrift, 0,
+                                                                                solverFlags.upperBoundFutureDrift);
+
+            DEME_DEBUG_PRINTF("Comfortable future drift is %u", comfortable_drift);
+            DEME_DEBUG_PRINTF("Current future drift is %u", *perhapsIdealFutureDrift);
+        }
+    }
+    // Actually, perhapsIdealFutureDrift seems to have no need to be on device... but I made it a DualStruct anyway
 }
 
 inline void DEMDynamicThread::ifProduceFreshThenUseItAndSendNewOrder() {
-    auto& reg = futureDriftRegulator;
-    const bool allow_blocking = (streamInfo.device != kT->streamInfo.device);
-    if (!reg.pending_send) {
-        tryConsumeKinematicProduce(allow_blocking, true, true);
-    }
-    reg.pending_total_time = getCycleElapsedSeconds();
-    calibrateParams();
+    if (pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
+        timers.GetTimer("Unpack updates from kT").start();
+        unpack_impl();
+        timers.GetTimer("Unpack updates from kT").stop();
 
-    drainProgressEvents();
-    const uint64_t now_stamp = static_cast<uint64_t>(pSchedSupport->currentStampOfDynamic.load());
-    if (reg.pending_send && now_stamp >= reg.next_send_step &&
-        !pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.load(std::memory_order_acquire)) {
         timers.GetTimer("Send to kT buffer").start();
-        determineSysVel();
-        reg.last_sent_proposed = *perhapsIdealFutureDrift;
-        reg.last_sent_true = reg.last_proposed;
-        reg.last_sent_wait = reg.next_send_wait;
-        sendToTheirBuffer();
+        // Acquire lock and refresh the work order for the kinematic
+        {
+            calibrateParams();
+            std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
+            sendToTheirBuffer();
+        }
         pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
         pSchedSupport->schedulingStats.nKinematicUpdates++;
+        accumStepUpdater.AddUpdate();
+
         timers.GetTimer("Send to kT buffer").stop();
+        // Signal the kinematic that it has data for a new work order
         pSchedSupport->cv_KinematicCanProceed.notify_all();
-        reg.pending_send = false;
     }
 }
 
@@ -3653,7 +3298,7 @@ void DEMDynamicThread::workerThread() {
         // making critical changes to the system to ensure safety.
         if (pSchedSupport->stampLastDynamicUpdateProdDate < 0 || pendingCriticalUpdate) {
             // This is possible: If it is after a user-manual sync
-            ifProduceFreshThenUseIt(true);
+            ifProduceFreshThenUseIt();
 
             // If the user loaded contact manually, there is an extra thing we need to do: update kT prev_contact
             // arrays. Note the user can add anything only from a sync-ed stance anyway, so this check needs to be done
@@ -3674,25 +3319,14 @@ void DEMDynamicThread::workerThread() {
             // In this `new-boot' case, we send kT a work order, b/c dT needs results from CD to proceed. After this one
             // instance, kT and dT may work in an async fashion.
             {
-                auto& reg = futureDriftRegulator;
-                const unsigned int MAX_DRIFT = solverFlags.upperBoundFutureDrift;
-                const unsigned int cmd = std::max(1u, *perhapsIdealFutureDrift);
-                reg.last_sent_proposed = cmd;
-                const double de =
-                    static_cast<double>(cmd) / static_cast<double>(solverFlags.futureDriftEffDriftSafetyFactor);
-                const unsigned int true_target =
-                    clamp_drift_u(static_cast<unsigned int>(std::max(1.0, std::floor(de + 0.5))), MAX_DRIFT);
-                reg.last_sent_true = true_target;
-                reg.last_sent_wait = 0;
-                if (reg.last_proposed == 0) {
-                    reg.last_proposed = true_target;
-                }
                 determineSysVel();  // This will set pCycleVel and pCycleAngVel
+                std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
                 sendToTheirBuffer();
             }
             pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
             contactPairArr_isFresh = true;
             pSchedSupport->schedulingStats.nKinematicUpdates++;
+            accumStepUpdater.AddUpdate();
             // Signal the kinematic that it has data for a new work order.
             pSchedSupport->cv_KinematicCanProceed.notify_all();
             // Then dT will wait for kT to finish one initial run
@@ -3708,13 +3342,11 @@ void DEMDynamicThread::workerThread() {
             // doing simulation; it also happens at system initialization. We do this so the kT-supplied contact info is
             // registered on dT.
             if (cycleDuration <= 0.0) {
-                ifProduceFreshThenUseIt(true);
+                ifProduceFreshThenUseIt();
             }
         }
 
-        startCycleStopwatch();
         for (double cycle = 0.0; cycle < cycleDuration; cycle += (double)(simParams->dyn.h)) {
-            throttleInFlightProgress();
             // If the produce is fresh, use it, and then send kT a new work order.
             // We used to send work order to kT whenever kT unpacks its buffer. This can lead to a situation where dT
             // sends a new work order and then immediately bails out (user asks it to do something else). A bit later
@@ -3727,19 +3359,18 @@ void DEMDynamicThread::workerThread() {
             // Check if we need to wait; i.e., if dynamic drifted too much into future, then we must wait a bit before
             // the next cycle begins
             if (pSchedSupport->dynamicShouldWait()) {
-                ifProduceFreshThenUseItAndSendNewOrder();
                 timers.GetTimer("Wait for kT update").start();
                 // Wait for a signal from kT to indicate that kT has caught up
-                {
-                    std::unique_lock<std::mutex> lock(pSchedSupport->dynamicCanProceed);
-                    while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
-                        // Loop to avoid spurious wakeups
-                        pSchedSupport->cv_DynamicCanProceed.wait(lock);
-                    }
+                std::unique_lock<std::mutex> lock(pSchedSupport->dynamicCanProceed);
+                while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
+                    // Loop to avoid spurious wakeups
+                    pSchedSupport->cv_DynamicCanProceed.wait(lock);
                 }
                 pSchedSupport->schedulingStats.nTimesDynamicHeldBack++;
+                // If dT waits, it is penalized, since waiting means double-wait, very bad.
+                if (solverFlags.autoUpdateFreq)
+                    *perhapsIdealFutureDrift += FUTURE_DRIFT_TWEAK_STEP_SIZE;
                 timers.GetTimer("Wait for kT update").stop();
-                tryConsumeKinematicProduce(false, true, true);
             }
             // NOTE: This ShouldWait check should follow the ifProduceFreshThenUseItAndSendNewOrder call. Because we
             // need to avoid a scenario where dT is waiting here, and kT is also chilling waiting for an update. But
@@ -3751,9 +3382,6 @@ void DEMDynamicThread::workerThread() {
             // If using variable ts size, only when a step is accepted can we move on
             bool step_accepted = false;
             do {
-                // Pre-force catch-up: if kT finished during the previous step, unpack before using contacts.
-                tryConsumeKinematicProduce(false, true, true);
-
                 calculateForces();
 
                 routineChecks();
@@ -3783,15 +3411,10 @@ void DEMDynamicThread::workerThread() {
             //
             // This synchronization is therefore part of the solver's correctness contract, not debug error checking.
             DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
-            const int64_t completed_stamp = pSchedSupport->currentStampOfDynamic.load(std::memory_order_relaxed) + 1;
-            pSchedSupport->completedStampOfDynamic.store(completed_stamp, std::memory_order_release);
 
             // CalculateForces is done, set contactPairArr_isFresh to false
             // This will be set to true next time it receives an update from kT
             contactPairArr_isFresh = false;
-
-            // Late-cycle catch-up: if kT finished during this cycle, unpack now to avoid an extra-cycle delay.
-            tryConsumeKinematicProduce(false, true, false);
 
             /*
             if (cycle == (cycleDuration - 1))
@@ -3801,6 +3424,7 @@ void DEMDynamicThread::workerThread() {
             // Dynamic wrapped up one cycle, record this fact into schedule support
             pSchedSupport->currentStampOfDynamic++;
             nTotalSteps++;
+            accumStepUpdater.AddStep();
 
             DEME_DEBUG_PRINTF("Completed step %zu, time %.9g", nTotalSteps, simParams->dyn.timeElapsed);
         }
@@ -3834,17 +3458,10 @@ void DEMDynamicThread::resetUserCallStat() {
     // Reset last kT-side data receiving cycle time stamp.
     pSchedSupport->stampLastDynamicUpdateProdDate = -1;
     pSchedSupport->currentStampOfDynamic = 0;
-    pSchedSupport->completedStampOfDynamic = 0;
-    progressEventHead = 0;
-    progressEventCount = 0;
     // Reset dT stats variables, making ready for next user call
     pSchedSupport->dynamicDone = false;
     contactPairArr_isFresh = true;
-    futureDriftRegulator.Clear();
-    kT_numContacts_copy_pending = false;
-    last_kT_produce_stamp = pSchedSupport->schedulingStats.nDynamicUpdates.load(std::memory_order_acquire);
-    recv_stamp_override = -1;
-    cycle_stopwatch_started = false;
+    accumStepUpdater.Clear();
 
     // Do not let user artificially set dynamicOwned_Prod2ConsBuffer_isFresh false. B/c only dT has the say on that. It
     // could be that kT has a new produce ready, but dT idled for long and do not want to use it and want a new produce.

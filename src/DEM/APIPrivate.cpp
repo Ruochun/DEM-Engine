@@ -1251,14 +1251,7 @@ void DEMSolver::setSolverParams() {
     dT->solverFlags.upperBoundFutureDrift = upper_bound_future_drift;
     dT->solverFlags.targetDriftMoreThanAvg = max_drift_ahead_of_avg_drift;
     dT->solverFlags.targetDriftMultipleOfAvg = max_drift_multiple_of_avg_drift;
-    kT->solverFlags.futureDriftEffDriftSafetyFactor = future_drift_eff_drift_safety_factor;
-    dT->solverFlags.futureDriftEffDriftSafetyFactor = future_drift_eff_drift_safety_factor;
-    kT->solverFlags.futureDriftSendUpperBoundRatio = future_drift_send_upper_bound_ratio;
-    dT->solverFlags.futureDriftSendUpperBoundRatio = future_drift_send_upper_bound_ratio;
-    kT->solverFlags.futureDriftSendLowerBoundRatio = future_drift_send_lower_bound_ratio;
-    dT->solverFlags.futureDriftSendLowerBoundRatio = future_drift_send_lower_bound_ratio;
-    // max_drift_gauge_history_size is kept as a source-compatible API knob. The M8 future-drift regulator owns a
-    // fixed-size internal observation window.
+    dT->accumStepUpdater.SetCacheSize(max_drift_gauge_history_size);
 }
 
 void DEMSolver::setSimParams() {

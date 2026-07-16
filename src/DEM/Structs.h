@@ -523,13 +523,6 @@ struct SolverFlags {
     // margin size
     float targetDriftMoreThanAvg = 4.;
     float targetDriftMultipleOfAvg = 1.1;
-    // Future-drift regulator: inflate observed drift for calibration/scheduling only.
-    // Values below 1 can be unsafe; suggested >= 1.
-    float futureDriftEffDriftSafetyFactor = 1.1f;
-    // Future-drift regulator: fractional bounds used by the WCRedesign delayed-send scheduler.
-    // The current legacy scheduler still sends immediately after consuming a fresh kT update.
-    float futureDriftSendUpperBoundRatio = 1.0f;
-    float futureDriftSendLowerBoundRatio = 0.0f;
 
     // Whether the solver auto-update those sim params
     bool autoBinSize = true;

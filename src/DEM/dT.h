@@ -6,8 +6,6 @@
 #ifndef DEME_DT
 #define DEME_DT
 
-#include <chrono>
-#include <array>
 #include <mutex>
 #include <vector>
 #include <thread>
@@ -23,7 +21,6 @@
 #include "Defines.h"
 #include "Structs.h"
 #include "AuxClasses.h"
-#include "utils/DynamicThreadHelpers.hpp"
 
 namespace deme {
 
@@ -31,6 +28,7 @@ namespace deme {
 class DEMKinematicThread;
 class DEMDynamicThread;
 class DEMSolverScratchData;
+struct LostContactDebugSnapshot;
 
 /// DynamicThread class
 class DEMDynamicThread {
@@ -69,21 +67,6 @@ class DEMDynamicThread {
     // Object which stores the device and stream IDs for this thread
     GpuManager::StreamInfo streamInfo;
 
-    // Event/progress plumbing used by the async kT/dT scheduler.
-    cudaEvent_t streamSyncEvent = nullptr;
-    cudaEvent_t dT_to_kT_BufferReadyEvent = nullptr;
-    cudaEvent_t kT_numContactsReadyEvent = nullptr;
-    bool kT_numContacts_copy_pending = false;
-    bool contactMappingUsesBuffer = false;
-    uint64_t last_kT_produce_stamp = 0;
-    int64_t recv_stamp_override = -1;
-    static constexpr int kProgressEventDepth = 8;
-    static constexpr int kMaxInFlightProgress = 1;
-    std::array<cudaEvent_t, kProgressEventDepth> progressEvents = {};
-    std::array<int64_t, kProgressEventDepth> progressEventStamps = {};
-    int progressEventHead = 0;
-    int progressEventCount = 0;
-
     // A class that contains scratch pad and system status data (constructed with the number of temp arrays we need)
     DEMSolverScratchData solverScratchSpace = DEMSolverScratchData(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
@@ -96,28 +79,18 @@ class DEMDynamicThread {
     // Buffer arrays for storing info from the dT side.
     // kT modifies these arrays; dT uses them only.
 
-    // dT gets contact pair/location/history map info from kT (ping-pong buffers)
-    DeviceArray<bodyID_t> idPrimitiveA_buffer[2] = {DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed),
-                                                    DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<bodyID_t> idPrimitiveB_buffer[2] = {DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed),
-                                                    DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<contact_t> contactTypePrimitive_buffer[2] = {DeviceArray<contact_t>(&m_approxDeviceBytesUsed),
-                                                             DeviceArray<contact_t>(&m_approxDeviceBytesUsed)};
+    // dT gets contact pair/location/history map info from kT
+    DeviceArray<bodyID_t> idPrimitiveA_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<bodyID_t> idPrimitiveB_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<contact_t> contactTypePrimitive_buffer = DeviceArray<contact_t>(&m_approxDeviceBytesUsed);
 
-    // NEW: Buffer arrays for separate patch IDs and their mapping to geometry arrays (ping-pong)
-    DeviceArray<bodyID_t> idPatchA_buffer[2] = {DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed),
-                                                DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<bodyID_t> idPatchB_buffer[2] = {DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed),
-                                                DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<contact_t> contactTypePatch_buffer[2] = {DeviceArray<contact_t>(&m_approxDeviceBytesUsed),
-                                                         DeviceArray<contact_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<bodyID_t> contactPatchIsland_buffer[2] = {DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed),
-                                                          DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<contactPairs_t> geomToPatchMap_buffer[2] = {DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed),
-                                                            DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed)};
-    DeviceArray<contactPairs_t> contactMapping_buffer[2] = {DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed),
-                                                            DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed)};
-    int kt_write_buf = 0;  // which buffer kT writes to next
+    // NEW: Buffer arrays for separate patch IDs and their mapping to geometry arrays
+    DeviceArray<bodyID_t> idPatchA_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<bodyID_t> idPatchB_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<contact_t> contactTypePatch_buffer = DeviceArray<contact_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<bodyID_t> contactPatchIsland_buffer = DeviceArray<bodyID_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<contactPairs_t> geomToPatchMap_buffer = DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed);
+    DeviceArray<contactPairs_t> contactMapping_buffer = DeviceArray<contactPairs_t>(&m_approxDeviceBytesUsed);
 
     // Permanent array for patch contact penetrations produced by patch-level force correction
     DeviceArray<double> finalPenetrations = DeviceArray<double>(&m_approxDeviceBytesUsed);
@@ -399,10 +372,6 @@ class DEMDynamicThread {
                                             "Integration",       "Unpack updates from kT",   "Send to kT buffer",
                                             "Wait for kT update"};
     SolverTimers timers = SolverTimers(timer_names);
-    std::chrono::steady_clock::time_point cycle_stopwatch_start;
-    bool cycle_stopwatch_started = false;
-    void startCycleStopwatch();
-    double getCycleElapsedSeconds() const;
 
   public:
     friend class DEMSolver;
@@ -422,14 +391,6 @@ class DEMDynamicThread {
         // spawning the child thread.
         DEME_GPU_CALL(cudaStreamCreate(&streamInfo.stream));
 
-        DEME_GPU_CALL(cudaEventCreateWithFlags(&streamSyncEvent, cudaEventDisableTiming));
-        DEME_GPU_CALL(cudaEventCreateWithFlags(&dT_to_kT_BufferReadyEvent, cudaEventDisableTiming));
-        DEME_GPU_CALL(cudaEventCreateWithFlags(&kT_numContactsReadyEvent, cudaEventDisableTiming));
-        for (auto& evt : progressEvents) {
-            evt = nullptr;
-            DEME_GPU_CALL(cudaEventCreateWithFlags(&evt, cudaEventDisableTiming));
-        }
-
         // Launch a worker thread bound to this instance
         th = std::move(std::thread([this]() { this->workerThread(); }));
     }
@@ -438,24 +399,6 @@ class DEMDynamicThread {
         pSchedSupport->dynamicShouldJoin = true;
         startThread();
         th.join();
-        if (streamSyncEvent) {
-            cudaEventDestroy(streamSyncEvent);
-            streamSyncEvent = nullptr;
-        }
-        if (dT_to_kT_BufferReadyEvent) {
-            cudaEventDestroy(dT_to_kT_BufferReadyEvent);
-            dT_to_kT_BufferReadyEvent = nullptr;
-        }
-        if (kT_numContactsReadyEvent) {
-            cudaEventDestroy(kT_numContactsReadyEvent);
-            kT_numContactsReadyEvent = nullptr;
-        }
-        for (auto& evt : progressEvents) {
-            if (evt) {
-                cudaEventDestroy(evt);
-                evt = nullptr;
-            }
-        }
         cudaStreamDestroy(streamInfo.stream);
 
         deallocateEverything();
@@ -791,14 +734,6 @@ class DEMDynamicThread {
     // Sync my stream
     void syncMemoryTransfer() { DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream)); }
 
-    // Reusable event helpers and non-blocking progress tracking for dT scheduling.
-    void recordAndSyncEvent();
-    void recordEventOnly();
-    void recordProgressEvent(int64_t stamp);
-    void drainProgressEvents();
-    void throttleInFlightProgress();
-    void syncRecordedEvent();
-
     // Reset kT--dT interaction coordinator stats
     void resetUserCallStat();
     // Return the approximate RAM usage
@@ -887,8 +822,7 @@ class DEMDynamicThread {
 
     // If kT provides fresh CD results, we unpack and use it
     inline void ifProduceFreshThenUseItAndSendNewOrder();
-    inline void ifProduceFreshThenUseIt(bool allow_blocking);
-    bool tryConsumeKinematicProduce(bool allow_blocking, bool mark_receive, bool use_logical_stamp);
+    inline void ifProduceFreshThenUseIt();
     inline void unpack_impl();
 
     // Change sim params based on dT's experience, if needed
@@ -935,8 +869,40 @@ class DEMDynamicThread {
     // Instantiate common dT kernels during initialization so first-use JIT costs are paid before time stepping.
     void prewarmKernels();
 
-    // Future-drift optimizer state. Implementation details live in DynamicThreadHelpers.hpp.
-    FutureDriftRegulator futureDriftRegulator;
+    // Adjuster for update freq
+    class AccumStepUpdater {
+      private:
+        unsigned int num_steps = 0;
+        unsigned int num_updates = 0;
+        unsigned int cached_size = 200;
+
+      public:
+        AccumStepUpdater() {}
+        ~AccumStepUpdater() {}
+        inline void AddUpdate() { num_updates++; }
+        inline void AddStep() { num_steps++; }
+        inline bool Query(unsigned int& ideal) {
+            if (num_updates > NUM_STEPS_RESERVED_AFTER_RENEWING_FREQ_TUNER) {
+                // * 2 because double update freq is an ideal future drift
+                ideal = (unsigned int)((double)num_steps / num_updates * 2);
+                if (num_updates >= cached_size) {
+                    Clear();
+                }
+                return true;
+            } else {
+                return false;
+            }
+        }
+
+        // Return this accumulator to initial state
+        void Clear() {
+            num_steps = 0;
+            num_updates = 0;
+        }
+
+        void SetCacheSize(unsigned int n) { cached_size = n; }
+    };
+    AccumStepUpdater accumStepUpdater = AccumStepUpdater();
 
     // A collection of migrate-to-host methods. Bulk migrate-to-host is by nature on-demand only.
     void migrateFamilyToHost();

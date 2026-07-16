@@ -357,18 +357,6 @@ class DEMSolver {
     /// @brief Set the number of past kT updates that dT will use to calibrate the max future drift limit.
     /// @param n Number of kT updates. Suggest using default.
     void SetCDNumStepsMaxDriftHistorySize(unsigned int n);
-    /// @brief Inflate observed kT lag (in units of dT steps) by this factor, for drift scheduling/calibration only.
-    /// @details Values below 1 can be unsafe. Default is 1.1.
-    void SetCDFutureDriftEffDriftSafetyFactor(float factor) {
-        future_drift_eff_drift_safety_factor = clampBetween(factor, 1.0f, 10.0f);
-    }
-    /// @brief Set bounds, as fractions of max drift, used by the future-drift send scheduler.
-    /// @details Default is lower=0, upper=1. dT uses these bounds to decide when a fresh kT work order should be sent.
-    void SetCDFutureDriftSendBounds(float lower_ratio, float upper_ratio) {
-        future_drift_send_upper_bound_ratio = clampBetween(upper_ratio, 0.0f, 1.0f);
-        future_drift_send_lower_bound_ratio =
-            clampBetween(lower_ratio, 0.0f, static_cast<float>(future_drift_send_upper_bound_ratio));
-    }
     /// @brief Get the current update frequency used by the solver.
     /// @return The current update frequency.
     float GetUpdateFreq() const;
@@ -1857,9 +1845,6 @@ class DEMSolver {
     float max_drift_ahead_of_avg_drift = 4.;
     float max_drift_multiple_of_avg_drift = 1.05;
     unsigned int max_drift_gauge_history_size = 200;
-    float future_drift_eff_drift_safety_factor = 1.1;
-    float future_drift_send_upper_bound_ratio = 1.0;
-    float future_drift_send_lower_bound_ratio = 0.0;
 
     // See SetNoForceRecord
     bool no_recording_contact_forces = false;

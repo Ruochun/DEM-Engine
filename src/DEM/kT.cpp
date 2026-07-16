@@ -4,12 +4,8 @@
 //	SPDX-License-Identifier: BSD-3-Clause
 
 #include <cstring>
-#include <cstdlib>
 #include <iostream>
 #include <thread>
-#include <atomic>
-#include <cmath>
-#include <limits>
 
 #include <core/ApiVersion.h>
 #include <core/utils/JitHelper.h>
@@ -22,33 +18,18 @@
 
 namespace deme {
 
-namespace {
-struct DynamicProduceReadyPayload {
-    ThreadManager* sched = nullptr;
-};
-
-void CUDART_CB NotifyDynamicProduceReady(void* userData) {
-    auto* payload = static_cast<DynamicProduceReadyPayload*>(userData);
-    if (payload && payload->sched) {
-        payload->sched->dynamicOwned_Prod2ConsBuffer_isFresh.store(true, std::memory_order_release);
-        payload->sched->cv_DynamicCanProceed.notify_all();
-    }
-    delete payload;
-}
-}  // namespace
-
-inline void DEMKinematicThread::transferPrimitivesArraysResize(int buffer_idx, size_t nContactPairs) {
+inline void DEMKinematicThread::transferPrimitivesArraysResize(size_t nContactPairs) {
     // These buffers are on dT
     DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
     dT->primitiveBufferSize = nContactPairs;
-    DEME_DEVICE_ARRAY_RESIZE(dT->idPrimitiveA_buffer[buffer_idx], nContactPairs);
-    DEME_DEVICE_ARRAY_RESIZE(dT->idPrimitiveB_buffer[buffer_idx], nContactPairs);
-    DEME_DEVICE_ARRAY_RESIZE(dT->contactTypePrimitive_buffer[buffer_idx], nContactPairs);
-    DEME_DEVICE_ARRAY_RESIZE(dT->geomToPatchMap_buffer[buffer_idx], nContactPairs);
-    granData->pDTOwnedBuffer_idPrimitiveA = dT->idPrimitiveA_buffer[buffer_idx].data();
-    granData->pDTOwnedBuffer_idPrimitiveB = dT->idPrimitiveB_buffer[buffer_idx].data();
-    granData->pDTOwnedBuffer_contactType = dT->contactTypePrimitive_buffer[buffer_idx].data();
-    granData->pDTOwnedBuffer_geomToPatchMap = dT->geomToPatchMap_buffer[buffer_idx].data();
+    DEME_DEVICE_ARRAY_RESIZE(dT->idPrimitiveA_buffer, nContactPairs);
+    DEME_DEVICE_ARRAY_RESIZE(dT->idPrimitiveB_buffer, nContactPairs);
+    DEME_DEVICE_ARRAY_RESIZE(dT->contactTypePrimitive_buffer, nContactPairs);
+    DEME_DEVICE_ARRAY_RESIZE(dT->geomToPatchMap_buffer, nContactPairs);
+    granData->pDTOwnedBuffer_idPrimitiveA = dT->idPrimitiveA_buffer.data();
+    granData->pDTOwnedBuffer_idPrimitiveB = dT->idPrimitiveB_buffer.data();
+    granData->pDTOwnedBuffer_contactType = dT->contactTypePrimitive_buffer.data();
+    granData->pDTOwnedBuffer_geomToPatchMap = dT->geomToPatchMap_buffer.data();
 
     // Unset the device change we just made
     DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
@@ -57,39 +38,26 @@ inline void DEMKinematicThread::transferPrimitivesArraysResize(int buffer_idx, s
     // particupate kernel computations, so even if their pointers are fresh only on host, it's fine
 }
 
-inline void DEMKinematicThread::transferPatchArrayResize(int buffer_idx, size_t nContactPairs) {
+inline void DEMKinematicThread::transferPatchArrayResize(size_t nContactPairs) {
     // These buffers are on dT
     DEME_GPU_CALL(cudaSetDevice(dT->streamInfo.device));
     dT->patchBufferSize = nContactPairs;
-    DEME_DEVICE_ARRAY_RESIZE(dT->idPatchA_buffer[buffer_idx], nContactPairs);
-    DEME_DEVICE_ARRAY_RESIZE(dT->idPatchB_buffer[buffer_idx], nContactPairs);
-    DEME_DEVICE_ARRAY_RESIZE(dT->contactTypePatch_buffer[buffer_idx], nContactPairs);
-    DEME_DEVICE_ARRAY_RESIZE(dT->contactPatchIsland_buffer[buffer_idx], nContactPairs);
-    granData->pDTOwnedBuffer_idPatchA = dT->idPatchA_buffer[buffer_idx].data();
-    granData->pDTOwnedBuffer_idPatchB = dT->idPatchB_buffer[buffer_idx].data();
-    granData->pDTOwnedBuffer_contactTypePatch = dT->contactTypePatch_buffer[buffer_idx].data();
-    granData->pDTOwnedBuffer_contactPatchIsland = dT->contactPatchIsland_buffer[buffer_idx].data();
+    DEME_DEVICE_ARRAY_RESIZE(dT->idPatchA_buffer, nContactPairs);
+    DEME_DEVICE_ARRAY_RESIZE(dT->idPatchB_buffer, nContactPairs);
+    DEME_DEVICE_ARRAY_RESIZE(dT->contactTypePatch_buffer, nContactPairs);
+    DEME_DEVICE_ARRAY_RESIZE(dT->contactPatchIsland_buffer, nContactPairs);
+    granData->pDTOwnedBuffer_idPatchA = dT->idPatchA_buffer.data();
+    granData->pDTOwnedBuffer_idPatchB = dT->idPatchB_buffer.data();
+    granData->pDTOwnedBuffer_contactTypePatch = dT->contactTypePatch_buffer.data();
+    granData->pDTOwnedBuffer_contactPatchIsland = dT->contactPatchIsland_buffer.data();
 
     if (!solverFlags.isHistoryless) {
-        DEME_DEVICE_ARRAY_RESIZE(dT->contactMapping_buffer[buffer_idx], nContactPairs);
-        granData->pDTOwnedBuffer_contactMapping = dT->contactMapping_buffer[buffer_idx].data();
+        DEME_DEVICE_ARRAY_RESIZE(dT->contactMapping_buffer, nContactPairs);
+        granData->pDTOwnedBuffer_contactMapping = dT->contactMapping_buffer.data();
     }
 
     // Unset the device change we just made
     DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
-}
-
-void DEMKinematicThread::recordAndSyncEvent() {
-    DEME_GPU_CALL(cudaEventRecord(streamSyncEvent, streamInfo.stream));
-    DEME_GPU_CALL(cudaEventSynchronize(streamSyncEvent));
-}
-
-void DEMKinematicThread::recordEventOnly() {
-    DEME_GPU_CALL(cudaEventRecord(streamSyncEvent, streamInfo.stream));
-}
-
-void DEMKinematicThread::syncRecordedEvent() {
-    DEME_GPU_CALL(cudaEventSynchronize(streamSyncEvent));
 }
 
 void DEMKinematicThread::calibrateParams() {
@@ -181,81 +149,43 @@ inline void DEMKinematicThread::computeMarginFromAbsv(float* absVel_owner, float
 }
 
 inline void DEMKinematicThread::unpackMyBuffer() {
-    const int dev = streamInfo.device;
-    const int buffer_dev = dT->streamInfo.device;
-    const bool same_dev = (dev == buffer_dev);
-    bool swapped = false;
-    bool needGranDataDeviceSync = false;
-    float* absVel_local = absVel_buffer.data();
-    float* absAngVel_local = absAngVel_buffer.data();
-
-    if (!same_dev && dT->kT_numContactsReadyEvent) {
-        // Previous kT->dT peer transfers may still be reading kT contact arrays. Wait before CD can reuse them.
-        ScopedCudaDevice device_scope(buffer_dev);
-        DEME_GPU_CALL(cudaEventSynchronize(dT->kT_numContactsReadyEvent));
-    }
-
-    if (dT->dT_to_kT_BufferReadyEvent) {
-        if (same_dev) {
-            DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, dT->dT_to_kT_BufferReadyEvent, 0));
-        } else {
-            // Cross-device staging may use a synchronous host-bounce path that cannot honor a queued stream wait.
-            DEME_GPU_CALL(cudaEventSynchronize(dT->dT_to_kT_BufferReadyEvent));
-        }
-    }
-
-    if (same_dev) {
-        swapped = swap_device_buffer(voxelID, voxelID_buffer);
-        swapped = swap_device_buffer(locX, locX_buffer) && swapped;
-        swapped = swap_device_buffer(locY, locY_buffer) && swapped;
-        swapped = swap_device_buffer(locZ, locZ_buffer) && swapped;
-        swapped = swap_device_buffer(oriQw, oriQ0_buffer) && swapped;
-        swapped = swap_device_buffer(oriQx, oriQ1_buffer) && swapped;
-        swapped = swap_device_buffer(oriQy, oriQ2_buffer) && swapped;
-        swapped = swap_device_buffer(oriQz, oriQ3_buffer) && swapped;
-    }
-
-    xfer::XferList scalars;
-    scalars.add(&(stateParams.ts), &(stateParams.ts_buffer), sizeof(float));
-    scalars.add(&(stateParams.maxDrift), &(stateParams.maxDrift_buffer), sizeof(unsigned int));
-    if (swapped) {
-        scalars.run(dev, dev, streamInfo.stream);
-        granData.toDeviceAsync(streamInfo.stream);
-    } else {
-        xfer::XferList xl;
-        xl.add(granData->voxelID, voxelID_buffer.data(), simParams->nOwnerBodies * sizeof(voxelID_t));
-        xl.add(granData->locX, locX_buffer.data(), simParams->nOwnerBodies * sizeof(subVoxelPos_t));
-        xl.add(granData->locY, locY_buffer.data(), simParams->nOwnerBodies * sizeof(subVoxelPos_t));
-        xl.add(granData->locZ, locZ_buffer.data(), simParams->nOwnerBodies * sizeof(subVoxelPos_t));
-        xl.add(granData->oriQw, oriQ0_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
-        xl.add(granData->oriQx, oriQ1_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
-        xl.add(granData->oriQy, oriQ2_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
-        xl.add(granData->oriQz, oriQ3_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t));
-        xl.run(dev, buffer_dev, streamInfo.stream);
-        scalars.run(dev, dev, streamInfo.stream);
-    }
-
-    if (!same_dev) {
-        absVel_local = reinterpret_cast<float*>(
-            solverScratchSpace.allocateTempVector("dTAbsVelOnKT", simParams->nOwnerBodies * sizeof(float)));
-        absAngVel_local = reinterpret_cast<float*>(
-            solverScratchSpace.allocateTempVector("dTAbsAngVelOnKT", simParams->nOwnerBodies * sizeof(float)));
-    }
-    xfer::XferList metrics;
-    if (!same_dev) {
-        metrics.add(absVel_local, absVel_buffer.data(), simParams->nOwnerBodies * sizeof(float));
-        metrics.add(absAngVel_local, absAngVel_buffer.data(), simParams->nOwnerBodies * sizeof(float));
-    }
+    DEME_GPU_CALL(cudaMemcpy(granData->voxelID, voxelID_buffer.data(), simParams->nOwnerBodies * sizeof(voxelID_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->locX, locX_buffer.data(), simParams->nOwnerBodies * sizeof(subVoxelPos_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->locY, locY_buffer.data(), simParams->nOwnerBodies * sizeof(subVoxelPos_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->locZ, locZ_buffer.data(), simParams->nOwnerBodies * sizeof(subVoxelPos_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->oriQw, oriQ0_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->oriQx, oriQ1_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->oriQy, oriQ2_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->oriQz, oriQ3_buffer.data(), simParams->nOwnerBodies * sizeof(oriQ_t),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(&(stateParams.ts), &(stateParams.ts_buffer), sizeof(float), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(&(stateParams.maxDrift), &(stateParams.maxDrift_buffer), sizeof(unsigned int),
+                             cudaMemcpyDeviceToDevice));
     if (!simParams->meshParticlesLowPoly && simParams->nTriGM > 0) {
-        metrics.add(maxTriTriPenetration.data(), maxTriTriPenetration_buffer.data(),
-                    (size_t)simParams->nTriGM * sizeof(float));
+        DEME_GPU_CALL(cudaMemcpy(maxTriTriPenetration.data(), maxTriTriPenetration_buffer.data(),
+                                 (size_t)simParams->nTriGM * sizeof(float), cudaMemcpyDeviceToDevice));
     }
-    metrics.run(dev, buffer_dev, streamInfo.stream);
+    // Use two temp arrays to store absVel and absAngVel's buffer
+    float* absVel_owner =
+        (float*)solverScratchSpace.allocateTempVector("absVel_owner", simParams->nOwnerBodies * sizeof(float));
+    float* absAngVel_owner =
+        (float*)solverScratchSpace.allocateTempVector("absAngVel_owner", simParams->nOwnerBodies * sizeof(float));
+    DEME_GPU_CALL(cudaMemcpy(absVel_owner, absVel_buffer.data(), simParams->nOwnerBodies * sizeof(float),
+                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(absAngVel_owner, absAngVel_buffer.data(), simParams->nOwnerBodies * sizeof(float),
+                             cudaMemcpyDeviceToDevice));
 
     // Make sure we don't have velocity that is too high
-    cubMaxReduce<float>(absVel_local, &(stateParams.maxVel), simParams->nOwnerBodies, streamInfo.stream,
+    cubMaxReduce<float>(absVel_owner, &(stateParams.maxVel), simParams->nOwnerBodies, streamInfo.stream,
                         solverScratchSpace);
-    cubMaxReduce<float>(absAngVel_local, &(stateParams.maxAngVel), simParams->nOwnerBodies, streamInfo.stream,
+    cubMaxReduce<float>(absAngVel_owner, &(stateParams.maxAngVel), simParams->nOwnerBodies, streamInfo.stream,
                         solverScratchSpace);
     // Get the reduced maxVel value
     stateParams.maxVel.toHost();
@@ -283,209 +213,88 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     // Now update the future drift info. Whatever drift value dT says, kT listens; unless kinematicMaxFutureDrift is
     // negative in which case the user explicitly said not caring the future drift.
     stateParams.maxDrift.toHost();
-    stateParams.ts.toHost();
     pSchedSupport->kinematicMaxFutureDrift = (pSchedSupport->kinematicMaxFutureDrift.load() < 0.)
                                                  ? pSchedSupport->kinematicMaxFutureDrift.load()
                                                  : *(stateParams.maxDrift);
 
     // Family number is a typical changable quantity on-the-fly. If this flag is on, kT received changes from dT.
     if (solverFlags.canFamilyChangeOnDevice) {
-        bool swapped_family = false;
-        if (same_dev) {
-            swapped_family = swap_device_buffer(familyID, familyID_buffer);
-        }
-        if (!swapped_family) {
-            xfer::XferList family_xfer;
-            family_xfer.add(granData->familyID, familyID_buffer.data(), simParams->nOwnerBodies * sizeof(family_t));
-            family_xfer.run(dev, buffer_dev, streamInfo.stream);
-        }
-        needGranDataDeviceSync = needGranDataDeviceSync || swapped_family;
+        DEME_GPU_CALL(cudaMemcpy(granData->familyID, familyID_buffer.data(), simParams->nOwnerBodies * sizeof(family_t),
+                                 cudaMemcpyDeviceToDevice));
     }
 
     // If dT received a mesh deformation request from user, then it is now passed to kT
     if (solverFlags.willMeshDeform) {
-        bool swapped_mesh = false;
-        if (same_dev) {
-            swapped_mesh = swap_device_buffer(relPosNode1, relPosNode1_buffer);
-            swapped_mesh = swap_device_buffer(relPosNode2, relPosNode2_buffer) && swapped_mesh;
-            swapped_mesh = swap_device_buffer(relPosNode3, relPosNode3_buffer) && swapped_mesh;
-        }
-        if (!swapped_mesh) {
-            xfer::XferList mesh_xfer;
-            mesh_xfer.add(granData->relPosNode1, relPosNode1_buffer.data(), simParams->nTriGM * sizeof(float3));
-            mesh_xfer.add(granData->relPosNode2, relPosNode2_buffer.data(), simParams->nTriGM * sizeof(float3));
-            mesh_xfer.add(granData->relPosNode3, relPosNode3_buffer.data(), simParams->nTriGM * sizeof(float3));
-            mesh_xfer.run(dev, buffer_dev, streamInfo.stream);
-        }
+        DEME_GPU_CALL(cudaMemcpy(granData->relPosNode1, relPosNode1_buffer.data(), simParams->nTriGM * sizeof(float3),
+                                 cudaMemcpyDeviceToDevice));
+        DEME_GPU_CALL(cudaMemcpy(granData->relPosNode2, relPosNode2_buffer.data(), simParams->nTriGM * sizeof(float3),
+                                 cudaMemcpyDeviceToDevice));
+        DEME_GPU_CALL(cudaMemcpy(granData->relPosNode3, relPosNode3_buffer.data(), simParams->nTriGM * sizeof(float3),
+                                 cudaMemcpyDeviceToDevice));
+        // dT won't be sending if kT is loading, so it is safe
         solverFlags.willMeshDeform = false;
-        needGranDataDeviceSync = needGranDataDeviceSync || swapped_mesh;
-    }
-
-    if (needGranDataDeviceSync) {
-        granData.toDeviceAsync(streamInfo.stream);
     }
 
     // kT will need to derive the thickness of the CD margin, based on dT's info on system vel.
     if (!solverFlags.isExpandFactorFixed) {
         // This kernel will turn absv to marginSize, and if a vel is over max, it will clamp it.
         // Converting to size_t is SUPER important... CUDA kernel call basically does not have type conversion.
-        computeMarginFromAbsv(absVel_local, absAngVel_local);
+        computeMarginFromAbsv(absVel_owner, absAngVel_owner);
     } else {  // If isExpandFactorFixed, then just fill in that constant array.
         // This one is statically compiled, unlike the other branch
         fillMarginValues(&simParams, &granData, (size_t)(simParams->nSpheresGM), (size_t)(simParams->nTriGM),
                          (size_t)(simParams->nAnalGM), streamInfo.stream);
     }
 
-    if (!same_dev) {
-        solverScratchSpace.finishUsingTempVector("dTAbsVelOnKT");
-        solverScratchSpace.finishUsingTempVector("dTAbsAngVelOnKT");
-    }
-
-    dT->granData->pKTOwnedBuffer_absVel = absVel_buffer.data();
-    dT->granData->pKTOwnedBuffer_absAngVel = absAngVel_buffer.data();
-    dT->granData->pKTOwnedBuffer_voxelID = voxelID_buffer.data();
-    dT->granData->pKTOwnedBuffer_locX = locX_buffer.data();
-    dT->granData->pKTOwnedBuffer_locY = locY_buffer.data();
-    dT->granData->pKTOwnedBuffer_locZ = locZ_buffer.data();
-    dT->granData->pKTOwnedBuffer_oriQ0 = oriQ0_buffer.data();
-    dT->granData->pKTOwnedBuffer_oriQ1 = oriQ1_buffer.data();
-    dT->granData->pKTOwnedBuffer_oriQ2 = oriQ2_buffer.data();
-    dT->granData->pKTOwnedBuffer_oriQ3 = oriQ3_buffer.data();
-    dT->granData->pKTOwnedBuffer_familyID = familyID_buffer.data();
-    dT->granData->pKTOwnedBuffer_relPosNode1 = relPosNode1_buffer.data();
-    dT->granData->pKTOwnedBuffer_relPosNode2 = relPosNode2_buffer.data();
-    dT->granData->pKTOwnedBuffer_relPosNode3 = relPosNode3_buffer.data();
-    dT->granData->pKTOwnedBuffer_maxTriTriPenetration = maxTriTriPenetration_buffer.data();
-
-    if (!same_dev && dT_to_kT_BufferConsumedEvent) {
-        // Tell dT when kT has finished reading the previous dT-owned work-order buffers, so dT can safely reuse them.
-        DEME_GPU_CALL(cudaEventRecord(dT_to_kT_BufferConsumedEvent, streamInfo.stream));
-    }
+    solverScratchSpace.finishUsingTempVector("absVel_owner");
+    solverScratchSpace.finishUsingTempVector("absAngVel_owner");
 }
 
 //// TODO: Fix the transfer; is primitive transfer needed at all?
 inline void DEMKinematicThread::sendToTheirBuffer() {
-    const int write_idx = dT->kt_write_buf;
-    const size_t nPrimitive = *solverScratchSpace.numPrimitiveContacts;
-    const size_t nPatch = *solverScratchSpace.numContacts;
-
-    const int srcDev = streamInfo.device;
-    const int dstDev = dT->streamInfo.device;
-    const bool same_dev = (srcDev == dstDev);
-    const cudaStream_t xfer_stream = same_dev ? streamInfo.stream : dT->streamInfo.stream;
-
-    static const bool allow_output_swap = []() {
-        const char* env = std::getenv("DEME_KT_SEND_SWAP");
-        if (!env || !*env) {
-            return true;
-        }
-        return !(env[0] == '0' && env[1] == '\0');
-    }();
-
-    size_t resize_prim = nPrimitive;
-    size_t resize_patch = nPatch;
-    if (same_dev && allow_output_swap) {
-        resize_prim = DEME_MAX(resize_prim, idPrimitiveA.size());
-        resize_prim = DEME_MAX(resize_prim, idPrimitiveB.size());
-        resize_prim = DEME_MAX(resize_prim, contactTypePrimitive.size());
-        resize_prim = DEME_MAX(resize_prim, geomToPatchMap.size());
-        resize_patch = DEME_MAX(resize_patch, idPatchA.size());
-        resize_patch = DEME_MAX(resize_patch, idPatchB.size());
-        resize_patch = DEME_MAX(resize_patch, contactTypePatch.size());
-        resize_patch = DEME_MAX(resize_patch, contactPatchIsland.size());
-        if (!solverFlags.isHistoryless) {
-            resize_patch = DEME_MAX(resize_patch, contactMapping.size());
-        }
+    // Send over the sum of contacts
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_nPrimitiveContacts, &(solverScratchSpace.numPrimitiveContacts),
+                             sizeof(size_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_nPatchContacts, &(solverScratchSpace.numContacts), sizeof(size_t),
+                             cudaMemcpyDeviceToDevice));
+    // Resize dT owned buffers before usage
+    if (*solverScratchSpace.numPrimitiveContacts > dT->primitiveBufferSize) {
+        transferPrimitivesArraysResize(*solverScratchSpace.numPrimitiveContacts);
+    }
+    // Resize the patch-contact transfer array too
+    if (*solverScratchSpace.numContacts > dT->patchBufferSize) {
+        transferPatchArrayResize(*solverScratchSpace.numContacts);
     }
 
-    bool need_resize_prim = resize_prim > dT->idPrimitiveA_buffer[write_idx].size() ||
-                            resize_prim > dT->idPrimitiveB_buffer[write_idx].size() ||
-                            resize_prim > dT->contactTypePrimitive_buffer[write_idx].size() ||
-                            resize_prim > dT->geomToPatchMap_buffer[write_idx].size();
-    bool need_resize_patch = resize_patch > dT->idPatchA_buffer[write_idx].size() ||
-                             resize_patch > dT->idPatchB_buffer[write_idx].size() ||
-                             resize_patch > dT->contactTypePatch_buffer[write_idx].size() ||
-                             resize_patch > dT->contactPatchIsland_buffer[write_idx].size();
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_idPrimitiveA, granData->idPrimitiveA,
+                             (*solverScratchSpace.numPrimitiveContacts) * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_idPrimitiveB, granData->idPrimitiveB,
+                             (*solverScratchSpace.numPrimitiveContacts) * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_contactType, granData->contactTypePrimitive,
+                             (*solverScratchSpace.numPrimitiveContacts) * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_geomToPatchMap, granData->geomToPatchMap,
+                             (*solverScratchSpace.numPrimitiveContacts) * sizeof(contactPairs_t),
+                             cudaMemcpyDeviceToDevice));
+
+    // NEW: Transfer separate patch IDs and mapping array
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_idPatchA, granData->idPatchA,
+                             (*solverScratchSpace.numContacts) * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_idPatchB, granData->idPatchB,
+                             (*solverScratchSpace.numContacts) * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_contactTypePatch, granData->contactTypePatch,
+                             (*solverScratchSpace.numContacts) * sizeof(contact_t), cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_contactPatchIsland, granData->contactPatchIsland,
+                             (*solverScratchSpace.numContacts) * sizeof(bodyID_t), cudaMemcpyDeviceToDevice));
+
+    // DEME_MIGRATE_TO_DEVICE(dT->idPrimitiveA_buffer, dT->streamInfo.device, streamInfo.stream);
+    // DEME_MIGRATE_TO_DEVICE(dT->idPrimitiveB_buffer, dT->streamInfo.device, streamInfo.stream);
+    // DEME_MIGRATE_TO_DEVICE(dT->contactTypePrimitive_buffer, dT->streamInfo.device, streamInfo.stream);
     if (!solverFlags.isHistoryless) {
-        need_resize_patch = need_resize_patch || (resize_patch > dT->contactMapping_buffer[write_idx].size());
+        DEME_GPU_CALL(cudaMemcpy(granData->pDTOwnedBuffer_contactMapping, granData->contactMapping,
+                                 (*solverScratchSpace.numContacts) * sizeof(contactPairs_t), cudaMemcpyDeviceToDevice));
+        // DEME_MIGRATE_TO_DEVICE(dT->contactMapping_buffer, dT->streamInfo.device, streamInfo.stream);
     }
-    if (need_resize_prim) {
-        transferPrimitivesArraysResize(write_idx, resize_prim);
-    }
-    if (need_resize_patch) {
-        transferPatchArrayResize(write_idx, resize_patch);
-    }
-
-    bool output_swapped = false;
-    if (same_dev && allow_output_swap) {
-        output_swapped = swap_device_buffer(idPrimitiveA, dT->idPrimitiveA_buffer[write_idx]);
-        output_swapped = swap_device_buffer(idPrimitiveB, dT->idPrimitiveB_buffer[write_idx]) && output_swapped;
-        output_swapped =
-            swap_device_buffer(contactTypePrimitive, dT->contactTypePrimitive_buffer[write_idx]) && output_swapped;
-        output_swapped = swap_device_buffer(geomToPatchMap, dT->geomToPatchMap_buffer[write_idx]) && output_swapped;
-        output_swapped = swap_device_buffer(idPatchA, dT->idPatchA_buffer[write_idx]) && output_swapped;
-        output_swapped = swap_device_buffer(idPatchB, dT->idPatchB_buffer[write_idx]) && output_swapped;
-        output_swapped = swap_device_buffer(contactTypePatch, dT->contactTypePatch_buffer[write_idx]) && output_swapped;
-        output_swapped =
-            swap_device_buffer(contactPatchIsland, dT->contactPatchIsland_buffer[write_idx]) && output_swapped;
-        if (!solverFlags.isHistoryless) {
-            output_swapped = swap_device_buffer(contactMapping, dT->contactMapping_buffer[write_idx]) && output_swapped;
-        }
-    }
-
-    granData->pDTOwnedBuffer_idPrimitiveA = dT->idPrimitiveA_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_idPrimitiveB = dT->idPrimitiveB_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactType = dT->contactTypePrimitive_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_geomToPatchMap = dT->geomToPatchMap_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_idPatchA = dT->idPatchA_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_idPatchB = dT->idPatchB_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactTypePatch = dT->contactTypePatch_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactPatchIsland = dT->contactPatchIsland_buffer[write_idx].data();
-    if (!solverFlags.isHistoryless) {
-        granData->pDTOwnedBuffer_contactMapping = dT->contactMapping_buffer[write_idx].data();
-    }
-
-    if (output_swapped) {
-        granData.toDeviceAsync(streamInfo.stream);
-    }
-
-    if (!same_dev && kT_to_dT_BufferReadyEvent) {
-        // Ensure kT source arrays are complete before peer/staging copies start reading them.
-        DEME_GPU_CALL(cudaEventRecord(kT_to_dT_BufferReadyEvent, streamInfo.stream));
-        DEME_GPU_CALL(cudaEventSynchronize(kT_to_dT_BufferReadyEvent));
-    }
-
-    xfer::XferList counts;
-    counts.add(granData->pDTOwnedBuffer_nPrimitiveContacts, &(solverScratchSpace.numPrimitiveContacts), sizeof(size_t));
-    counts.add(granData->pDTOwnedBuffer_nPatchContacts, &(solverScratchSpace.numContacts), sizeof(size_t));
-    counts.run(dstDev, srcDev, xfer_stream);
-
-    if (!output_swapped) {
-        xfer::XferList xs;
-        xs.add(dT->idPrimitiveA_buffer[write_idx].data(), granData->idPrimitiveA, nPrimitive * sizeof(bodyID_t));
-        xs.add(dT->idPrimitiveB_buffer[write_idx].data(), granData->idPrimitiveB, nPrimitive * sizeof(bodyID_t));
-        xs.add(dT->contactTypePrimitive_buffer[write_idx].data(), granData->contactTypePrimitive,
-               nPrimitive * sizeof(contact_t));
-        xs.add(dT->geomToPatchMap_buffer[write_idx].data(), granData->geomToPatchMap,
-               nPrimitive * sizeof(contactPairs_t));
-        xs.add(dT->idPatchA_buffer[write_idx].data(), granData->idPatchA, nPatch * sizeof(bodyID_t));
-        xs.add(dT->idPatchB_buffer[write_idx].data(), granData->idPatchB, nPatch * sizeof(bodyID_t));
-        xs.add(dT->contactTypePatch_buffer[write_idx].data(), granData->contactTypePatch, nPatch * sizeof(contact_t));
-        xs.add(dT->contactPatchIsland_buffer[write_idx].data(), granData->contactPatchIsland,
-               nPatch * sizeof(bodyID_t));
-        if (!solverFlags.isHistoryless) {
-            xs.add(dT->contactMapping_buffer[write_idx].data(), granData->contactMapping,
-                   nPatch * sizeof(contactPairs_t));
-        }
-        xs.run(dstDev, srcDev, xfer_stream);
-    }
-
-    if (!same_dev && dT->kT_numContactsReadyEvent) {
-        // Peer copies queued on dT's stream may still read kT contact arrays after this method returns. kT waits on
-        // this event before resizing or overwriting those arrays in the next contact-detection pass.
-        ScopedCudaDevice device_scope(dstDev);
-        DEME_GPU_CALL(cudaEventRecord(dT->kT_numContactsReadyEvent, xfer_stream));
-    }
+    // DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
 }
 
 void DEMKinematicThread::workerThread() {
@@ -535,8 +344,12 @@ void DEMKinematicThread::workerThread() {
 
             timers.GetTimer("Unpack updates from dT").start();
             // Getting here means that new `work order' data has been provided
-            unpackMyBuffer();
-            // pSchedSupport->schedulingStats.nKinematicReceives++;
+            {
+                // Acquire lock and get the work order
+                std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
+                unpackMyBuffer();
+                // pSchedSupport->schedulingStats.nKinematicReceives++;
+            }
             timers.GetTimer("Unpack updates from dT").stop();
 
             // Make it clear that the data for most recent work order has been used, in case there is interest in
@@ -563,19 +376,16 @@ void DEMKinematicThread::workerThread() {
             {
                 // kT will reflect on how good the choice of parameters is
                 calibrateParams();
+                // Acquire lock and supply the dynamic with fresh produce
+                std::lock_guard<std::mutex> lock(pSchedSupport->dynamicOwnedBuffer_AccessCoordination);
                 sendToTheirBuffer();
             }
-            const bool same_dev = (streamInfo.device == dT->streamInfo.device);
-            if (same_dev && kT_to_dT_BufferReadyEvent) {
-                DEME_GPU_CALL(cudaEventRecord(kT_to_dT_BufferReadyEvent, streamInfo.stream));
-                auto* payload = new DynamicProduceReadyPayload{pSchedSupport};
-                DEME_GPU_CALL(cudaLaunchHostFunc(streamInfo.stream, NotifyDynamicProduceReady, payload));
-            } else {
-                pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.store(true, std::memory_order_release);
-                pSchedSupport->cv_DynamicCanProceed.notify_all();
-            }
+            pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.store(true, std::memory_order_release);
             pSchedSupport->schedulingStats.nDynamicUpdates++;
             timers.GetTimer("Send to dT buffer").stop();
+
+            // Signal the dynamic that it has fresh produce
+            pSchedSupport->cv_DynamicCanProceed.notify_all();
 
             // std::cout << "kT host mem usage: " << pretty_format_bytes(estimateHostMemUsage()) << std::endl;
             // std::cout << "kT device mem usage: " << pretty_format_bytes(estimateDeviceMemUsage()) << std::endl;
@@ -786,18 +596,17 @@ void DEMKinematicThread::packTransferPointers(DEMDynamicThread*& dT) {
     // Set the pointers to dT owned buffers
     granData->pDTOwnedBuffer_nPrimitiveContacts = &(dT->nPrimitiveContactPairs_buffer);
     granData->pDTOwnedBuffer_nPatchContacts = &(dT->nPatchContactPairs_buffer);
-    const int write_idx = dT->kt_write_buf;
-    granData->pDTOwnedBuffer_idPrimitiveA = dT->idPrimitiveA_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_idPrimitiveB = dT->idPrimitiveB_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactType = dT->contactTypePrimitive_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_geomToPatchMap = dT->geomToPatchMap_buffer[write_idx].data();
+    granData->pDTOwnedBuffer_idPrimitiveA = dT->idPrimitiveA_buffer.data();
+    granData->pDTOwnedBuffer_idPrimitiveB = dT->idPrimitiveB_buffer.data();
+    granData->pDTOwnedBuffer_contactType = dT->contactTypePrimitive_buffer.data();
+    granData->pDTOwnedBuffer_geomToPatchMap = dT->geomToPatchMap_buffer.data();
 
     // NEW: Set pointers for separate patch arrays
-    granData->pDTOwnedBuffer_idPatchA = dT->idPatchA_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_idPatchB = dT->idPatchB_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactTypePatch = dT->contactTypePatch_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactPatchIsland = dT->contactPatchIsland_buffer[write_idx].data();
-    granData->pDTOwnedBuffer_contactMapping = dT->contactMapping_buffer[write_idx].data();
+    granData->pDTOwnedBuffer_idPatchA = dT->idPatchA_buffer.data();
+    granData->pDTOwnedBuffer_idPatchB = dT->idPatchB_buffer.data();
+    granData->pDTOwnedBuffer_contactTypePatch = dT->contactTypePatch_buffer.data();
+    granData->pDTOwnedBuffer_contactPatchIsland = dT->contactPatchIsland_buffer.data();
+    granData->pDTOwnedBuffer_contactMapping = dT->contactMapping_buffer.data();
 }
 
 void DEMKinematicThread::setSimParams(unsigned char nvXp2,
