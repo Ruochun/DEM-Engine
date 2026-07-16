@@ -51,6 +51,10 @@ class DEMKinematicThread {
     // Object which stores the device and stream IDs for this thread
     GpuManager::StreamInfo streamInfo;
 
+    cudaEvent_t streamSyncEvent = nullptr;
+    cudaEvent_t kT_to_dT_BufferReadyEvent = nullptr;
+    cudaEvent_t dT_to_kT_BufferConsumedEvent = nullptr;
+
     // Memory usage recorder
     size_t m_approxDeviceBytesUsed = 0;
     size_t m_approxHostBytesUsed = 0;
@@ -277,6 +281,9 @@ class DEMKinematicThread {
         // reached before the stream is created in the child thread. So we have to create the stream here before
         // spawning the child thread.
         DEME_GPU_CALL(cudaStreamCreate(&streamInfo.stream));
+        DEME_GPU_CALL(cudaEventCreateWithFlags(&streamSyncEvent, cudaEventDisableTiming));
+        DEME_GPU_CALL(cudaEventCreateWithFlags(&kT_to_dT_BufferReadyEvent, cudaEventDisableTiming));
+        DEME_GPU_CALL(cudaEventCreateWithFlags(&dT_to_kT_BufferConsumedEvent, cudaEventDisableTiming));
 
         // Launch a worker thread bound to this instance
         th = std::move(std::thread([this]() { this->workerThread(); }));
@@ -293,6 +300,18 @@ class DEMKinematicThread {
         startThread();
         th.join();
 
+        if (streamSyncEvent) {
+            cudaEventDestroy(streamSyncEvent);
+            streamSyncEvent = nullptr;
+        }
+        if (kT_to_dT_BufferReadyEvent) {
+            cudaEventDestroy(kT_to_dT_BufferReadyEvent);
+            kT_to_dT_BufferReadyEvent = nullptr;
+        }
+        if (dT_to_kT_BufferConsumedEvent) {
+            cudaEventDestroy(dT_to_kT_BufferConsumedEvent);
+            dT_to_kT_BufferConsumedEvent = nullptr;
+        }
         cudaStreamDestroy(streamInfo.stream);
 
         // deallocateEverything();
@@ -315,6 +334,9 @@ class DEMKinematicThread {
 
     /// Reset kT--dT interaction coordinator stats
     void resetUserCallStat();
+    void recordAndSyncEvent();
+    void recordEventOnly();
+    void syncRecordedEvent();
     /// Return the approximate RAM usage
     size_t estimateDeviceMemUsage() const;
     size_t estimateHostMemUsage() const;
@@ -484,9 +506,9 @@ class DEMKinematicThread {
     // Send produced data to dT-owned biffers
     void sendToTheirBuffer();
     // Resize dT's buffer arrays based on the number of contact pairs
-    inline void transferPrimitivesArraysResize(size_t nContactPairs);
+    inline void transferPrimitivesArraysResize(int buffer_idx, size_t nContactPairs);
     // Resize mesh patch pair array
-    inline void transferPatchArrayResize(size_t nContactPairs);
+    inline void transferPatchArrayResize(int buffer_idx, size_t nContactPairs);
     // Automatic adjustments to sim params
     void calibrateParams();
     // The kT-side allocations that can be done at initialization time

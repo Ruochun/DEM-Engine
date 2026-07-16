@@ -41,6 +41,7 @@ class ThreadManager {
     // dT's
     std::atomic<int64_t> stampLastDynamicUpdateProdDate;
     std::atomic<int64_t> currentStampOfDynamic;
+    std::atomic<int64_t> completedStampOfDynamic;
     std::atomic<int64_t> dynamicMaxFutureDrift;
     std::atomic<bool> dynamicDone;
 
@@ -79,6 +80,7 @@ class ThreadManager {
         stampLastDynamicUpdateProdDate = -1;
         kinematicIngredProdDateStamp = -1;
         currentStampOfDynamic = 0;
+        completedStampOfDynamic = 0;
         dynamicDone = false;
         dynamicOwned_Prod2ConsBuffer_isFresh.store(false, std::memory_order_relaxed);
         kinematicOwned_Cons2ProdBuffer_isFresh.store(false, std::memory_order_relaxed);
