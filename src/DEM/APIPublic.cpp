@@ -2247,6 +2247,13 @@ std::shared_ptr<DEMMesh> DEMSolver::AddMesh(DEMMesh& mesh) {
     return cached_mesh_objs.back();
 }
 
+std::shared_ptr<DEMMesh> DEMSolver::AddShellMesh(DEMMesh& mesh, float shell_thickness) {
+    // Shell meshes reuse the regular mesh loading/cache path; the finite thickness is stored on the mesh and later
+    // flattened into per-owner shell metadata for kT binning and dT primitive force kernels.
+    mesh.SetShellThickness(shell_thickness);
+    return AddMesh(mesh);
+}
+
 std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontMeshObject(const std::string& filename,
                                                            const std::shared_ptr<DEMMaterial>& mat,
                                                            bool load_normals,
@@ -2260,6 +2267,20 @@ std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontMeshObject(const std::string& fi
     return AddWavefrontMeshObject(mesh);
 }
 
+std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontShellObject(const std::string& filename,
+                                                            const std::shared_ptr<DEMMaterial>& mat,
+                                                            float shell_thickness,
+                                                            bool load_normals,
+                                                            bool load_uv) {
+    DEMMesh mesh;
+    bool flag = loadMeshByExtension(mesh, filename, load_normals, load_uv);
+    if (!flag) {
+        DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
+    }
+    mesh.SetMaterial(mat);
+    return AddShellMesh(mesh, shell_thickness);
+}
+
 std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontMeshObject(const std::string& filename,
                                                            bool load_normals,
                                                            bool load_uv) {
@@ -2269,6 +2290,18 @@ std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontMeshObject(const std::string& fi
         DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
     }
     return AddWavefrontMeshObject(mesh);
+}
+
+std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontShellObject(const std::string& filename,
+                                                            float shell_thickness,
+                                                            bool load_normals,
+                                                            bool load_uv) {
+    DEMMesh mesh;
+    bool flag = loadMeshByExtension(mesh, filename, load_normals, load_uv);
+    if (!flag) {
+        DEME_ERROR("Failed to load in mesh file %s.", filename.c_str());
+    }
+    return AddShellMesh(mesh, shell_thickness);
 }
 
 std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(DEMMesh& mesh) {

@@ -845,6 +845,23 @@ PYBIND11_MODULE(DEME, obj) {
                  const std::string& filename, bool, bool)>(&deme::DEMSolver::AddWavefrontMeshObject),
              "Load a mesh-represented object.", py::arg("filename"), py::arg("load_normals") = true,
              py::arg("load_uv") = false)
+        .def("AddShellMesh",
+             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(deme::DEMMesh&, float)>(
+                 &deme::DEMSolver::AddShellMesh),
+             "Load a finite-thickness shell mesh from a user-constructed mesh object.", py::arg("mesh"),
+             py::arg("shell_thickness"))
+        .def("AddWavefrontShellObject",
+             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(
+                 const std::string&, const std::shared_ptr<deme::DEMMaterial>&, float, bool, bool)>(
+                 &deme::DEMSolver::AddWavefrontShellObject),
+             "Load a finite-thickness shell mesh from a mesh file.", py::arg("filename"), py::arg("mat"),
+             py::arg("shell_thickness"), py::arg("load_normals") = true, py::arg("load_uv") = false)
+        .def("AddWavefrontShellObject",
+             static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(const std::string&, float, bool, bool)>(
+                 &deme::DEMSolver::AddWavefrontShellObject),
+             "Load a finite-thickness shell mesh from a mesh file without assigning material immediately.",
+             py::arg("filename"), py::arg("shell_thickness"), py::arg("load_normals") = true,
+             py::arg("load_uv") = false)
         .def("LoadClumpType",
              static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
                  float, const std::vector<float>&, const std::string, const std::shared_ptr<deme::DEMMaterial>&)>(
@@ -1469,6 +1486,11 @@ PYBIND11_MODULE(DEME, obj) {
              "Instruct that when the mesh is initialized into the system, it will re-order the nodes of each triangle "
              "so that the normals derived from right-hand-rule are the same as the normals in the mesh file",
              py::arg("use") = true)
+        .def("SetShellThickness", &deme::DEMMeshConnected::SetShellThickness,
+             "Treat this mesh as a finite-thickness shell.", py::arg("thickness"))
+        .def("DisableShell", &deme::DEMMeshConnected::DisableShell, "Disable finite-thickness shell mode.")
+        .def("IsShell", &deme::DEMMeshConnected::IsShell, "Return whether this mesh is configured as a shell.")
+        .def("GetShellThickness", &deme::DEMMeshConnected::GetShellThickness, "Return the full shell thickness.")
         .def("GetTriangle", &deme::DEMMeshConnected::GetTriangle, "Access the n-th triangle in mesh")
         .def("SetMass", &deme::DEMMeshConnected::SetMass)
         .def("SetMOI",

@@ -771,6 +771,10 @@ class DEMSolver {
 
     /// @brief Load a mesh-represented object into the simulation, using the internal mesh format.
     std::shared_ptr<DEMMesh> AddMesh(DEMMesh& mesh);
+    /// @brief Load a shell mesh (triangular surface plus finite thickness) into the simulation.
+    /// @param mesh Mesh object.
+    /// @param shell_thickness Full shell thickness, in simulation length units. Must be finite and non-negative.
+    std::shared_ptr<DEMMesh> AddShellMesh(DEMMesh& mesh, float shell_thickness);
 
     /// @brief Load a mesh-represented object from a mesh file (.obj, .stl, or .ply).
     /// @param filename Path to the mesh file.
@@ -782,6 +786,18 @@ class DEMSolver {
                                                     const std::shared_ptr<DEMMaterial>& mat,
                                                     bool load_normals = true,
                                                     bool load_uv = false);
+    /// @brief Load a shell mesh from a mesh file (.obj, .stl, or .ply).
+    /// @param filename Path to the mesh file.
+    /// @param mat Material to assign to the shell mesh.
+    /// @param shell_thickness Full shell thickness, in simulation length units. Must be finite and non-negative.
+    /// @param load_normals Whether to load normals from the file.
+    /// @param load_uv Whether to load UV coordinates from the file.
+    /// @return A shared pointer to the loaded shell mesh object.
+    std::shared_ptr<DEMMesh> AddWavefrontShellObject(const std::string& filename,
+                                                     const std::shared_ptr<DEMMaterial>& mat,
+                                                     float shell_thickness,
+                                                     bool load_normals = true,
+                                                     bool load_uv = false);
     /// @brief Load a mesh-represented object from a mesh file (.obj, .stl, or .ply).
     /// @param filename Path to the mesh file.
     /// @param load_normals Whether to load normals from the file.
@@ -790,6 +806,16 @@ class DEMSolver {
     std::shared_ptr<DEMMesh> AddWavefrontMeshObject(const std::string& filename,
                                                     bool load_normals = true,
                                                     bool load_uv = false);
+    /// @brief Load a shell mesh from a mesh file (.obj, .stl, or .ply), without assigning material immediately.
+    /// @param filename Path to the mesh file.
+    /// @param shell_thickness Full shell thickness, in simulation length units. Must be finite and non-negative.
+    /// @param load_normals Whether to load normals from the file.
+    /// @param load_uv Whether to load UV coordinates from the file.
+    /// @return A shared pointer to the loaded shell mesh object.
+    std::shared_ptr<DEMMesh> AddWavefrontShellObject(const std::string& filename,
+                                                     float shell_thickness,
+                                                     bool load_normals = true,
+                                                     bool load_uv = false);
     /// A legacy method. Use AddMesh instead.
     std::shared_ptr<DEMMesh> AddWavefrontMeshObject(DEMMesh& mesh) { return AddMesh(mesh); }
 
