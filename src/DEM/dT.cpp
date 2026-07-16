@@ -2268,6 +2268,7 @@ inline void DEMDynamicThread::unpackMyBuffer() {
     if (kT) {
         const bool same_dev = (streamInfo.device == kT->streamInfo.device);
         if (same_dev && kT->kT_to_dT_BufferReadyEvent) {
+            // Same-device fast path: consume kT's transfer buffer only after kT's stream has finished writing it.
             DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, kT->kT_to_dT_BufferReadyEvent, 0));
         }
     }
@@ -2387,6 +2388,8 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
         DEME_GPU_CALL(cudaEventSynchronize(kT->dT_to_kT_BufferConsumedEvent));
     }
 
+    // These input buffers are dT-owned. dT fills them locally, then publishes dT_to_kT_BufferReadyEvent before the CPU
+    // freshness flag is set so kT never consumes partially populated work-order data.
     xfer::XferList xt;
     xt.add(granData->pKTOwnedBuffer_voxelID, granData->voxelID, nOwners * sizeof(voxelID_t));
     xt.add(granData->pKTOwnedBuffer_locX, granData->locX, nOwners * sizeof(subVoxelPos_t));
@@ -2445,6 +2448,8 @@ inline void DEMDynamicThread::sendToTheirBuffer() {
     pSchedSupport->kinematicIngredProdDateStamp = (pSchedSupport->currentStampOfDynamic).load();
 
     if (dT_to_kT_BufferReadyEvent) {
+        // Cross-device kT synchronizes this event before staging/copying the work order; same-device kT waits on it in
+        // stream order.
         DEME_GPU_CALL(cudaEventRecord(dT_to_kT_BufferReadyEvent, streamInfo.stream));
     }
 }

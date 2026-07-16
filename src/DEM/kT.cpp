@@ -199,6 +199,7 @@ inline void DEMKinematicThread::unpackMyBuffer() {
         if (same_dev) {
             DEME_GPU_CALL(cudaStreamWaitEvent(streamInfo.stream, dT->dT_to_kT_BufferReadyEvent, 0));
         } else {
+            // Cross-device staging may use a synchronous host-bounce path that cannot honor a queued stream wait.
             DEME_GPU_CALL(cudaEventSynchronize(dT->dT_to_kT_BufferReadyEvent));
         }
     }
@@ -357,6 +358,7 @@ inline void DEMKinematicThread::unpackMyBuffer() {
     dT->granData->pKTOwnedBuffer_maxTriTriPenetration = maxTriTriPenetration_buffer.data();
 
     if (!same_dev && dT_to_kT_BufferConsumedEvent) {
+        // Tell dT when kT has finished reading the previous dT-owned work-order buffers, so dT can safely reuse them.
         DEME_GPU_CALL(cudaEventRecord(dT_to_kT_BufferConsumedEvent, streamInfo.stream));
     }
 }
@@ -448,6 +450,7 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
     }
 
     if (!same_dev && kT_to_dT_BufferReadyEvent) {
+        // Ensure kT source arrays are complete before peer/staging copies start reading them.
         DEME_GPU_CALL(cudaEventRecord(kT_to_dT_BufferReadyEvent, streamInfo.stream));
         DEME_GPU_CALL(cudaEventSynchronize(kT_to_dT_BufferReadyEvent));
     }
@@ -478,6 +481,8 @@ inline void DEMKinematicThread::sendToTheirBuffer() {
     }
 
     if (!same_dev && dT->kT_numContactsReadyEvent) {
+        // Peer copies queued on dT's stream may still read kT contact arrays after this method returns. kT waits on
+        // this event before resizing or overwriting those arrays in the next contact-detection pass.
         ScopedCudaDevice device_scope(dstDev);
         DEME_GPU_CALL(cudaEventRecord(dT->kT_numContactsReadyEvent, xfer_stream));
     }

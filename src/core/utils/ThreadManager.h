@@ -49,13 +49,10 @@ class ThreadManager {
     std::atomic<int64_t> kinematicIngredProdDateStamp;  // dT tags this when sending it to kT
     std::atomic<int64_t> kinematicMaxFutureDrift;       // kT tags this to its produce before shipping
 
+    // Single-producer/single-consumer freshness flags for CPU-side buffer ownership handoff. They do not replace CUDA
+    // event fences; producer streams still record buffer-ready events before these flags are published.
     std::atomic<bool> dynamicOwned_Prod2ConsBuffer_isFresh;
     std::atomic<bool> kinematicOwned_Cons2ProdBuffer_isFresh;
-
-    // Freshness flags are single-producer/single-consumer handoff guards. Loads that consume them should use acquire,
-    // and stores that publish/clear them should use release, so transfer-buffer writes are visible before use.
-    std::mutex dynamicOwnedBuffer_AccessCoordination;
-    std::mutex kinematicOwnedBuffer_AccessCoordination;
     std::mutex kinematicCanProceed;
     std::mutex dynamicCanProceed;
     std::condition_variable cv_KinematicCanProceed;
