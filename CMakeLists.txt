@@ -35,7 +35,6 @@ add_compile_definitions(DEME_BEING_CMAKE_COMPILED)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
-include(FetchContent)
 
 include(cmake/FixNinjaColors.cmake)
 fix_ninja_colors()
@@ -67,29 +66,6 @@ find_path(
 	NAMES jitify.hpp
 	PATHS "${CMAKE_CURRENT_LIST_DIR}/thirdparty/jitify"
 )
-
-# Let the user decide if they want to use ChPF
-option(USE_CHPF "Toggle the use of ChPF for outputting" OFF)
-
-if(USE_CHPF)
-	# Find ChPF, else fetch it 
-    find_package(ChPF 3.0 QUIET)
-    if (NOT ChPF_FOUND)         
-        FetchContent_Declare(
-            ChPF
-            GIT_REPOSITORY  https://gitlab.com/uwsbel/chpf.git
-            GIT_TAG         0699f01e720cecf58719a1651ab797c6a62a1897
-        )
-        FetchContent_MakeAvailable(ChPF)
-    endif()
-
-	# Based on whether ChPF was found or fetched, set the target name CMake can use to find it 
-    if (ChPF_FOUND) 
-        set(ChPF_IMPORTED_NAME "ChPF::ChPF")
-    elseif (chpf_POPULATED)
-        set(ChPF_IMPORTED_NAME "ChPF")
-    endif()
-endif()
 
 # Let the user decide if they want to use managed arrays, rather than default cudaMalloc and cudaMallocHost memory.
 # Note that turning this on gives no performance benefits, and it's considered legacy.
@@ -186,20 +162,9 @@ set(DEME_LINK_LIBS
 	${RUNTIME_DATA_HELPER}
 )
 
-# If use ChPF, inform the source
-if(USE_CHPF)
-    target_compile_definitions(simulator_multi_gpu PUBLIC DEME_USE_CHPF)
-	set(USE_CHPF_STR "ON")
-	target_link_libraries(simulator_multi_gpu
-		PUBLIC ${DEME_LINK_LIBS}
-		PUBLIC ${ChPF_IMPORTED_NAME}
-	)
-else()
-	set(USE_CHPF_STR "OFF")
-	target_link_libraries(simulator_multi_gpu
-		PUBLIC ${DEME_LINK_LIBS}
-	)
-endif()
+target_link_libraries(simulator_multi_gpu
+	PUBLIC ${DEME_LINK_LIBS}
+)
 
 # If use managed arrays, define a macro
 if(USE_MANAGED_ARRAYS)

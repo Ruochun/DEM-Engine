@@ -17,18 +17,10 @@ if(DEME_ENABLE_NVTX)
 	target_compile_definitions(DEM PUBLIC DEME_ENABLE_NVTX)
 endif()
 
-if(USE_CHPF)
-	target_link_libraries(
-		DEM
-		PUBLIC CUB::CUB
-		PUBLIC ${ChPF_IMPORTED_NAME}
-	)
-else()
-	target_link_libraries(
-		DEM
-		PUBLIC CUB::CUB
-	)
-endif()
+target_link_libraries(
+	DEM
+	PUBLIC CUB::CUB
+)
 
 # if(WIN32)
 # target_compile_options(DEM PRIVATE /GR)

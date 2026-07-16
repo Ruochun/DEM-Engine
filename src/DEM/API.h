@@ -10,6 +10,7 @@
 #include <set>
 #include <cfloat>
 #include <functional>
+#include <thread>
 
 #include "kT.h"
 #include "dT.h"
@@ -1363,6 +1364,7 @@ class DEMSolver {
     /// Remove host-side cached vectors (so you can re-define them, and then re-initialize system)
     void ClearCache();
 
+    /// Output methods enqueue asynchronous writes; call WaitForPendingOutput() to block for completion.
     /// Write the current status of clumps to a file
     void WriteClumpFile(const std::string& outfilename, unsigned int accuracy = 10) const;
     void WriteClumpFile(const std::filesystem::path& outfilename, unsigned int accuracy = 10) const {
@@ -1391,6 +1393,8 @@ class DEMSolver {
     /// Write the current status of all meshes to a file.
     void WriteMeshFile(const std::string& outfilename) const;
     void WriteMeshFile(const std::filesystem::path& outfilename) const { WriteMeshFile(outfilename.string()); }
+    /// Wait for any in-flight async output to finish.
+    void WaitForPendingOutput() const;
 
     /// @brief Read 3 columns of your choice from a CSV filem and group them by clump_header.
     /// @param infilename CSV filename.
@@ -1554,8 +1558,8 @@ class DEMSolver {
     /// Show the wall time and percentages of wall time spend on various solver tasks.
     void ShowTimingStats();
 
-    /// Enable/disable GPU event-based timing. Disabling this can reduce overhead; enabling it records GPU-side spans
-    /// without turning every timed section into a host synchronization point.
+    /// Enable or disable GPU event-based timing. Disabling this avoids cudaEvent overhead in timed sections.
+    /// Call this when the solver is not actively running dynamics.
     void SetGPUTimersEnabled(bool enabled);
     /// Return whether GPU event-based timing is enabled.
     bool GetGPUTimersEnabled() const { return m_gpu_timers_enabled; }
@@ -1601,6 +1605,8 @@ class DEMSolver {
     void SetContactOutputContent(unsigned int content) { m_cnt_out_content = content; }
     /// Specify the file format of meshes.
     void SetMeshOutputFormat(MESH_FORMAT format) { m_mesh_out_format = format; }
+    /// Enable/disable patch color metadata in PLY mesh output.
+    void EnableMeshPatchColorOutput(bool enable = true) { m_mesh_out_ply_patch_colors = enable; }
     /// Enable/disable outputting owner wildcard values to file.
     void EnableOwnerWildcardOutput(bool enable = true) { m_is_out_owner_wildcards = enable; }
     /// Enable/disable outputting contact wildcard values to the contact file.
@@ -1726,9 +1732,11 @@ class DEMSolver {
                                      CNT_OUTPUT_CONTENT::CNT_WILDCARD;
     // The output file format for meshes
     MESH_FORMAT m_mesh_out_format = MESH_FORMAT::VTK;
+    bool m_mesh_out_ply_patch_colors = false;
     // If the solver should output wildcards to file
     bool m_is_out_owner_wildcards = false;
     bool m_is_out_cnt_wildcards = false;
+    mutable std::thread m_output_thread;
 
     // User-instructed simulation `world' size. Note it is an approximate of the true size and we will generate a world
     // not smaller than this. This is useful if the user want to automatically add BCs enclosing this user-defined

@@ -59,6 +59,7 @@ DEMSolver::DEMSolver(unsigned int nGPUs) {
 }
 
 DEMSolver::~DEMSolver() {
+    WaitForPendingOutput();
     if (sys_initialized)
         DoDynamicsThenSync(0.0);
     delete kT;
@@ -129,13 +130,6 @@ void DEMSolver::SetOutputFormat(const std::string& format) {
         case ("BINARY"_):
             m_out_format = OUTPUT_FORMAT::BINARY;
             break;
-        case ("CHPF"_):
-#ifdef DEME_USE_CHPF
-            m_out_format = OUTPUT_FORMAT::CHPF;
-            break;
-#else
-            DEME_ERROR(std::string("ChPF is not enabled when the code was compiled."));
-#endif
         default:
             DEME_ERROR("Instruction %s is unknown in SetOutputFormat call.", format.c_str());
     }
@@ -149,13 +143,6 @@ void DEMSolver::SetContactOutputFormat(const std::string& format) {
         case ("BINARY"_):
             m_cnt_out_format = OUTPUT_FORMAT::BINARY;
             break;
-        case ("CHPF"_):
-#ifdef DEME_USE_CHPF
-            m_cnt_out_format = OUTPUT_FORMAT::CHPF;
-            break;
-#else
-            DEME_ERROR(std::string("ChPF is not enabled when the code was compiled."));
-#endif
         default:
             DEME_ERROR("Instruction %s is unknown in SetContactOutputFormat call.", format.c_str());
     }
@@ -782,6 +769,9 @@ void DEMSolver::FlushMeshWearModels() {
             owners_to_apply.push_back(kv.first);
         }
     }
+    if (!owners_to_apply.empty()) {
+        WaitForPendingOutput();
+    }
     for (bodyID_t owner : owners_to_apply) {
         auto it = m_mesh_wear_models.find(owner);
         if (it == m_mesh_wear_models.end()) {
@@ -921,6 +911,7 @@ void DEMSolver::SetOwnerFamily(bodyID_t ownerID, unsigned int fam, bodyID_t n) {
 }
 
 void DEMSolver::SetTriNodeRelPos(size_t owner, size_t triID, const std::vector<float3>& new_nodes) {
+    WaitForPendingOutput();
     auto& mesh = m_meshes.at(m_owner_mesh_map.at(owner));
     if (mesh->GetNumNodes() != new_nodes.size()) {
         DEME_ERROR(
@@ -944,6 +935,7 @@ void DEMSolver::SetTriNodeRelPos(size_t owner, size_t triID, const std::vector<f
     // kT->setTriNodeRelPos(triID, new_triangles);
 }
 void DEMSolver::UpdateTriNodeRelPos(size_t owner, size_t triID, const std::vector<float3>& updates) {
+    WaitForPendingOutput();
     auto& mesh = m_meshes.at(m_owner_mesh_map.at(owner));
     if (mesh->GetNumNodes() != updates.size()) {
         DEME_ERROR(
@@ -2611,28 +2603,33 @@ std::shared_ptr<DEMInspector> DEMSolver::CreateInspector(const std::string& quan
 
 void DEMSolver::WriteSphereFile(const std::string& outfilename) const {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
+    WaitForPendingOutput();
     switch (m_out_format) {
-#ifdef DEME_USE_CHPF
-        case (OUTPUT_FORMAT::CHPF): {
-            std::ofstream ptFile(outfilename, std::ios::out | std::ios::binary);
-            dT->writeSpheresAsChpf(ptFile);
-            ptFile.close();
-            break;
-        }
-#endif
         case (OUTPUT_FORMAT::CSV): {
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeSpheresAsCsv(ptFile);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateClumpHighOrderInfoToHost();
+            dT->migrateOwnerWildcardToHost();
+            dT->migrateSphGeoWildcardToHost();
+            m_output_thread = std::thread([this, outfilename]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeSpheresAsCsvFromHost(ptFile);
+            });
             break;
         }
         case (OUTPUT_FORMAT::BINARY): {
             // std::ofstream ptFile(outfilename, std::ios::out | std::ios::binary);
             //// TODO: Implement it
-            std::ofstream ptFile(outfilename, std::ios::out);
             DEME_WARNING(std::string("Binary sphere output is not implemented yet, using CSV..."));
-            dT->writeSpheresAsCsv(ptFile);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateClumpHighOrderInfoToHost();
+            dT->migrateOwnerWildcardToHost();
+            dT->migrateSphGeoWildcardToHost();
+            m_output_thread = std::thread([this, outfilename]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeSpheresAsCsvFromHost(ptFile);
+            });
             break;
         }
         default:
@@ -2642,28 +2639,31 @@ void DEMSolver::WriteSphereFile(const std::string& outfilename) const {
 
 void DEMSolver::WriteClumpFile(const std::string& outfilename, unsigned int accuracy) const {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
+    WaitForPendingOutput();
     switch (m_out_format) {
-#ifdef DEME_USE_CHPF
-        case (OUTPUT_FORMAT::CHPF): {
-            std::ofstream ptFile(outfilename, std::ios::out | std::ios::binary);
-            dT->writeClumpsAsChpf(ptFile, accuracy);
-            ptFile.close();
-            break;
-        }
-#endif
         case (OUTPUT_FORMAT::CSV): {
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeClumpsAsCsv(ptFile, accuracy);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateClumpHighOrderInfoToHost();
+            dT->migrateOwnerWildcardToHost();
+            m_output_thread = std::thread([this, outfilename, accuracy]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeClumpsAsCsvFromHost(ptFile, accuracy);
+            });
             break;
         }
         case (OUTPUT_FORMAT::BINARY): {
             // std::ofstream ptFile(outfilename, std::ios::out | std::ios::binary);
             //// TODO: Implement it
-            std::ofstream ptFile(outfilename, std::ios::out);
             DEME_WARNING(std::string("Binary clump output is not implemented yet, using CSV..."));
-            dT->writeClumpsAsCsv(ptFile, accuracy);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateClumpHighOrderInfoToHost();
+            dT->migrateOwnerWildcardToHost();
+            m_output_thread = std::thread([this, outfilename, accuracy]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeClumpsAsCsvFromHost(ptFile, accuracy);
+            });
             break;
         }
         default:
@@ -2672,27 +2672,36 @@ void DEMSolver::WriteClumpFile(const std::string& outfilename, unsigned int accu
 }
 
 void DEMSolver::WriteContactFile(const std::string& outfilename, float force_thres) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    WaitForPendingOutput();
     if (no_recording_contact_forces) {
         DEME_WARNING(std::string(
             "The solver is instructed to not record contact force info, so no work is done in a WriteContactFile "
             "call."));
         return;
     }
-    ScopedCudaDevice device_scope(dT->streamInfo.device);
     switch (m_cnt_out_format) {
         case (OUTPUT_FORMAT::CSV): {
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeContactsAsCsv(ptFile, force_thres);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateContactInfoToHost();
+            m_output_thread = std::thread([this, outfilename, force_thres]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeContactsAsCsvFromHost(ptFile, force_thres);
+            });
             break;
         }
         case (OUTPUT_FORMAT::BINARY): {
             // std::ofstream ptFile(outfilename, std::ios::out | std::ios::binary);
             //// TODO: Implement it
             DEME_WARNING(std::string("Binary contact pair output is not implemented yet, using CSV..."));
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeContactsAsCsv(ptFile, force_thres);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateContactInfoToHost();
+            m_output_thread = std::thread([this, outfilename, force_thres]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeContactsAsCsvFromHost(ptFile, force_thres);
+            });
             break;
         }
         default:
@@ -2704,28 +2713,45 @@ void DEMSolver::WriteContactFile(const std::string& outfilename, float force_thr
 
 void DEMSolver::WriteMeshFile(const std::string& outfilename) const {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
+    WaitForPendingOutput();
     switch (m_mesh_out_format) {
         case (MESH_FORMAT::VTK): {
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeMeshesAsVtk(ptFile);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            m_output_thread = std::thread([this, outfilename]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeMeshesAsVtkFromHost(ptFile);
+            });
             break;
         }
         case (MESH_FORMAT::STL): {
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeMeshesAsStl(ptFile);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            m_output_thread = std::thread([this, outfilename]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeMeshesAsStlFromHost(ptFile);
+            });
             break;
         }
         case (MESH_FORMAT::PLY): {
-            std::ofstream ptFile(outfilename, std::ios::out);
-            dT->writeMeshesAsPly(ptFile);
-            ptFile.close();
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            const bool patch_colors = m_mesh_out_ply_patch_colors;
+            m_output_thread = std::thread([this, outfilename, patch_colors]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeMeshesAsPlyFromHost(ptFile, patch_colors);
+            });
             break;
         }
         default:
             DEME_ERROR(std::string(
                 "Mesh output file format is unknown or not implemented. Please re-set it via SetMeshOutputFormat."));
+    }
+}
+
+void DEMSolver::WaitForPendingOutput() const {
+    if (m_output_thread.joinable()) {
+        m_output_thread.join();
     }
 }
 
@@ -3372,6 +3398,9 @@ void DEMSolver::updateMeshWearModels(double call_start_time, double call_end_tim
     cacheTrackedTrianglePVWindow();
     dT->resetTrackedTrianglePVWindow();
 
+    if (!owners_to_apply.empty()) {
+        WaitForPendingOutput();
+    }
     for (bodyID_t owner : owners_to_apply) {
         auto it = m_mesh_wear_models.find(owner);
         if (it == m_mesh_wear_models.end()) {

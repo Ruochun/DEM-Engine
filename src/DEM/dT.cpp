@@ -11,9 +11,6 @@
 #include <algorithm>
 #include <limits>
 
-#ifdef DEME_USE_CHPF
-    #include <chpf.hpp>
-#endif
 #include <core/ApiVersion.h>
 #include <core/utils/JitHelper.h>
 #include <DEM/dT.h>
@@ -1463,95 +1460,17 @@ void DEMDynamicThread::updateClumpMeshArrays(const std::vector<std::shared_ptr<D
                      nExistingSpheres, nExistingFacets, nExistingAnalGM);
 }
 
-#ifdef DEME_USE_CHPF
-void DEMDynamicThread::writeSpheresAsChpf(std::ofstream& ptFile) {
-    chpf::Writer pw;
-    // pw.write(ptFile, chpf::Compressor::Type::USE_DEFAULT, mass);
-    migrateFamilyToHost();
-    migrateClumpPosInfoToHost();
-    migrateClumpHighOrderInfoToHost();
-
-    // simParams host version should not be different from device version, so no need to update
-    std::vector<float> posX(simParams->nSpheresGM);
-    std::vector<float> posY(simParams->nSpheresGM);
-    std::vector<float> posZ(simParams->nSpheresGM);
-    std::vector<float> spRadii(simParams->nSpheresGM);
-    std::vector<unsigned int> families;
-    if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
-        families.resize(simParams->nSpheresGM);
-    }
-    size_t num_output_spheres = 0;
-
-    for (size_t i = 0; i < simParams->nSpheresGM; i++) {
-        auto this_owner = ownerClumpBody[i];
-        family_t this_family = familyID[this_owner];
-        // If this (impl-level) family is in the no-output list, skip it
-        if (familiesNoOutput.find(this_family) != familiesNoOutput.end()) {
-            continue;
-        }
-
-        float3 CoM;
-        float X, Y, Z;
-        voxelID_t voxel = voxelID[this_owner];
-        subVoxelPos_t subVoxX = locX[this_owner];
-        subVoxelPos_t subVoxY = locY[this_owner];
-        subVoxelPos_t subVoxZ = locZ[this_owner];
-        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(X, Y, Z, voxel, subVoxX, subVoxY, subVoxZ, simParams->nvXp2,
-                                                           simParams->nvYp2, simParams->voxelSize, simParams->l);
-        CoM.x = X + simParams->LBFX;
-        CoM.y = Y + simParams->LBFY;
-        CoM.z = Z + simParams->LBFZ;
-
-        size_t compOffset = (solverFlags.useClumpJitify) ? clumpComponentOffsetExt[i] : i;
-        float this_sp_deviation_x = relPosSphereX[compOffset];
-        float this_sp_deviation_y = relPosSphereY[compOffset];
-        float this_sp_deviation_z = relPosSphereZ[compOffset];
-        float this_sp_rot_0 = oriQw[this_owner];
-        float this_sp_rot_1 = oriQx[this_owner];
-        float this_sp_rot_2 = oriQy[this_owner];
-        float this_sp_rot_3 = oriQz[this_owner];
-        applyOriQToVector3<float, float>(this_sp_deviation_x, this_sp_deviation_y, this_sp_deviation_z, this_sp_rot_0,
-                                         this_sp_rot_1, this_sp_rot_2, this_sp_rot_3);
-        posX.at(num_output_spheres) = CoM.x + this_sp_deviation_x;
-        posY.at(num_output_spheres) = CoM.y + this_sp_deviation_y;
-        posZ.at(num_output_spheres) = CoM.z + this_sp_deviation_z;
-        // std::cout << "Sphere Pos: " << posX.at(i) << ", " << posY.at(i) << ", " << posZ.at(i) << std::endl;
-
-        spRadii.at(num_output_spheres) = radiiSphere[compOffset];
-
-        // Family number
-        if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
-            families.at(num_output_spheres) = this_family;
-        }
-
-        num_output_spheres++;
-    }
-    // Write basics
-    posX.resize(num_output_spheres);
-    posY.resize(num_output_spheres);
-    posZ.resize(num_output_spheres);
-    spRadii.resize(num_output_spheres);
-    // TODO: Set {} to the list of column names
-    pw.write(ptFile, chpf::Compressor::Type::USE_DEFAULT,
-             {OUTPUT_FILE_X_COL_NAME, OUTPUT_FILE_Y_COL_NAME, OUTPUT_FILE_Z_COL_NAME, OUTPUT_FILE_R_COL_NAME}, posX,
-             posY, posZ, spRadii);
-    // Write family numbers
-    if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
-        families.resize(num_output_spheres);
-        //// TODO: How to do that?
-        // pw.write(ptFile, chpf::Compressor::Type::USE_DEFAULT, {}, families);
-    }
-}
-#endif
-
 void DEMDynamicThread::writeSpheresAsCsv(std::ofstream& ptFile) {
-    std::ostringstream outstrstream;
-
     migrateFamilyToHost();
     migrateClumpPosInfoToHost();
     migrateClumpHighOrderInfoToHost();
     migrateOwnerWildcardToHost();
     migrateSphGeoWildcardToHost();
+    writeSpheresAsCsvFromHost(ptFile);
+}
+
+void DEMDynamicThread::writeSpheresAsCsvFromHost(std::ofstream& ptFile) {
+    std::ostringstream outstrstream;
 
     outstrstream << OUTPUT_FILE_X_COL_NAME + "," + OUTPUT_FILE_Y_COL_NAME + "," + OUTPUT_FILE_Z_COL_NAME + "," +
                         OUTPUT_FILE_R_COL_NAME;
@@ -1696,99 +1615,17 @@ void DEMDynamicThread::writeSpheresAsCsv(std::ofstream& ptFile) {
     ptFile << outstrstream.str();
 }
 
-#ifdef DEME_USE_CHPF
-void DEMDynamicThread::writeClumpsAsChpf(std::ofstream& ptFile, unsigned int accuracy) {
-    //// TODO: Note using accuracy
-    chpf::Writer pw;
-    migrateFamilyToHost();
-    migrateClumpPosInfoToHost();
-    migrateClumpHighOrderInfoToHost();
-
-    // simParams host version should not be different from device version, so no need to update
-    std::vector<float> posX(simParams->nOwnerBodies);
-    std::vector<float> posY(simParams->nOwnerBodies);
-    std::vector<float> posZ(simParams->nOwnerBodies);
-    std::vector<float> Qw(simParams->nOwnerBodies);
-    std::vector<float> Qx(simParams->nOwnerBodies);
-    std::vector<float> Qy(simParams->nOwnerBodies);
-    std::vector<float> Qz(simParams->nOwnerBodies);
-    std::vector<std::string> clump_type(simParams->nOwnerBodies);
-    std::vector<unsigned int> families;
-    if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
-        families.resize(simParams->nOwnerBodies);
-    }
-    size_t num_output_clumps = 0;
-
-    for (size_t i = 0; i < simParams->nOwnerBodies; i++) {
-        auto this_owner = ownerClumpBody[i];
-        family_t this_family = familyID[this_owner];
-        // If this (impl-level) family is in the no-output list, skip it
-        if (familiesNoOutput.find(this_family) != familiesNoOutput.end()) {
-            continue;
-        }
-
-        float3 CoM;
-        float X, Y, Z;
-        voxelID_t voxel = voxelID[i];
-        subVoxelPos_t subVoxX = locX[i];
-        subVoxelPos_t subVoxY = locY[i];
-        subVoxelPos_t subVoxZ = locZ[i];
-        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(X, Y, Z, voxel, subVoxX, subVoxY, subVoxZ, simParams->nvXp2,
-                                                           simParams->nvYp2, simParams->voxelSize, simParams->l);
-        CoM.x = X + simParams->LBFX;
-        CoM.y = Y + simParams->LBFY;
-        CoM.z = Z + simParams->LBFZ;
-        posX.at(num_output_clumps) = CoM.x;
-        posY.at(num_output_clumps) = CoM.y;
-        posZ.at(num_output_clumps) = CoM.z;
-
-        // Then quaternions
-        Qw.at(num_output_clumps) = oriQw[i];
-        Qx.at(num_output_clumps) = oriQx[i];
-        Qy.at(num_output_clumps) = oriQy[i];
-        Qz.at(num_output_clumps) = oriQz[i];
-
-        // Then type of clump
-        unsigned int clump_mark = inertiaPropOffsets[i];
-        clump_type.at(num_output_clumps) = templateNumNameMap.at(clump_mark);
-
-        // Family number
-        if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
-            families.at(num_output_clumps) = this_family;
-        }
-
-        num_output_clumps++;
-    }
-    // Write basics
-    posX.resize(num_output_clumps);
-    posY.resize(num_output_clumps);
-    posZ.resize(num_output_clumps);
-    Qw.resize(num_output_clumps);
-    Qx.resize(num_output_clumps);
-    Qy.resize(num_output_clumps);
-    Qz.resize(num_output_clumps);
-    clump_type.resize(num_output_clumps);
-    pw.write(ptFile, chpf::Compressor::Type::USE_DEFAULT,
-             {OUTPUT_FILE_X_COL_NAME, OUTPUT_FILE_Y_COL_NAME, OUTPUT_FILE_Z_COL_NAME, OUTPUT_FILE_QW_COL_NAME,
-              OUTPUT_FILE_QX_COL_NAME, OUTPUT_FILE_QY_COL_NAME, OUTPUT_FILE_QZ_COL_NAME, OUTPUT_FILE_CLUMP_TYPE_NAME},
-             posX, posY, posZ, Qw, Qx, Qy, Qz, clump_type);
-    // Write family numbers
-    if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
-        families.resize(num_output_clumps);
-        //// TODO: How to do that?
-        // pw.write(ptFile, chpf::Compressor::Type::USE_DEFAULT, {}, families);
-    }
-}
-#endif
-
 void DEMDynamicThread::writeClumpsAsCsv(std::ofstream& ptFile, unsigned int accuracy) {
-    std::ostringstream outstrstream;
-    outstrstream.precision(accuracy);
-
     migrateFamilyToHost();
     migrateClumpPosInfoToHost();
     migrateClumpHighOrderInfoToHost();
     migrateOwnerWildcardToHost();
+    writeClumpsAsCsvFromHost(ptFile, accuracy);
+}
+
+void DEMDynamicThread::writeClumpsAsCsvFromHost(std::ofstream& ptFile, unsigned int accuracy) {
+    std::ostringstream outstrstream;
+    outstrstream.precision(accuracy);
 
     // xyz and quaternion are always there
     outstrstream << OUTPUT_FILE_X_COL_NAME + "," + OUTPUT_FILE_Y_COL_NAME + "," + OUTPUT_FILE_Z_COL_NAME +
@@ -1910,11 +1747,13 @@ void DEMDynamicThread::writeClumpsAsCsv(std::ofstream& ptFile, unsigned int accu
 }
 
 std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfo(float force_thres) {
-    // Migrate contact info to host
     migrateFamilyToHost();
     migrateClumpPosInfoToHost();
     migrateContactInfoToHost();
+    return generateContactInfoFromHost(force_thres);
+}
 
+std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromHost(float force_thres) {
     size_t total_contacts = *(solverScratchSpace.numContacts);
     // Wildcards supports only floats now
     std::vector<std::pair<std::string, std::string>> existing_wildcards(m_contact_wildcard_names.size());
@@ -2037,9 +1876,16 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfo(floa
 }
 
 void DEMDynamicThread::writeContactsAsCsv(std::ofstream& ptFile, float force_thres) {
+    migrateFamilyToHost();
+    migrateClumpPosInfoToHost();
+    migrateContactInfoToHost();
+    writeContactsAsCsvFromHost(ptFile, force_thres);
+}
+
+void DEMDynamicThread::writeContactsAsCsvFromHost(std::ofstream& ptFile, float force_thres) {
     std::ostringstream outstrstream;
 
-    std::shared_ptr<ContactInfoContainer> contactInfo = generateContactInfo(force_thres);
+    std::shared_ptr<ContactInfoContainer> contactInfo = generateContactInfoFromHost(force_thres);
 
     outstrstream << OUTPUT_FILE_CNT_TYPE_NAME;
     if (solverFlags.cntOutFlags & CNT_OUTPUT_CONTENT::OWNER) {
@@ -2130,8 +1976,27 @@ void DEMDynamicThread::writeContactsAsCsv(std::ofstream& ptFile, float force_thr
 }
 
 void DEMDynamicThread::writeMeshesAsVtk(std::ofstream& ptFile) {
-    std::ostringstream ostream;
     migrateFamilyToHost();
+    migrateClumpPosInfoToHost();
+    writeMeshesAsVtkFromHost(ptFile);
+}
+
+void DEMDynamicThread::writeMeshesAsVtkFromHost(std::ofstream& ptFile) {
+    std::ostringstream ostream;
+
+    auto ownerPosFromHost = [this](bodyID_t owner) {
+        double X, Y, Z;
+        voxelID_t voxel = voxelID[owner];
+        subVoxelPos_t subVoxX = locX[owner];
+        subVoxelPos_t subVoxY = locY[owner];
+        subVoxelPos_t subVoxZ = locZ[owner];
+        voxelIDToPosition<double, voxelID_t, subVoxelPos_t>(X, Y, Z, voxel, subVoxX, subVoxY, subVoxZ, simParams->nvXp2,
+                                                            simParams->nvYp2, simParams->voxelSize, simParams->l);
+        return make_float3(X + simParams->LBFX, Y + simParams->LBFY, Z + simParams->LBFZ);
+    };
+    auto ownerOriQFromHost = [this](bodyID_t owner) {
+        return make_float4(oriQx[owner], oriQy[owner], oriQz[owner], oriQw[owner]);
+    };
 
     std::vector<size_t> vertexOffset(m_meshes.size() + 1, 0);
     size_t total_f = 0;
@@ -2176,8 +2041,8 @@ void DEMDynamicThread::writeMeshesAsVtk(std::ofstream& ptFile) {
     for (const auto& mmesh : m_meshes) {
         if (!thisMeshSkip[mesh_num]) {
             bodyID_t mowner = mmesh->owner;
-            float3 ownerPos = this->getOwnerPos(mowner)[0];
-            float4 ownerOriQ = this->getOwnerOriQ(mowner)[0];
+            float3 ownerPos = ownerPosFromHost(mowner);
+            float4 ownerOriQ = ownerOriQFromHost(mowner);
             for (const auto& v : mmesh->GetCoordsVertices()) {
                 float3 point = v;
                 applyFrameTransformLocalToGlobal(point, ownerPos, ownerOriQ);
@@ -2218,8 +2083,27 @@ void DEMDynamicThread::writeMeshesAsVtk(std::ofstream& ptFile) {
 }
 
 void DEMDynamicThread::writeMeshesAsStl(std::ofstream& ptFile) {
-    std::ostringstream ostream;
     migrateFamilyToHost();
+    migrateClumpPosInfoToHost();
+    writeMeshesAsStlFromHost(ptFile);
+}
+
+void DEMDynamicThread::writeMeshesAsStlFromHost(std::ofstream& ptFile) {
+    std::ostringstream ostream;
+
+    auto ownerPosFromHost = [this](bodyID_t owner) {
+        double X, Y, Z;
+        voxelID_t voxel = voxelID[owner];
+        subVoxelPos_t subVoxX = locX[owner];
+        subVoxelPos_t subVoxY = locY[owner];
+        subVoxelPos_t subVoxZ = locZ[owner];
+        voxelIDToPosition<double, voxelID_t, subVoxelPos_t>(X, Y, Z, voxel, subVoxX, subVoxY, subVoxZ, simParams->nvXp2,
+                                                            simParams->nvYp2, simParams->voxelSize, simParams->l);
+        return make_float3(X + simParams->LBFX, Y + simParams->LBFY, Z + simParams->LBFZ);
+    };
+    auto ownerOriQFromHost = [this](bodyID_t owner) {
+        return make_float4(oriQx[owner], oriQy[owner], oriQz[owner], oriQw[owner]);
+    };
 
     std::vector<notStupidBool_t> thisMeshSkip(m_meshes.size(), 0);
     unsigned int mesh_num = 0;
@@ -2237,8 +2121,8 @@ void DEMDynamicThread::writeMeshesAsStl(std::ofstream& ptFile) {
     for (const auto& mmesh : m_meshes) {
         if (!thisMeshSkip[mesh_num]) {
             bodyID_t mowner = mmesh->owner;
-            float3 ownerPos = this->getOwnerPos(mowner)[0];
-            float4 ownerOriQ = this->getOwnerOriQ(mowner)[0];
+            float3 ownerPos = ownerPosFromHost(mowner);
+            float4 ownerOriQ = ownerOriQFromHost(mowner);
             const auto& vertices = mmesh->GetCoordsVertices();
             const auto& faces = mmesh->GetIndicesVertexes();
 
@@ -2268,8 +2152,27 @@ void DEMDynamicThread::writeMeshesAsStl(std::ofstream& ptFile) {
 }
 
 void DEMDynamicThread::writeMeshesAsPly(std::ofstream& ptFile, bool patch_colors) {
-    std::ostringstream ostream;
     migrateFamilyToHost();
+    migrateClumpPosInfoToHost();
+    writeMeshesAsPlyFromHost(ptFile, patch_colors);
+}
+
+void DEMDynamicThread::writeMeshesAsPlyFromHost(std::ofstream& ptFile, bool patch_colors) {
+    std::ostringstream ostream;
+
+    auto ownerPosFromHost = [this](bodyID_t owner) {
+        double X, Y, Z;
+        voxelID_t voxel = voxelID[owner];
+        subVoxelPos_t subVoxX = locX[owner];
+        subVoxelPos_t subVoxY = locY[owner];
+        subVoxelPos_t subVoxZ = locZ[owner];
+        voxelIDToPosition<double, voxelID_t, subVoxelPos_t>(X, Y, Z, voxel, subVoxX, subVoxY, subVoxZ, simParams->nvXp2,
+                                                            simParams->nvYp2, simParams->voxelSize, simParams->l);
+        return make_float3(X + simParams->LBFX, Y + simParams->LBFY, Z + simParams->LBFZ);
+    };
+    auto ownerOriQFromHost = [this](bodyID_t owner) {
+        return make_float4(oriQx[owner], oriQy[owner], oriQz[owner], oriQw[owner]);
+    };
 
     std::vector<size_t> vertexOffset(m_meshes.size() + 1, 0);
     size_t total_f = 0;
@@ -2314,8 +2217,8 @@ void DEMDynamicThread::writeMeshesAsPly(std::ofstream& ptFile, bool patch_colors
     for (const auto& mmesh : m_meshes) {
         if (!thisMeshSkip[mesh_num]) {
             bodyID_t mowner = mmesh->owner;
-            float3 ownerPos = this->getOwnerPos(mowner)[0];
-            float4 ownerOriQ = this->getOwnerOriQ(mowner)[0];
+            float3 ownerPos = ownerPosFromHost(mowner);
+            float4 ownerOriQ = ownerOriQFromHost(mowner);
             for (const auto& v : mmesh->GetCoordsVertices()) {
                 float3 point = v;
                 applyFrameTransformLocalToGlobal(point, ownerPos, ownerOriQ);

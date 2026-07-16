@@ -43,18 +43,10 @@ target_include_directories(
 )
 
 
-if(USE_CHPF)
-	target_link_libraries(
-		core
-		PUBLIC CUB::CUB
-		INTERFACE ${ChPF_IMPORTED_NAME}
-	)
-else()
-	target_link_libraries(
-		core
-		PUBLIC CUB::CUB
-	)
-endif()
+target_link_libraries(
+	core
+	PUBLIC CUB::CUB
+)
 
 
 set(core_headers

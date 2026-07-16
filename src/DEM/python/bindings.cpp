@@ -744,6 +744,8 @@ PYBIND11_MODULE(DEME, obj) {
         .def("SetMeshOutputFormat",
              static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetMeshOutputFormat),
              "Specify the output file format of meshes.")
+        .def("EnableMeshPatchColorOutput", &deme::DEMSolver::EnableMeshPatchColorOutput,
+             "Enable or disable patch color metadata in PLY mesh output.", py::arg("enable") = true)
         .def("SetContactOutputContent",
              static_cast<void (deme::DEMSolver::*)(const std::vector<std::string>&)>(
                  &deme::DEMSolver::SetContactOutputContent),
@@ -1285,6 +1287,8 @@ PYBIND11_MODULE(DEME, obj) {
              "Write all contact pairs kT-supplied to a file, thus including the potential ones (those are not yet in "
              "contact, or recently used to be in contact).",
              py::arg("outfilename"))
+        .def("WaitForPendingOutput", &deme::DEMSolver::WaitForPendingOutput,
+             "Wait for any in-flight async output to finish.")
 
         // Maybe add checkpoint-reading methods here...
         .def("DoDynamics", &deme::DEMSolver::DoDynamics,
@@ -1318,6 +1322,10 @@ PYBIND11_MODULE(DEME, obj) {
              "steps that dT should be allowed to be in advance of kT.")
         .def("ShowTimingStats", &deme::DEMSolver::ShowTimingStats,
              "Show the wall time and percentages of wall time spend on various solver tasks.")
+        .def("SetGPUTimersEnabled", &deme::DEMSolver::SetGPUTimersEnabled,
+             "Enable or disable event-based GPU timing.", py::arg("enabled"))
+        .def("GetGPUTimersEnabled", &deme::DEMSolver::GetGPUTimersEnabled,
+             "Return whether event-based GPU timing is enabled.")
         .def("PrintKinematicScratchSpaceUsage", &deme::DEMSolver::PrintKinematicScratchSpaceUsage,
              "Print kT's scratch space usage. This is a debug method.")
         .def("ShowAnomalies", &deme::DEMSolver::ShowAnomalies,
@@ -1564,7 +1572,6 @@ PYBIND11_MODULE(DEME, obj) {
     py::enum_<deme::OUTPUT_FORMAT>(obj, "OUTPUT_FORMAT")
         .value("CSV", deme::OUTPUT_FORMAT::CSV)
         .value("BINARY", deme::OUTPUT_FORMAT::BINARY)
-        .value("CHPF", deme::OUTPUT_FORMAT::CHPF)
         .export_values();
 
     py::enum_<deme::MESH_FORMAT>(obj, "MESH_FORMAT")
