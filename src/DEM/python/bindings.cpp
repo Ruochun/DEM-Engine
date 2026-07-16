@@ -887,6 +887,32 @@ PYBIND11_MODULE(DEME, obj) {
              "Get the angular acceleration of n consecutive owners.", py::arg("ownerID"), py::arg("n") = 1)
         .def("GetOwnerFamily", &deme::DEMSolver::GetOwnerFamily, "Get the family number of n consecutive owners.",
              py::arg("ownerID"), py::arg("n") = 1)
+        .def("RequestContactUpdate", &deme::DEMSolver::RequestContactUpdate,
+             "Request an immediate contact detection update.")
+        .def("SetTrianglePVTrackingOwners", &deme::DEMSolver::SetTrianglePVTrackingOwners,
+             "Enable per-triangle P/V/PxV tracking for the specified mesh owners.")
+        .def("DisableTrianglePVTracking", &deme::DEMSolver::DisableTrianglePVTracking,
+             "Disable per-triangle P/V/PxV tracking and clear tracking state.")
+        .def("GetTrackedOwnerTrianglePV",
+             [](deme::DEMSolver& solver, deme::bodyID_t ownerID, bool reset_window) {
+                 std::vector<float> avgP;
+                 std::vector<float> avgV;
+                 std::vector<float> avgPV;
+                 bool ok = solver.GetTrackedOwnerTrianglePV(ownerID, avgP, avgV, avgPV, reset_window);
+                 return py::make_tuple(ok, avgP, avgV, avgPV);
+             },
+             "Get frame-window averaged per-triangle P, V and P*V for one tracked owner.", py::arg("ownerID"),
+             py::arg("reset_window") = true)
+        .def("EnableMeshWearModel", &deme::DEMSolver::EnableMeshWearModel,
+             "Enable a mesh wear model driven by per-triangle P*V.", py::arg("ownerID"), py::arg("wear_rate"),
+             py::arg("update_interval"), py::arg("start_time") = 0.0, py::arg("end_time") = -1.0,
+             py::arg("normal_sign") = -1.0f)
+        .def("DisableMeshWearModel", &deme::DEMSolver::DisableMeshWearModel,
+             "Disable mesh wear model for one owner.")
+        .def("DisableAllMeshWearModels", &deme::DEMSolver::DisableAllMeshWearModels,
+             "Disable all active mesh wear models.")
+        .def("FlushMeshWearModels", &deme::DEMSolver::FlushMeshWearModels,
+             "Force-apply any pending wear deformation immediately.")
         .def("GetOwnerMass", &deme::DEMSolver::GetOwnerMass, "Get the mass of n consecutive owners.",
              py::arg("ownerID"), py::arg("n") = 1)
         .def("GetOwnerMOI", &deme::DEMSolver::GetOwnerMOI,

@@ -453,6 +453,235 @@ void finalizePatchResults(double* totalProjectedAreas,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// Per-triangle P / V / P*V accumulation from patch contacts
+////////////////////////////////////////////////////////////////////////////////
+
+__global__ void computePatchPVScalars_impl(const DEMSimParams* simParams,
+                                           DEMDataDT* granData,
+                                           const float3* finalNormals,
+                                           const double3* finalContactPoints,
+                                           contactPairs_t startOffsetPatch,
+                                           contactPairs_t countPatch,
+                                           float* patchNormalForce,
+                                           float* patchSlipSpeed) {
+    contactPairs_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= countPatch || !patchNormalForce || !patchSlipSpeed || !finalContactPoints) {
+        return;
+    }
+
+    patchNormalForce[idx] = 0.f;
+    patchSlipSpeed[idx] = 0.f;
+
+    const contactPairs_t patchContactID = startOffsetPatch + idx;
+    const contact_t patchType = granData->contactTypePatch[patchContactID];
+    if (patchType == NOT_A_CONTACT) {
+        return;
+    }
+
+    float3 normal = finalNormals[idx];
+    const float n2 = dot(normal, normal);
+    if (!(n2 > DEME_TINY_FLOAT)) {
+        return;
+    }
+    normal *= rsqrtf(n2);
+
+    const float3 patchForce = granData->contactForces[patchContactID];
+    const float normalForce = fabsf(dot(patchForce, normal));
+    if (!(normalForce > DEME_TINY_FLOAT)) {
+        return;
+    }
+
+    const bodyID_t geoA = granData->idPatchA[patchContactID];
+    const bodyID_t geoB = granData->idPatchB[patchContactID];
+    const bodyID_t ownerA = DEME_GET_PATCH_OWNER_ID(geoA, decodeTypeA(patchType));
+    const bodyID_t ownerB = DEME_GET_PATCH_OWNER_ID(geoB, decodeTypeB(patchType));
+
+    float3 velCPA = make_float3(0.f, 0.f, 0.f);
+    float3 velCPB = make_float3(0.f, 0.f, 0.f);
+    const double3 cp_d = finalContactPoints[idx];
+    if (!isfinite(cp_d.x) || !isfinite(cp_d.y) || !isfinite(cp_d.z)) {
+        return;
+    }
+    const float3 cp_global = make_float3((float)cp_d.x, (float)cp_d.y, (float)cp_d.z);
+
+    if (ownerA != NULL_BODYID && ownerA < simParams->nOwnerBodies) {
+        float3 linVelA = make_float3(granData->vX[ownerA], granData->vY[ownerA], granData->vZ[ownerA]);
+        float3 angVelA_local =
+            make_float3(granData->omgBarX[ownerA], granData->omgBarY[ownerA], granData->omgBarZ[ownerA]);
+        const float4 oriA = make_float4(granData->oriQx[ownerA], granData->oriQy[ownerA], granData->oriQz[ownerA],
+                                        granData->oriQw[ownerA]);
+        if (isfinite(linVelA.x) && isfinite(linVelA.y) && isfinite(linVelA.z) && isfinite(angVelA_local.x) &&
+            isfinite(angVelA_local.y) && isfinite(angVelA_local.z)) {
+            float3 angVelA_global = angVelA_local;
+            applyOriQToVector3(angVelA_global, oriA);
+
+            double3 comA;
+            voxelIDToPosition<double, voxelID_t, subVoxelPos_t>(
+                comA.x, comA.y, comA.z, granData->voxelID[ownerA], granData->locX[ownerA], granData->locY[ownerA],
+                granData->locZ[ownerA], simParams->nvXp2, simParams->nvYp2, simParams->voxelSize, simParams->l);
+            comA.x += simParams->LBFX;
+            comA.y += simParams->LBFY;
+            comA.z += simParams->LBFZ;
+
+            float3 rA_global =
+                make_float3(cp_global.x - (float)comA.x, cp_global.y - (float)comA.y, cp_global.z - (float)comA.z);
+            velCPA = linVelA + cross(angVelA_global, rA_global);
+        }
+    }
+
+    if (ownerB != NULL_BODYID && ownerB < simParams->nOwnerBodies) {
+        float3 linVelB = make_float3(granData->vX[ownerB], granData->vY[ownerB], granData->vZ[ownerB]);
+        float3 angVelB_local =
+            make_float3(granData->omgBarX[ownerB], granData->omgBarY[ownerB], granData->omgBarZ[ownerB]);
+        const float4 oriB = make_float4(granData->oriQx[ownerB], granData->oriQy[ownerB], granData->oriQz[ownerB],
+                                        granData->oriQw[ownerB]);
+        if (isfinite(linVelB.x) && isfinite(linVelB.y) && isfinite(linVelB.z) && isfinite(angVelB_local.x) &&
+            isfinite(angVelB_local.y) && isfinite(angVelB_local.z)) {
+            float3 angVelB_global = angVelB_local;
+            applyOriQToVector3(angVelB_global, oriB);
+
+            double3 comB;
+            voxelIDToPosition<double, voxelID_t, subVoxelPos_t>(
+                comB.x, comB.y, comB.z, granData->voxelID[ownerB], granData->locX[ownerB], granData->locY[ownerB],
+                granData->locZ[ownerB], simParams->nvXp2, simParams->nvYp2, simParams->voxelSize, simParams->l);
+            comB.x += simParams->LBFX;
+            comB.y += simParams->LBFY;
+            comB.z += simParams->LBFZ;
+
+            float3 rB_global =
+                make_float3(cp_global.x - (float)comB.x, cp_global.y - (float)comB.y, cp_global.z - (float)comB.z);
+            velCPB = linVelB + cross(angVelB_global, rB_global);
+        }
+    }
+
+    const float3 relVel = velCPA - velCPB;
+    const float vRelN = dot(relVel, normal);
+    const float3 vRelT = relVel - vRelN * normal;
+    const float slipSpeed = length(vRelT);
+    if (!isfinite(slipSpeed) || !(slipSpeed >= 0.f)) {
+        return;
+    }
+    patchNormalForce[idx] = normalForce;
+    patchSlipSpeed[idx] = slipSpeed;
+}
+
+void computePatchPVScalars(DEMSimParams* simParams,
+                           DEMDataDT* granData,
+                           const float3* finalNormals,
+                           const double3* finalContactPoints,
+                           contactPairs_t startOffsetPatch,
+                           contactPairs_t countPatch,
+                           float* patchNormalForce,
+                           float* patchSlipSpeed,
+                           cudaStream_t& this_stream) {
+    size_t blocks_needed = (countPatch + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+    if (blocks_needed > 0) {
+        computePatchPVScalars_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
+            simParams, granData, finalNormals, finalContactPoints, startOffsetPatch, countPatch, patchNormalForce,
+            patchSlipSpeed);
+        DEME_GPU_DEBUG_SYNC(this_stream);
+    }
+}
+
+__global__ void accumulateTrianglePVFromPatchContacts_impl(const DEMSimParams* simParams,
+                                                           DEMDataDT* granData,
+                                                           const contactPairs_t* keys,
+                                                           const double* primitiveWeights,
+                                                           const double* patchWeights,
+                                                           const float* patchNormalForce,
+                                                           const float* patchSlipSpeed,
+                                                           contactPairs_t startOffsetPrimitive,
+                                                           contactPairs_t startOffsetPatch,
+                                                           contactPairs_t countPrimitive,
+                                                           const int* triGlobalToLocal,
+                                                           float* triAccumP,
+                                                           float* triAccumPV) {
+    contactPairs_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= countPrimitive || !triGlobalToLocal || !triAccumP || !triAccumPV) {
+        return;
+    }
+
+    const contactPairs_t primContactID = startOffsetPrimitive + idx;
+    const contactPairs_t patchContactID = keys[idx];
+    if (patchContactID < startOffsetPatch) {
+        return;
+    }
+    const contactPairs_t localPatchIdx = patchContactID - startOffsetPatch;
+
+    const double patchWeight = patchWeights[localPatchIdx];
+    const double primitiveWeight = primitiveWeights[idx];
+    if (patchWeight <= 0.0 || primitiveWeight <= 0.0) {
+        return;
+    }
+
+    float share = static_cast<float>(primitiveWeight / patchWeight);
+    if (!(share > 0.f)) {
+        return;
+    }
+    share = fminf(share, 1.f);
+
+    const float normalForce = patchNormalForce[localPatchIdx];
+    if (!(normalForce > DEME_TINY_FLOAT)) {
+        return;
+    }
+    const float pContribution = normalForce * share;
+    const float slipSpeed = patchSlipSpeed[localPatchIdx];
+    const float pvContribution = pContribution * slipSpeed;
+
+    const contact_t primType = granData->contactTypePrimitive[primContactID];
+    if (primType == NOT_A_CONTACT) {
+        return;
+    }
+
+    const geoType_t typeA = decodeTypeA(primType);
+    const geoType_t typeB = decodeTypeB(primType);
+
+    if (typeA == GEO_T_TRIANGLE) {
+        const bodyID_t triA = granData->idPrimitiveA[primContactID];
+        if (triA < simParams->nTriGM) {
+            const int localIdx = triGlobalToLocal[triA];
+            if (localIdx >= 0) {
+                atomicAdd(triAccumP + localIdx, pContribution);
+                atomicAdd(triAccumPV + localIdx, pvContribution);
+            }
+        }
+    }
+    if (typeB == GEO_T_TRIANGLE) {
+        const bodyID_t triB = granData->idPrimitiveB[primContactID];
+        if (triB < simParams->nTriGM) {
+            const int localIdx = triGlobalToLocal[triB];
+            if (localIdx >= 0) {
+                atomicAdd(triAccumP + localIdx, pContribution);
+                atomicAdd(triAccumPV + localIdx, pvContribution);
+            }
+        }
+    }
+}
+
+void accumulateTrianglePVFromPatchContacts(DEMSimParams* simParams,
+                                           DEMDataDT* granData,
+                                           const contactPairs_t* keys,
+                                           const double* primitiveWeights,
+                                           const double* patchWeights,
+                                           const float* patchNormalForce,
+                                           const float* patchSlipSpeed,
+                                           contactPairs_t startOffsetPrimitive,
+                                           contactPairs_t startOffsetPatch,
+                                           contactPairs_t countPrimitive,
+                                           const int* triGlobalToLocal,
+                                           float* triAccumP,
+                                           float* triAccumPV,
+                                           cudaStream_t& this_stream) {
+    size_t blocks_needed = (countPrimitive + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+    if (blocks_needed > 0) {
+        accumulateTrianglePVFromPatchContacts_impl<<<blocks_needed, DEME_MAX_THREADS_PER_BLOCK, 0, this_stream>>>(
+            simParams, granData, keys, primitiveWeights, patchWeights, patchNormalForce, patchSlipSpeed,
+            startOffsetPrimitive, startOffsetPatch, countPrimitive, triGlobalToLocal, triAccumP, triAccumPV);
+        DEME_GPU_DEBUG_SYNC(this_stream);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Prep force kernels
 ////////////////////////////////////////////////////////////////////////////////
 

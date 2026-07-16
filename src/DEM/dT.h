@@ -125,6 +125,20 @@ class DEMDynamicThread {
     // Per-triangle max tri-tri penetration values to be sent to kT
     DeviceArray<float> maxTriTriPenetration = DeviceArray<float>(&m_approxDeviceBytesUsed);
 
+    // Optional per-triangle diagnostics (P, V, P*V) for selected mesh owners.
+    bool triPVTrackingEnabled = false;
+    size_t triPVNumTrackedTriangles = 0;
+    unsigned int triPVWindowSteps = 0;
+    DualArray<int> triPVGlobalTriToLocal = DualArray<int>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float> triPVStepP = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float> triPVStepPV = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float> triPVAccumP = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float> triPVAccumPV = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    std::vector<bodyID_t> triPVOwnerOrder;
+    std::vector<size_t> triPVOwnerOffsets;
+    std::vector<size_t> triPVOwnerCounts;
+    std::unordered_map<bodyID_t, size_t> triPVOwnerToSlot;
+
     // Simulation params-related variables
     DualStruct<DEMSimParams> simParams = DualStruct<DEMSimParams>();
 
@@ -520,6 +534,18 @@ class DEMDynamicThread {
     /// Rewrite the relative positions of the flattened triangle soup, starting from `start' by the amount stipulated in
     /// updates.
     void updateTriNodeRelPos(size_t start, const std::vector<DEMTriangle>& updates);
+    /// Configure per-triangle P/V/P*V tracking for selected mesh owners.
+    void configureTrianglePVTracking(const std::vector<bodyID_t>& mesh_owner_ids);
+    /// Disable and clear per-triangle P/V/P*V tracking state.
+    void disableTrianglePVTracking();
+    /// Get frame-window averaged per-triangle P, V, and P*V for one tracked owner.
+    bool getTrackedOwnerTrianglePV(bodyID_t ownerID,
+                                   std::vector<float>& avgP,
+                                   std::vector<float>& avgV,
+                                   std::vector<float>& avgPV,
+                                   bool reset_window);
+    /// Reset the current per-triangle PV accumulation window.
+    void resetTrackedTrianglePVWindow();
 
     /// @brief Globally modify a owner wildcard's value.
     void setOwnerWildcardValue(bodyID_t ownerID, unsigned int wc_num, const std::vector<float>& vals);
@@ -876,6 +902,8 @@ class DEMDynamicThread {
     // Some per-step checks/modification, done before integration, but after force calculation (thus sort of in the
     // mid-step stage)
     inline void routineChecks();
+    // Record one completed dT step for per-triangle PV tracking.
+    void finalizeTrianglePVWindowStep();
 
     // Bring dT buffer array data to its working arrays
     inline void unpackMyBuffer();

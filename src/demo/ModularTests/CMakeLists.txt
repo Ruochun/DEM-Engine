@@ -23,6 +23,7 @@ SET(MODULAR_TESTS
 		DEMTest_SimpleCollisions
 		DEMTest_SpherePlanePeneArea
 		DEMTest_SphereSphereArea
+		DEMTest_TrianglePVTracking
 )
 
 # ------------------------------------------------------------------------------
