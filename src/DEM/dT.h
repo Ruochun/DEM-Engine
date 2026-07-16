@@ -756,9 +756,6 @@ class DEMDynamicThread {
                                unsigned int nExistingObj,
                                unsigned int nExistingAnalGM);
 
-    /// Change radii and relPos info of these owners (if these owners are clumps)
-    void changeOwnerSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors);
-
     /// Put sim data array pointers in place
     void packDataPointers();
     void packTransferPointers(DEMKinematicThread*& kT);

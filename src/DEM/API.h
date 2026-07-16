@@ -1319,10 +1319,6 @@ class DEMSolver {
         const std::pair<double, double>& Z = std::pair<double, double>(-DEME_HUGE_FLOAT, DEME_HUGE_FLOAT),
         const std::set<unsigned int>& orig_fam = std::set<unsigned int>());
 
-    /// Change the sizes of the clumps by a factor. This method directly works on the clump components spheres,
-    /// therefore requiring sphere components to be store in flattened array (default behavior), not jitified templates.
-    void ChangeClumpSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors);
-
     /// If true, each jitification string substitution will do a one-liner to one-liner replacement, so that if the
     /// kernel compilation fails, the error message line number will reflex the actual spot where that happens (instead
     /// of some random number)

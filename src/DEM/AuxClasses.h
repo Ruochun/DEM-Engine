@@ -281,9 +281,6 @@ class DEMTracker {
     void SetFamily(unsigned int fam_num, size_t offset);
     //// TODO: Maybe give a vector-based tracker family number modification method, like what DEMInitializer allows for.
 
-    /// Change the size of clump entities
-    void ChangeClumpSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors);
-
     /// @brief Apply the new mesh node positions such that the tracked mesh is replaced by the new_nodes.
     /// @details This affects triangle facets' relative positions wrt the mesh center (CoM) only; mesh's overall
     /// position/rotation in simulation is not affected. So if provided input is the new mesh location with

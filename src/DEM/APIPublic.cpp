@@ -3689,30 +3689,6 @@ void DEMSolver::Update() {
     ClearCache();
 }
 
-void DEMSolver::ChangeClumpSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors) {
-    if (!sys_initialized) {
-        DEME_ERROR(std::string(
-            "ChangeClumpSizes operates on device-side arrays directly, so it requires the system to be initialized "
-            "first."));
-    }
-    if (jitify_clump_templates || jitify_mass_moi) {
-        DEME_ERROR(std::string(
-            "ChangeClumpSizes only works when the clump components are flattened (not jitified).\nConsider calling "
-            "SetJitifyClumpTemplates(false) and SetJitifyMassProperties(false)."));
-    }
-
-    // This method requires kT and dT are sync-ed
-    // resetWorkerThreads();
-
-    std::thread dThread = std::move(std::thread([this, IDs, factors]() { this->dT->changeOwnerSizes(IDs, factors); }));
-    std::thread kThread = std::move(std::thread([this, IDs, factors]() { this->kT->changeOwnerSizes(IDs, factors); }));
-    dThread.join();
-    kThread.join();
-
-    // Size changes are critical
-    dT->announceCritical();
-}
-
 /// Removes all entities associated with a family from the arrays (to save memory space). This method should only be
 /// called periodically because it gives a large overhead. This is only used in long simulations where if the
 /// `phased-out' entities do not get cleared, we won't have enough memory space.

@@ -607,46 +607,6 @@ void DEMKinematicThread::changeFamily(unsigned int ID_from, unsigned int ID_to) 
     familyID.toDevice();
 }
 
-void DEMKinematicThread::changeOwnerSizes(const std::vector<bodyID_t>& IDs, const std::vector<float>& factors) {
-    // Set the gpu for this thread
-    cudaSetDevice(streamInfo.device);
-    // cudaStream_t new_stream;
-    // cudaStreamCreate(&new_stream);
-
-    // First get IDs and factors to device side
-    size_t IDSize = IDs.size() * sizeof(bodyID_t);
-    bodyID_t* dIDs = (bodyID_t*)solverScratchSpace.allocateTempVector("dIDs", IDSize);
-    DEME_GPU_CALL(cudaMemcpy(dIDs, IDs.data(), IDSize, cudaMemcpyHostToDevice));
-    size_t factorSize = factors.size() * sizeof(float);
-    float* dFactors = (float*)solverScratchSpace.allocateTempVector("dFactors", factorSize);
-    DEME_GPU_CALL(cudaMemcpy(dFactors, factors.data(), factorSize, cudaMemcpyHostToDevice));
-
-    size_t idBoolSize = (size_t)simParams->nOwnerBodies * sizeof(notStupidBool_t);
-    size_t ownerFactorSize = (size_t)simParams->nOwnerBodies * sizeof(float);
-    // Bool table for whether this owner should change
-    notStupidBool_t* idBool = (notStupidBool_t*)solverScratchSpace.allocateTempVector("idBool", idBoolSize);
-    DEME_GPU_CALL(cudaMemset(idBool, 0, idBoolSize));
-    float* ownerFactors = (float*)solverScratchSpace.allocateTempVector("ownerFactors", ownerFactorSize);
-
-    // Mark on the bool array those owners that need a change
-    markOwnerToChange(idBool, ownerFactors, dIDs, dFactors, (size_t)IDs.size(), streamInfo.stream);
-
-    // Change the size of the sphere components in question
-    modifyComponents<DEMDataKT>(&granData, idBool, ownerFactors, (size_t)simParams->nSpheresGM, streamInfo.stream);
-
-    solverScratchSpace.finishUsingTempVector("dIDs");
-    solverScratchSpace.finishUsingTempVector("dFactors");
-    solverScratchSpace.finishUsingTempVector("idBool");
-    solverScratchSpace.finishUsingTempVector("ownerFactors");
-    // cudaStreamDestroy(new_stream);
-
-    // Update them back to host
-    relPosSphereX.toHost();
-    relPosSphereY.toHost();
-    relPosSphereZ.toHost();
-    radiiSphere.toHost();
-}
-
 void DEMKinematicThread::startThread() {
     std::lock_guard<std::mutex> lock(pSchedSupport->kinematicStartLock);
     pSchedSupport->kinematicStarted = true;
