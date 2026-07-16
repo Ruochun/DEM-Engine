@@ -528,16 +528,19 @@ struct SolverFlags {
     bool autoBinSize = true;
     bool autoUpdateFreq = true;
 
-    // The max number of average contacts per sphere has before the solver errors out. The reason why I didn't use the
-    // number of contacts for the sphere that has the most is that, well, we can have a huge sphere and it just will
-    // have more contacts. But if avg cnt is high, that means probably the contact margin is out of control now.
-    float errOutAvgSphCnts = 300.;
+    // The max average primitive contacts before the solver errors out. We check primitive average rather than the
+    // worst primitive so one legitimately large sphere/triangle patch does not dominate the error policy. A sustained
+    // high average usually means the contact margin or dynamics are out of control.
+    float errOutAvgPrimitiveCnts = 300.;
 
     // Whether there are contacts that can never be removed.
     bool hasPersistentContacts = false;
-    // Optional fallback for RefBranch-style patch-ID grouping without flooded patch islands.
+    // Whether to use the simple patch ID-based triangle combination. This is the default safe path because it preserves
+    // dT's expected per-contact-type, patch-pair sorted contact-history mapping invariant. Set false only to opt into
+    // the connected-component flooding route.
     bool useSimplePatchCombination = true;
-    // Whether flooded patch-island IDs should be stabilized across contact-detection steps.
+    // Whether the opt-in flooding route remaps raw island labels to stable IDs across contact detection steps. This
+    // preserves contact history when the raw representative triangle changes.
     bool useStablePatchIslandIDs = true;
 };
 
@@ -688,8 +691,12 @@ struct kTStateParams {
     // Num of bins, currently
     size_t numBins = 0;
 
-    // Current average num of contacts per sphere has.
+    // Current average number of contacts per primitive.
     float avgCntsPerPrimitive = 0.;
+    // Consecutive contact-detection steps above errOutAvgPrimitiveCnts.
+    unsigned int avgCntsOverLimitStreak = 0;
+    // Peak average contacts observed during the current over-limit streak.
+    float avgCntsOverLimitPeak = 0.f;
 
     // float maxVel_buffer; // buffer for the current max vel sent by dT
     DualStruct<float> maxVel = DualStruct<float>(0.f);     // kT's own storage of max vel

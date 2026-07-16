@@ -595,7 +595,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 .instantiate()
                 .configure(dim3(blocks_needed_for_bodies), dim3(DEME_NUM_BODIES_PER_BLOCK), 0, this_stream)
                 .launch(&simParams, &granData, numBinsSphereTouches, numAnalGeoSphereTouches);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            DEME_GPU_DEBUG_SYNC(this_stream);
 
             // 2nd step: prefix scan sphere--bin touching pairs
             // The last element of this scanned array is useful: it can be used to check if the 2 sweeps reach the same
@@ -660,7 +660,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 .launch(&simParams, &granData, numBinsSphereTouchesScan, numAnalGeoSphereTouchesScan,
                         binIDsEachSphereTouches, sphereIDsEachBinTouches, granData->idPrimitiveA,
                         granData->idPrimitiveB, granData->contactTypePrimitive);
-            DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+            DEME_GPU_DEBUG_SYNC(this_stream);
             // std::cout << "Unsorted bin IDs: ";
             // displayDeviceArray<binID_t>(binIDsEachSphereTouches, *pNumBinSphereTouchPairs);
             // std::cout << "Corresponding sphere IDs: ";
@@ -1076,7 +1076,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     .configure(dim3(blocks_needed_for_bins_sph), dim3(DEME_KT_CD_NTHREADS_PER_BLOCK), 0, this_stream)
                     .launch(&simParams, &granData, sphereIDsEachBinTouches_sorted, activeBinIDs, numSpheresBinTouches,
                             sphereIDsLookUpTable, numSphContactsInEachBin, *pNumActiveBins);
-                DEME_GPU_CALL_WATCH_BETA(cudaStreamSynchronize(this_stream));
+                DEME_GPU_DEBUG_SYNC(this_stream);
             }
 
             if (blocks_needed_for_bins_tri > 0) {
@@ -1089,7 +1089,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             activeBinIDsForTri, numTrianglesBinTouches, triIDsLookUpTable, numTriSphContactsInEachBin,
                             numTriTriContactsInEachBin, tri_vA1, tri_vB1, tri_vC1, tri_shift, *pNumActiveBinsForTri,
                             solverFlags.meshUniversalContact);
-                DEME_GPU_CALL_WATCH_BETA(cudaStreamSynchronize(this_stream));
+                DEME_GPU_DEBUG_SYNC(this_stream);
                 // std::cout << "numTriSphContactsInEachBin: " << std::endl;
                 // displayDeviceArray<binContactPairs_t>(numTriSphContactsInEachBin, *pNumActiveBinsForTri);
                 // std::cout << "numTriTriContactsInEachBin: " << std::endl;
@@ -1197,7 +1197,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     .configure(dim3(blocks_needed_for_bins_sph), dim3(DEME_KT_CD_NTHREADS_PER_BLOCK), 0, this_stream)
                     .launch(&simParams, &granData, sphereIDsEachBinTouches_sorted, activeBinIDs, numSpheresBinTouches,
                             sphereIDsLookUpTable, sphSphContactReportOffsets, idSphA, idSphB, dType, *pNumActiveBins);
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                DEME_GPU_DEBUG_SYNC(this_stream);
             }
 
             // Triangle--sphere contact pairs go after sphere--sphere contacts. Remember to mark their type.
@@ -1227,7 +1227,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             triTriContactReportOffsets, idSphA_sm, idTriB_sm, dType_sm, idTriA_mm, idTriB_mm, dType_mm,
                             tri_vA1, tri_vB1, tri_vC1, tri_shift, *pNumActiveBinsForTri,
                             solverFlags.meshUniversalContact);
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                DEME_GPU_DEBUG_SYNC(this_stream);
             }
             // std::cout << "idPrimitiveA: " << std::endl;
             // displayDeviceArray<bodyID_t>(granData->idPrimitiveA, *scratchPad.numPrimitiveContacts);
@@ -1290,7 +1290,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 markBoolIf<<<dim3(blocks_needed_for_flagging), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
                     grab_flags, granData->contactPersistency, CONTACT_IS_PERSISTENT,
                     *scratchPad.numPrevPrimitiveContacts);
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                DEME_GPU_DEBUG_SYNC(this_stream);
             }
             // Store the number of persistent contacts
             scratchPad.allocateDualStruct("numPersistCnts");
@@ -1349,7 +1349,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             if (blocks_needed_for_setting_1 > 0) {
                 setArr<<<dim3(blocks_needed_for_setting_1), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
                     total_persistency, *pNumPersistCnts, CONTACT_IS_PERSISTENT);
-                DEME_GPU_CALL(cudaStreamSynchronize(this_stream));
+                DEME_GPU_DEBUG_SYNC(this_stream);
             }
             scratchPad.finishUsingTempVector("grab_flags");
             scratchPad.finishUsingTempVector("selected_idA");
@@ -1521,6 +1521,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         // are stored in granData). If sorted by type, then we have to sort by idA but do not change the granData
         // arrays, as they will be used later.
         // -----------------------------------------------------------------------------------------------------------
+        if (*scratchPad.numPrimitiveContacts == 0) {
+            stateParams.avgCntsOverLimitStreak = 0;
+            stateParams.avgCntsOverLimitPeak = 0.f;
+        }
         if (*scratchPad.numPrimitiveContacts > 0) {
             size_t numTotalCnts = *scratchPad.numPrimitiveContacts;
             size_t total_ids_bytes = numTotalCnts * sizeof(bodyID_t);
@@ -1534,7 +1538,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             }
 
             size_t nGeoSafe = DEME_MAX(simParams->nSpheresGM, simParams->nTriGM);
-            // For tab-keeping: how many contacts on average a sphere has? (using primitive contacts for this stat)
+            // For tab-keeping: how many contacts on average each primitive has.
             // First, identify unique idA in primitive contacts
             size_t run_length_bytes = nGeoSafe * sizeof(primitivesPrimTouches_t);
             primitivesPrimTouches_t* new_idA_runlength =
@@ -1554,20 +1558,44 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 (*pNumUniqueNewA > 0) ? (float)(*scratchPad.numPrimitiveContacts) / (float)(*pNumUniqueNewA) : 0.0;
 
             DEME_DEBUG_PRINTF("Average number of contacts for each geometry: %.7g", stateParams.avgCntsPerPrimitive);
-            if (stateParams.avgCntsPerPrimitive > solverFlags.errOutAvgSphCnts) {
-                DEME_ERROR(
-                    "On average a primitive (spheres, triangle facets) has %.7g contacts with other primitives, more "
-                    "than the max allowance (%.7g).\nIf you believe this number is expected with the physics you are "
-                    "simulating, set the allowance high using SetErrorOutAvgContacts before "
-                    "initialization.\nIf you think this is because dT drifting too much "
-                    "ahead of kT so the contact margin added is too big, use SetCDMaxUpdateFreq to limit the max dT "
-                    "future drift.\nOtherwise, the simulation may have diverged with unreasonable entity velocities "
-                    "and relaxing the physics may help, such as decreasing the step size and modifying material "
-                    "properties.\nIf this happens at the start of simulation, check if there are initial penetrations, "
-                    "a.k.a. elements initialized inside walls.\nIf none works and you are going to discuss this on "
-                    "forum https://groups.google.com/g/projectchrono, please include a visual rendering of the "
-                    "simulation before crash in the post.\n",
-                    stateParams.avgCntsPerPrimitive, solverFlags.errOutAvgSphCnts);
+            constexpr unsigned int kOverLimitStreakToError = 6;
+            constexpr float kSevereOverLimitMultiplier = 1.35f;
+            if (stateParams.avgCntsPerPrimitive > solverFlags.errOutAvgPrimitiveCnts) {
+                stateParams.avgCntsOverLimitStreak++;
+                stateParams.avgCntsOverLimitPeak =
+                    DEME_MAX(stateParams.avgCntsOverLimitPeak, stateParams.avgCntsPerPrimitive);
+                const bool severe_over_limit =
+                    stateParams.avgCntsPerPrimitive > (kSevereOverLimitMultiplier * solverFlags.errOutAvgPrimitiveCnts);
+                const bool persistent_over_limit = stateParams.avgCntsOverLimitStreak >= kOverLimitStreakToError;
+                if (!severe_over_limit && !persistent_over_limit) {
+                    if (stateParams.avgCntsOverLimitStreak == 1 ||
+                        stateParams.avgCntsOverLimitStreak == kOverLimitStreakToError - 1) {
+                        DEME_WARNING(
+                            "Average primitive contacts temporarily above limit: %.7g (limit %.7g), streak %u/%u.\n"
+                            "If this remains transient, simulation continues. If repeated or severe, it will error "
+                            "out.",
+                            stateParams.avgCntsPerPrimitive, solverFlags.errOutAvgPrimitiveCnts,
+                            stateParams.avgCntsOverLimitStreak, kOverLimitStreakToError);
+                    }
+                } else {
+                    DEME_ERROR(
+                        "On average a primitive (spheres, triangle facets) has %.7g contacts with other primitives, "
+                        "more than the max allowance (%.7g).\nOver-limit streak: %u step(s), peak in streak: %.7g.\n"
+                        "If you believe this number is expected with the physics you are simulating, set the allowance "
+                        "high using SetErrorOutAvgContacts before initialization.\nIf you think this is because dT "
+                        "drifting too much ahead of kT so the contact margin added is too big, use SetCDMaxUpdateFreq "
+                        "to limit the max dT future drift.\nOtherwise, the simulation may have diverged with "
+                        "unreasonable entity velocities and relaxing the physics may help, such as decreasing the step "
+                        "size and modifying material properties.\nIf this happens at the start of simulation, check if "
+                        "there are initial penetrations, a.k.a. elements initialized inside walls.\nIf none works and "
+                        "you are going to discuss this on forum https://groups.google.com/g/projectchrono, please "
+                        "include a visual rendering of the simulation before crash in the post.\n",
+                        stateParams.avgCntsPerPrimitive, solverFlags.errOutAvgPrimitiveCnts,
+                        stateParams.avgCntsOverLimitStreak, stateParams.avgCntsOverLimitPeak);
+                }
+            } else {
+                stateParams.avgCntsOverLimitStreak = 0;
+                stateParams.avgCntsOverLimitPeak = 0.f;
             }
 
             scratchPad.finishUsingTempVector("new_idA_runlength");
@@ -1642,20 +1670,20 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
                 contact_t* unique_types = (contact_t*)scratchPad.allocateTempVector(
                     "unique_types", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contact_t));
-                size_t* type_counts =
-                    (size_t*)scratchPad.allocateTempVector("type_counts", NUM_SUPPORTED_CONTACT_TYPES * sizeof(size_t));
+                contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
+                    "type_counts", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contactPairs_t));
                 scratchPad.allocateDualStruct("numUniqueTypes");
 
-                cubDEMRunLengthEncode<contact_t, size_t>(granData->contactTypePrimitive, unique_types, type_counts,
-                                                         scratchPad.getDualStructDevice("numUniqueTypes"), numTotalCnts,
-                                                         this_stream, scratchPad);
+                cubDEMRunLengthEncode<contact_t, contactPairs_t>(
+                    granData->contactTypePrimitive, unique_types, type_counts,
+                    scratchPad.getDualStructDevice("numUniqueTypes"), numTotalCnts, this_stream, scratchPad);
                 scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
                 size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
 
                 if (numTypes > 0) {
-                    size_t* host_type_counts = new size_t[numTypes];
-                    DEME_GPU_CALL(
-                        cudaMemcpy(host_type_counts, type_counts, numTypes * sizeof(size_t), cudaMemcpyDeviceToHost));
+                    contactPairs_t* host_type_counts = new contactPairs_t[numTypes];
+                    DEME_GPU_CALL(cudaMemcpy(host_type_counts, type_counts, numTypes * sizeof(contactPairs_t),
+                                             cudaMemcpyDeviceToHost));
 
                     contact_t* host_unique_types = new contact_t[numTypes];
                     DEME_GPU_CALL(cudaMemcpy(host_unique_types, unique_types, numTypes * sizeof(contact_t),
@@ -1691,7 +1719,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
                     for (size_t i = 0; i < numTypes; i++) {
                         contact_t thisType = host_unique_types[i];
-                        size_t count = host_type_counts[i];
+                        contactPairs_t count = host_type_counts[i];
 
                         if (count == 0) {
                             continue;
@@ -2884,10 +2912,11 @@ void overwritePrevContactArrays(DualStruct<DEMDataKT>& kT_data,
     typeStartCountPatchMap.SetAll({0, 0});
     if (nContacts > 0) {
         // Use run-length encoding to identify contact type boundaries
-        size_t typeCounts_bytes = NUM_SUPPORTED_CONTACT_TYPES * sizeof(contactPairs_t);
+        size_t type_buf_len = DEME_MAX((size_t)1, nContacts);
+        size_t typeCounts_bytes = type_buf_len * sizeof(contactPairs_t);
         contactPairs_t* typeCounts = (contactPairs_t*)scratchPad.allocateTempVector("typeCounts", typeCounts_bytes);
 
-        size_t existingTypes_bytes = NUM_SUPPORTED_CONTACT_TYPES * sizeof(contact_t);
+        size_t existingTypes_bytes = type_buf_len * sizeof(contact_t);
         contact_t* existingTypes = (contact_t*)scratchPad.allocateTempVector("existingTypes", existingTypes_bytes);
 
         scratchPad.allocateDualStruct("numExistingTypes");
@@ -2899,9 +2928,13 @@ void overwritePrevContactArrays(DualStruct<DEMDataKT>& kT_data,
 
         scratchPad.syncDualStructDeviceToHost("numExistingTypes");
         size_t numExistingTypes = *scratchPad.getDualStructHost("numExistingTypes");
+        if (numExistingTypes > type_buf_len) {
+            DEME_ERROR("Prev patch contact type run-length output (%zu) exceeds allocated buffer (%zu).",
+                       numExistingTypes, type_buf_len);
+        }
 
         // Prefix scan to get start offsets
-        size_t typeOffsets_bytes = NUM_SUPPORTED_CONTACT_TYPES * sizeof(contactPairs_t);
+        size_t typeOffsets_bytes = type_buf_len * sizeof(contactPairs_t);
         contactPairs_t* typeOffsets = (contactPairs_t*)scratchPad.allocateTempVector("typeOffsets", typeOffsets_bytes);
 
         cubDEMPrefixScan<contactPairs_t, contactPairs_t>(typeCounts, typeOffsets, numExistingTypes, this_stream,
@@ -2919,10 +2952,13 @@ void overwritePrevContactArrays(DualStruct<DEMDataKT>& kT_data,
         // Build the typeStartCountPatchMap
         typeStartCountPatchMap.SetAll({0, 0});
         for (size_t i = 0; i < numExistingTypes; i++) {
+            const contact_t type = host_existingTypes[i];
             contactPairs_t startOffset = host_typeOffsets[i];
             contactPairs_t count =
                 (i + 1 < numExistingTypes ? host_typeOffsets[i + 1] : (contactPairs_t)nContacts) - startOffset;
-            typeStartCountPatchMap[host_existingTypes[i]] = {startOffset, count};
+            if (isSupportedContactType(type) && count > 0) {
+                typeStartCountPatchMap[type] = {startOffset, count};
+            }
         }
 
         delete[] host_existingTypes;
