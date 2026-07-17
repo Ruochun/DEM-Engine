@@ -672,40 +672,6 @@ static float computeAngleBetweenNormals(const float3& n1, const float3& n2) {
     return angle_rad * 180.0f / deme::PI;
 }
 
-// Helper to build adjacency map for triangles (shared edges)
-static std::vector<std::vector<size_t>> buildAdjacencyMap(const std::vector<int3>& face_v_indices) {
-    size_t num_faces = face_v_indices.size();
-    std::vector<std::vector<size_t>> adjacency(num_faces);
-
-    // Map from edge (as pair of vertex indices) to faces that share it
-    std::map<std::pair<int, int>, std::vector<size_t>> edge_to_faces;
-
-    for (size_t i = 0; i < num_faces; ++i) {
-        const int3& face = face_v_indices[i];
-
-        // Three edges of the triangle (store with smaller index first for consistency)
-        std::pair<int, int> edges[3] = {{std::min(face.x, face.y), std::max(face.x, face.y)},
-                                        {std::min(face.y, face.z), std::max(face.y, face.z)},
-                                        {std::min(face.z, face.x), std::max(face.z, face.x)}};
-
-        for (int e = 0; e < 3; ++e) {
-            edge_to_faces[edges[e]].push_back(i);
-        }
-    }
-
-    // Build adjacency list
-    for (const auto& entry : edge_to_faces) {
-        const std::vector<size_t>& faces = entry.second;
-        // If two faces share an edge, they are adjacent
-        if (faces.size() == 2) {
-            adjacency[faces[0]].push_back(faces[1]);
-            adjacency[faces[1]].push_back(faces[0]);
-        }
-    }
-
-    return adjacency;
-}
-
 // ------------------------------------------------------------
 // Helpers for advanced patching
 // ------------------------------------------------------------
@@ -765,23 +731,50 @@ static float signedDihedralDeg(const float3& n_cur, const float3& n_nbr, const f
 }
 
 // Build triangle adjacency WITH oriented shared-edge info.
-// Non-manifold edges (shared by != 2 faces) are treated as boundaries.
-static std::vector<std::vector<EdgeAdjInfo>> buildAdjacencyWithEdgeInfo(const std::vector<int3>& face_v_indices) {
+// Patch splitting must use geometric adjacency, not raw OBJ/STL vertex-index adjacency: those formats commonly
+// duplicate vertices per face to carry separate normals/UVs. Canonical vertex IDs let such coincident vertices share
+// edges for grouping while preserving the mesh's stored topology. Non-manifold edges (shared by != 2 faces) are treated
+// as boundaries.
+static std::vector<std::vector<EdgeAdjInfo>> buildAdjacencyWithEdgeInfo(const std::vector<int3>& face_v_indices,
+                                                                        const std::vector<float3>& vertices) {
     struct EdgeRec {
         size_t f;
-        int a;
-        int b;
+        int a_raw;
+        int b_raw;
+        size_t a_canon;
+        size_t b_canon;
     };
 
     const size_t num_faces = face_v_indices.size();
     std::vector<std::vector<EdgeAdjInfo>> adj(num_faces);
 
-    std::map<std::pair<int, int>, std::vector<EdgeRec>> edge_map;
+    std::vector<size_t> canon;
+    if (!vertices.empty()) {
+        const double eps = computeVertexQuantEps(vertices);
+        canon = buildCanonicalVertexMap(vertices, eps);
+    }
+
+    std::map<std::pair<size_t, size_t>, std::vector<EdgeRec>> edge_map;
 
     auto add_edge = [&](size_t f, int a, int b) {
-        int lo = std::min(a, b);
-        int hi = std::max(a, b);
-        edge_map[{lo, hi}].push_back(EdgeRec{f, a, b});
+        if (a < 0 || b < 0) {
+            return;
+        }
+        size_t ca = static_cast<size_t>(a);
+        size_t cb = static_cast<size_t>(b);
+        if (!canon.empty()) {
+            if (ca >= canon.size() || cb >= canon.size()) {
+                return;
+            }
+            ca = canon[ca];
+            cb = canon[cb];
+        }
+        if (ca == cb) {
+            return;
+        }
+        size_t lo = std::min(ca, cb);
+        size_t hi = std::max(ca, cb);
+        edge_map[{lo, hi}].push_back(EdgeRec{f, a, b, ca, cb});
     };
 
     for (size_t i = 0; i < num_faces; ++i) {
@@ -799,23 +792,35 @@ static std::vector<std::vector<EdgeAdjInfo>> buildAdjacencyWithEdgeInfo(const st
         const EdgeRec& r0 = recs[0];
         const EdgeRec& r1 = recs[1];
 
-        bool oriented_ok_0 = (r0.a == r1.b && r0.b == r1.a);
+        bool oriented_ok_0 = (r0.a_canon == r1.b_canon && r0.b_canon == r1.a_canon);
         bool oriented_ok_1 = oriented_ok_0;
 
-        adj[r0.f].push_back(EdgeAdjInfo{r1.f, r0.a, r0.b, oriented_ok_0});
-        adj[r1.f].push_back(EdgeAdjInfo{r0.f, r1.a, r1.b, oriented_ok_1});
+        adj[r0.f].push_back(EdgeAdjInfo{r1.f, r0.a_raw, r0.b_raw, oriented_ok_0});
+        adj[r1.f].push_back(EdgeAdjInfo{r0.f, r1.a_raw, r1.b_raw, oriented_ok_1});
     }
 
     return adj;
 }
 
-// Split mesh into convex patches using region-growing algorithm.
-// The algorithm groups adjacent triangles (sharing an edge) if the angle between their
-// face normals is below the threshold. Each patch represents a locally convex region.
-unsigned int DEMMesh::SplitIntoConvexPatches(float angle_threshold_deg) {
+// Split mesh into connected patches using region-growing. The default option set preserves the original behavior:
+// merge adjacent triangles when their local face-normal angle is below hard_angle_deg.
+unsigned int DEMMesh::SplitIntoConvexPatches(float hard_angle_deg,
+                                             const PatchSplitOptions& opt,
+                                             PatchQualityReport* out_report,
+                                             const PatchQualityOptions& qopt) {
+    auto set_empty_report = [&]() {
+        if (!out_report) {
+            return;
+        }
+        *out_report = PatchQualityReport();
+        out_report->requested_min = opt.patch_min;
+        out_report->requested_max = opt.patch_max;
+    };
+
     if (nTri == 0) {
         patches_explicitly_set = false;
         nPatches = 1;
+        set_empty_report();
         return 0;
     }
 
@@ -823,20 +828,33 @@ unsigned int DEMMesh::SplitIntoConvexPatches(float angle_threshold_deg) {
     m_patch_ids.resize(nTri, -1);
 
     std::vector<float3> face_normals(nTri);
+    std::vector<float> face_areas(nTri, 0.0f);
     for (size_t i = 0; i < nTri; ++i) {
         const int3& face = m_face_v_indices[i];
         const float3& v0 = m_vertices[face.x];
         const float3& v1 = m_vertices[face.y];
         const float3& v2 = m_vertices[face.z];
         face_normals[i] = computeFaceNormal(v0, v1, v2);
+        face_areas[i] = std::max(computeTriangleArea(v0, v1, v2), static_cast<float>(DEME_TINY_FLOAT));
     }
 
-    std::vector<std::vector<size_t>> adjacency = buildAdjacencyMap(m_face_v_indices);
+    const std::vector<std::vector<EdgeAdjInfo>> adjacency = buildAdjacencyWithEdgeInfo(m_face_v_indices, m_vertices);
+    std::vector<size_t> seed_order(nTri);
+    for (size_t i = 0; i < nTri; ++i) {
+        seed_order[i] = i;
+    }
+    if (opt.seed_largest_first) {
+        std::sort(seed_order.begin(), seed_order.end(),
+                  [&](size_t a, size_t b) { return face_areas[a] > face_areas[b]; });
+    }
 
     int current_patch_id = 0;
     std::vector<size_t> queue;
+    const float hard_angle = std::max(0.0f, hard_angle_deg);
+    const float patch_normal_max = opt.patch_normal_max_deg;
+    const float concave_allow = std::max(0.0f, opt.concave_allow_deg);
 
-    for (size_t seed = 0; seed < nTri; ++seed) {
+    for (size_t seed : seed_order) {
         if (m_patch_ids[seed] != -1) {
             continue;
         }
@@ -844,21 +862,44 @@ unsigned int DEMMesh::SplitIntoConvexPatches(float angle_threshold_deg) {
         queue.clear();
         queue.push_back(seed);
         m_patch_ids[seed] = current_patch_id;
+        float3 patch_normal_sum = mul3(face_normals[seed], face_areas[seed]);
+        float patch_area_sum = face_areas[seed];
 
         size_t queue_idx = 0;
         while (queue_idx < queue.size()) {
             size_t current = queue[queue_idx++];
 
-            for (size_t neighbor : adjacency[current]) {
+            for (const EdgeAdjInfo& edge_info : adjacency[current]) {
+                const size_t neighbor = edge_info.nbr;
                 if (m_patch_ids[neighbor] != -1) {
                     continue;
                 }
 
-                float angle = computeAngleBetweenNormals(face_normals[current], face_normals[neighbor]);
-                if (angle <= angle_threshold_deg) {
-                    m_patch_ids[neighbor] = current_patch_id;
-                    queue.push_back(neighbor);
+                const float local_angle = computeAngleBetweenNormals(face_normals[current], face_normals[neighbor]);
+                if (local_angle > hard_angle) {
+                    continue;
                 }
+
+                if (opt.block_concave_edges && edge_info.oriented_ok) {
+                    const float dihedral = signedDihedralDeg(face_normals[current], face_normals[neighbor],
+                                                             m_vertices[edge_info.va], m_vertices[edge_info.vb]);
+                    if (dihedral < -concave_allow) {
+                        continue;
+                    }
+                }
+
+                if (patch_normal_max >= 0.0f && patch_area_sum > DEME_TINY_FLOAT) {
+                    const float3 mean_normal = normalize3(patch_normal_sum);
+                    const float patch_angle = computeAngleBetweenNormals(mean_normal, face_normals[neighbor]);
+                    if (patch_angle > patch_normal_max) {
+                        continue;
+                    }
+                }
+
+                m_patch_ids[neighbor] = current_patch_id;
+                queue.push_back(neighbor);
+                patch_normal_sum = add3(patch_normal_sum, mul3(face_normals[neighbor], face_areas[neighbor]));
+                patch_area_sum += face_areas[neighbor];
             }
         }
 
@@ -876,6 +917,90 @@ unsigned int DEMMesh::SplitIntoConvexPatches(float angle_threshold_deg) {
     }
     if (isMaterialSet && materials.size() == 1) {
         materials = std::vector<std::shared_ptr<DEMMaterial>>(nPatches, materials[0]);
+    }
+
+    if (out_report) {
+        *out_report = PatchQualityReport();
+        out_report->achieved_patches = nPatches;
+        out_report->requested_min = opt.patch_min;
+        out_report->requested_max = opt.patch_max;
+        out_report->per_patch.resize(nPatches);
+        if (nPatches > opt.patch_max) {
+            out_report->constraint_status = PatchConstraintStatus::TOO_MANY_UNMERGEABLE;
+        } else if (nPatches < opt.patch_min) {
+            out_report->constraint_status = PatchConstraintStatus::TOO_FEW_UNSPLITTABLE;
+        }
+
+        std::vector<float3> normal_sums(nPatches, make_float3(0, 0, 0));
+        std::vector<float> area_sums(nPatches, 0.0f);
+        for (size_t i = 0; i < nTri; ++i) {
+            const patchID_t patch_id = m_patch_ids[i];
+            if (patch_id < 0 || patch_id >= static_cast<patchID_t>(nPatches)) {
+                continue;
+            }
+            normal_sums[patch_id] = add3(normal_sums[patch_id], mul3(face_normals[i], face_areas[i]));
+            area_sums[patch_id] += face_areas[i];
+            out_report->per_patch[patch_id].n_tris++;
+        }
+
+        for (unsigned int p = 0; p < nPatches; ++p) {
+            PatchQualityPatch& patch_report = out_report->per_patch[p];
+            const float sum_norm = norm3(normal_sums[p]);
+            patch_report.coherence_r = (area_sums[p] > DEME_TINY_FLOAT) ? (sum_norm / area_sums[p]) : 1.0f;
+            const float3 mean_normal =
+                (sum_norm > DEME_TINY_FLOAT) ? mul3(normal_sums[p], 1.0f / sum_norm) : make_float3(0, 0, 0);
+            for (size_t i = 0; i < nTri; ++i) {
+                if (m_patch_ids[i] != static_cast<patchID_t>(p)) {
+                    continue;
+                }
+                patch_report.worst_angle_deg =
+                    std::max(patch_report.worst_angle_deg, computeAngleBetweenNormals(mean_normal, face_normals[i]));
+                for (const EdgeAdjInfo& edge_info : adjacency[i]) {
+                    if (edge_info.nbr <= i || m_patch_ids[edge_info.nbr] != static_cast<patchID_t>(p)) {
+                        continue;
+                    }
+                    const float local_angle = computeAngleBetweenNormals(face_normals[i], face_normals[edge_info.nbr]);
+                    if (local_angle > hard_angle) {
+                        patch_report.hard_crossings++;
+                    }
+                    if (opt.block_concave_edges) {
+                        if (!edge_info.oriented_ok) {
+                            patch_report.unoriented_edges++;
+                        } else {
+                            const float dihedral =
+                                signedDihedralDeg(face_normals[i], face_normals[edge_info.nbr],
+                                                  m_vertices[edge_info.va], m_vertices[edge_info.vb]);
+                            if (dihedral < -concave_allow) {
+                                patch_report.concave_crossings++;
+                            }
+                        }
+                    }
+                }
+            }
+
+            const float reference_angle = (patch_normal_max >= 0.0f) ? patch_normal_max : hard_angle;
+            bool critical = false;
+            bool warn = false;
+            critical |= qopt.hard_crossings_are_critical && patch_report.hard_crossings > 0;
+            critical |= qopt.concave_crossings_are_critical && patch_report.concave_crossings > 0;
+            warn |= patch_report.hard_crossings > 0 || patch_report.concave_crossings > 0;
+            warn |= opt.block_concave_edges && patch_report.unoriented_edges > qopt.unoriented_warn_threshold;
+            warn |= patch_report.coherence_r < qopt.safe_r;
+            warn |= patch_report.worst_angle_deg > reference_angle + qopt.warn_worst_angle_margin_deg;
+            if (patch_report.coherence_r < qopt.warn_r) {
+                warn = true;
+            }
+
+            patch_report.level =
+                critical ? PatchQualityLevel::CRITICAL : (warn ? PatchQualityLevel::WARN : PatchQualityLevel::SAFE);
+            if (static_cast<int>(patch_report.level) > static_cast<int>(out_report->overall)) {
+                out_report->overall = patch_report.level;
+            }
+        }
+        if (out_report->constraint_status != PatchConstraintStatus::SATISFIED &&
+            out_report->overall == PatchQualityLevel::SAFE) {
+            out_report->overall = PatchQualityLevel::WARN;
+        }
     }
 
     return nPatches;

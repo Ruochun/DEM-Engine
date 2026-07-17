@@ -691,7 +691,7 @@ inline std::vector<double> FrameTransformLocalToGlobal(const std::vector<double>
                                                        const std::vector<double>& vec,
                                                        const std::vector<double>& rot_Q) {
     double3 deme_pos, deme_vec;
-    double4 deme_Q;
+    double4_vec deme_Q;
     deme_pos.x = pos[0];
     deme_pos.y = pos[1];
     deme_pos.z = pos[2];
@@ -702,7 +702,7 @@ inline std::vector<double> FrameTransformLocalToGlobal(const std::vector<double>
     deme_Q.y = rot_Q[1];
     deme_Q.z = rot_Q[2];
     deme_Q.w = rot_Q[3];
-    applyFrameTransformLocalToGlobal<double3, double3, double4>(deme_pos, deme_vec, deme_Q);
+    applyFrameTransformLocalToGlobal<double3, double3, double4_vec>(deme_pos, deme_vec, deme_Q);
     return {deme_pos.x, deme_pos.y, deme_pos.z};
 }
 
@@ -713,7 +713,11 @@ inline void applyFrameTransformGlobalToLocal(T1& pos, const T2& vec, const T3& r
     pos.x -= vec.x;
     pos.y -= vec.y;
     pos.z -= vec.z;
-    applyOriQToVector3(pos.x, pos.y, pos.z, rot_Q.w, -rot_Q.x, -rot_Q.y, -rot_Q.z);
+    auto conjQ = rot_Q;
+    conjQ.x = -conjQ.x;
+    conjQ.y = -conjQ.y;
+    conjQ.z = -conjQ.z;
+    applyOriQToVector3(pos, conjQ);
 }
 /// Translating the inverse of the provided vec then applying a local inverse rotation of the provided rot_Q, then
 /// return the result.
@@ -721,7 +725,7 @@ inline std::vector<double> FrameTransformGlobalToLocal(const std::vector<double>
                                                        const std::vector<double>& vec,
                                                        const std::vector<double>& rot_Q) {
     double3 deme_pos, deme_vec;
-    double4 deme_Q;
+    double4_vec deme_Q;
     deme_pos.x = pos[0];
     deme_pos.y = pos[1];
     deme_pos.z = pos[2];
@@ -732,7 +736,7 @@ inline std::vector<double> FrameTransformGlobalToLocal(const std::vector<double>
     deme_Q.y = rot_Q[1];
     deme_Q.z = rot_Q[2];
     deme_Q.w = rot_Q[3];
-    applyFrameTransformGlobalToLocal<double3, double3, double4>(deme_pos, deme_vec, deme_Q);
+    applyFrameTransformGlobalToLocal<double3, double3, double4_vec>(deme_pos, deme_vec, deme_Q);
     return {deme_pos.x, deme_pos.y, deme_pos.z};
 }
 

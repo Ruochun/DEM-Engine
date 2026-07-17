@@ -13,6 +13,7 @@
 #include <sstream>
 #include <array>
 #include <cmath>
+#include <cstdint>
 
 #include "../kernel/DEMHelperKernels.cuh"
 #include "Defines.h"
@@ -507,7 +508,7 @@ class DEMMesh : public DEMInitializer {
             applyFrameTransformGlobalToLocal(node, center, prin_Q);
         }
         for (auto& normal : m_normals) {
-            applyOriQToVector3(normal.x, normal.y, normal.z, prin_Q.w, -prin_Q.x, -prin_Q.y, -prin_Q.z);
+            applyOriQToVector3(normal, make_float4(-prin_Q.x, -prin_Q.y, -prin_Q.z, prin_Q.w));
             const float n_len = length(normal);
             if (n_len > DEME_TINY_FLOAT) {
                 normal /= n_len;
@@ -529,7 +530,7 @@ class DEMMesh : public DEMInitializer {
             applyFrameTransformLocalToGlobal(node, vec, rot_Q);
         }
         for (auto& normal : m_normals) {
-            applyOriQToVector3(normal.x, normal.y, normal.z, rot_Q.w, rot_Q.x, rot_Q.y, rot_Q.z);
+            applyOriQToVector3(normal, rot_Q);
             const float n_len = length(normal);
             if (n_len > DEME_TINY_FLOAT) {
                 normal /= n_len;
@@ -637,16 +638,6 @@ class DEMMesh : public DEMInitializer {
     // Whether patch locations have been explicitly set
     bool patch_locations_explicitly_set = false;
 
-    /// @brief Split the mesh into convex patches based on angle threshold.
-    /// @details Uses a region-growing algorithm to group adjacent triangles whose face normals differ by less than
-    /// the specified angle threshold. Each patch represents a locally convex region of the mesh. Patches are
-    /// non-overlapping and cover the entire mesh. This is useful for contact force calculations.
-    /// @param angle_threshold_deg Maximum angle (in degrees) between adjacent face normals to be in same patch.
-    /// Default is 30.0 degrees. Lower values create more patches (stricter convexity), higher values create fewer
-    /// patches (relaxed convexity).
-    /// @return Number of patches created.
-    unsigned int SplitIntoConvexPatches(float angle_threshold_deg = 30.0f);
-
     /// @brief Manually set the patch IDs for each triangle.
     /// @details Allows user to manually specify which patch each triangle belongs to. This is useful when
     /// the user has pre-computed patch information or wants to define patches based on custom criteria.
@@ -691,6 +682,69 @@ class DEMMesh : public DEMInitializer {
     /// patch.
     /// @return Vector of locations (one per patch).
     std::vector<float3> ComputePatchLocations() const;
+
+    enum class PatchQualityLevel : uint8_t { SAFE = 0, WARN = 1, CRITICAL = 2 };
+
+    enum class PatchConstraintStatus : uint8_t { SATISFIED = 0, TOO_MANY_UNMERGEABLE = 1, TOO_FEW_UNSPLITTABLE = 2 };
+
+    struct PatchQualityPatch {
+        PatchQualityLevel level = PatchQualityLevel::SAFE;
+        float worst_angle_deg = 0.0f;
+        float coherence_r = 1.0f;
+        unsigned int n_tris = 0;
+        unsigned int hard_crossings = 0;
+        unsigned int concave_crossings = 0;
+        unsigned int unoriented_edges = 0;
+    };
+
+    struct PatchQualityReport {
+        PatchQualityLevel overall = PatchQualityLevel::SAFE;
+        PatchConstraintStatus constraint_status = PatchConstraintStatus::SATISFIED;
+        unsigned int achieved_patches = 0;
+        unsigned int requested_min = 1;
+        unsigned int requested_max = std::numeric_limits<unsigned int>::max();
+        std::vector<PatchQualityPatch> per_patch;
+    };
+
+    struct PatchQualityOptions {
+        float safe_r = 0.85f;
+        float warn_r = 0.65f;
+        float warn_worst_angle_margin_deg = 5.0f;
+        bool hard_crossings_are_critical = true;
+        bool concave_crossings_are_critical = false;
+        unsigned int unoriented_warn_threshold = 10;
+    };
+
+    struct PatchSplitOptions {
+        // `hard_angle_deg` passed to SplitIntoConvexPatches is always the maximum local neighbor angle.
+        // `soft_angle_deg` and `patch_normal_max_deg` add optional stricter checks while preserving the legacy default.
+        float soft_angle_deg = -1.0f;
+        float patch_normal_max_deg = -1.0f;
+        bool block_concave_edges = false;
+        float concave_allow_deg = 0.0f;
+        unsigned int patch_min = 1;
+        unsigned int patch_max = std::numeric_limits<unsigned int>::max();
+        bool seed_largest_first = true;
+    };
+
+    /// @brief Split the mesh into connected patches based on face-normal and optional quality constraints.
+    /// @details The default overload preserves the original angle-threshold region-growing behavior. The extended
+    /// overload can also fill a quality report and apply optional concavity/patch-normal checks.
+    unsigned int SplitIntoConvexPatches(float hard_angle_deg,
+                                        const PatchSplitOptions& opt,
+                                        PatchQualityReport* out_report,
+                                        const PatchQualityOptions& qopt);
+    unsigned int SplitIntoConvexPatches(float hard_angle_deg = 30.0f) {
+        return SplitIntoConvexPatches(hard_angle_deg, PatchSplitOptions(), nullptr, PatchQualityOptions());
+    }
+    unsigned int SplitIntoConvexPatches(float hard_angle_deg, const PatchSplitOptions& opt) {
+        return SplitIntoConvexPatches(hard_angle_deg, opt, nullptr, PatchQualityOptions());
+    }
+    unsigned int SplitIntoConvexPatches(float hard_angle_deg,
+                                        const PatchSplitOptions& opt,
+                                        PatchQualityReport* out_report) {
+        return SplitIntoConvexPatches(hard_angle_deg, opt, out_report, PatchQualityOptions());
+    }
 
     ////////////////////////////////////////////////////////
     // Some geo wildcard-related stuff

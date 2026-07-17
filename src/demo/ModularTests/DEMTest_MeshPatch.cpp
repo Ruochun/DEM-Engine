@@ -14,15 +14,22 @@
 #include <DEM/API.h>
 #include <DEM/utils/Samplers.hpp>
 
+#include <algorithm>
 #include <filesystem>
 #include <cstdio>
 #include <iostream>
 #include <iomanip>
+#include <map>
 
 using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    auto fail = [](const std::string& message) {
+        std::cerr << "FAIL: " << message << std::endl;
+        return 1;
+    };
+
     std::cout << "========================================" << std::endl;
     std::cout << "DEM Mesh Patch Splitting Demo" << std::endl;
     std::cout << "========================================" << std::endl;
@@ -73,10 +80,89 @@ int main() {
             for (const auto& entry : patch_counts) {
                 std::cout << "  Patch " << entry.first << ": " << entry.second << " triangles" << std::endl;
             }
+            if (threshold > 180.0f && num_patches != 1) {
+                return fail(
+                    "high-threshold vanilla SplitIntoConvexPatches should merge the connected cube mesh into one "
+                    "patch");
+            }
+        }
+
+        // Test the extended patch-split API added
+        std::cout << "\n--- Test 3: Extended Patch Split Options and Quality Report ---" << std::endl;
+        auto legacy_merge_mesh = std::make_shared<DEMMesh>();
+        auto extended_mesh = std::make_shared<DEMMesh>();
+        if (!legacy_merge_mesh->LoadWavefrontMesh((GET_DATA_PATH() / "mesh/cube.obj").string()) ||
+            !extended_mesh->LoadWavefrontMesh((GET_DATA_PATH() / "mesh/cube.obj").string())) {
+            return fail("failed to reload cube mesh for extended patch split test");
+        }
+
+        const unsigned int legacy_patches = legacy_merge_mesh->SplitIntoConvexPatches(180.0f);
+        DEMMesh::PatchSplitOptions split_opt;
+        split_opt.patch_normal_max_deg = 30.0f;
+        split_opt.patch_min = 2;
+        split_opt.patch_max = 4;
+        split_opt.block_concave_edges = true;
+        DEMMesh::PatchQualityOptions quality_opt;
+        DEMMesh::PatchQualityReport report;
+        const unsigned int extended_patches =
+            extended_mesh->SplitIntoConvexPatches(180.0f, split_opt, &report, quality_opt);
+
+        std::cout << "Legacy 180-degree split patches: " << legacy_patches << std::endl;
+        std::cout << "Extended split patches: " << extended_patches << std::endl;
+        std::cout << "Report status: " << static_cast<int>(report.constraint_status)
+                  << ", overall quality: " << static_cast<int>(report.overall) << std::endl;
+
+        if (legacy_patches != 1) {
+            return fail("legacy 180-degree split should merge the connected cube mesh into one patch");
+        }
+        if (extended_patches <= legacy_patches) {
+            return fail("patch_normal_max_deg option did not split the cube more strictly than the legacy path");
+        }
+        if (extended_patches != extended_mesh->GetNumPatches() || report.achieved_patches != extended_patches) {
+            return fail("extended patch count disagrees with the mesh or quality report");
+        }
+        if (!extended_mesh->ArePatchesExplicitlySet()) {
+            return fail("extended split did not mark patch IDs as explicitly set");
+        }
+        if (report.requested_min != split_opt.patch_min || report.requested_max != split_opt.patch_max) {
+            return fail("quality report did not preserve requested patch-count bounds");
+        }
+        if (report.per_patch.size() != extended_patches) {
+            return fail("quality report per-patch array size does not match achieved patch count");
+        }
+
+        unsigned int reported_tris = 0;
+        std::vector<unsigned int> counted_tris(extended_patches, 0);
+        for (const auto& patch_report : report.per_patch) {
+            reported_tris += patch_report.n_tris;
+        }
+        for (patchID_t patch_id : extended_mesh->GetPatchIDs()) {
+            if (patch_id < 0 || patch_id >= static_cast<patchID_t>(extended_patches)) {
+                return fail("extended split produced an out-of-range patch ID");
+            }
+            counted_tris[patch_id]++;
+        }
+        if (reported_tris != extended_mesh->GetNumTriangles()) {
+            return fail("quality report does not account for every triangle");
+        }
+        for (unsigned int p = 0; p < extended_patches; ++p) {
+            if (report.per_patch[p].n_tris != counted_tris[p]) {
+                return fail("quality report per-patch triangle count disagrees with patch IDs");
+            }
+        }
+
+        DEMMesh::PatchConstraintStatus expected_status = DEMMesh::PatchConstraintStatus::SATISFIED;
+        if (extended_patches > split_opt.patch_max) {
+            expected_status = DEMMesh::PatchConstraintStatus::TOO_MANY_UNMERGEABLE;
+        } else if (extended_patches < split_opt.patch_min) {
+            expected_status = DEMMesh::PatchConstraintStatus::TOO_FEW_UNSPLITTABLE;
+        }
+        if (report.constraint_status != expected_status) {
+            return fail("quality report constraint status does not match achieved patch count");
         }
 
         // Test manual patch ID setting
-        std::cout << "\n--- Test 3: Manual Patch ID Setting ---" << std::endl;
+        std::cout << "\n--- Test 4: Manual Patch ID Setting ---" << std::endl;
         size_t num_tris = cube_mesh->GetNumTriangles();
         std::vector<patchID_t> manual_patches(num_tris);
         // Split triangles into 3 patches based on index
@@ -104,7 +190,7 @@ int main() {
     }
 
     // Test with sphere mesh if available
-    std::cout << "\n--- Test 4: Sphere Mesh ---" << std::endl;
+    std::cout << "\n--- Test 5: Sphere Mesh ---" << std::endl;
     auto sphere_mesh = std::make_shared<DEMMesh>();
     loaded = sphere_mesh->LoadWavefrontMesh((GET_DATA_PATH() / "mesh/sphere.obj").string());
 
@@ -140,7 +226,7 @@ int main() {
     }
 
     // Test edge case: empty mesh
-    std::cout << "\n--- Test 5: Empty Mesh ---" << std::endl;
+    std::cout << "\n--- Test 6: Empty Mesh ---" << std::endl;
     auto empty_mesh = std::make_shared<DEMMesh>();
     std::cout << "Empty mesh default patches: " << empty_mesh->GetNumPatches() << " (expected: 1)" << std::endl;
     std::cout << "Patches explicitly set: " << (empty_mesh->ArePatchesExplicitlySet() ? "yes" : "no")
