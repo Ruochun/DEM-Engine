@@ -86,7 +86,9 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
 
         // Optional force model ingredients are loaded here...
         _forceModelIngredientAcqForA_;
-        _forceModelGeoWildcardAcqForASph_;
+        // Geo wildcard acquisition is intentionally disabled. Do not resurrect this hot-path hook unless geo
+        // wildcards are reintroduced end-to-end.
+        // _forceModelGeoWildcardAcqForASph_;
 
         equipOwnerPosRot(simParams, granData, myOwner, myRelPos, AOwnerPos, bodyAPos, AOriQ);
 
@@ -110,7 +112,9 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
             AOwnerMass = myMass;
         }
         _forceModelIngredientAcqForA_;
-        _forceModelGeoWildcardAcqForAMeshPatch_;
+        // Geo wildcard acquisition is intentionally disabled. Any future replacement must define its indexing
+        // semantics explicitly before this hot-path hook is restored.
+        // _forceModelGeoWildcardAcqForAMeshPatch_;
 
         // In mesh case, bodyAPos is the patch position (not necessarily needed in the force model though)
         equipOwnerPosRot(simParams, granData, myOwner, myRelPos, AOwnerPos, bodyAPos, AOriQ);
@@ -140,7 +144,9 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
             BOwnerMass = myMass;
         }
         _forceModelIngredientAcqForB_;
-        _forceModelGeoWildcardAcqForBMeshPatch_;
+        // Geo wildcard acquisition is intentionally disabled. Any future replacement must define its indexing
+        // semantics explicitly before this hot-path hook is restored.
+        // _forceModelGeoWildcardAcqForBMeshPatch_;
 
         // In mesh case, bodyBPos is the patch position (not necessarily needed in the force model though)
         equipOwnerPosRot(simParams, granData, myOwner, myRelPos, BOwnerPos, bodyBPos, BOriQ);
@@ -169,7 +175,9 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
         myRelPos.y = objRelPosY[analyticalID];
         myRelPos.z = objRelPosZ[analyticalID];
         _forceModelIngredientAcqForB_;
-        _forceModelGeoWildcardAcqForBAnal_;
+        // Geo wildcard acquisition is intentionally disabled. Do not resurrect this hot-path hook unless geo
+        // wildcards are reintroduced end-to-end.
+        // _forceModelGeoWildcardAcqForBAnal_;
 
         equipOwnerPosRot(simParams, granData, myOwner, myRelPos, BOwnerPos, bodyBPos, BOriQ);
 

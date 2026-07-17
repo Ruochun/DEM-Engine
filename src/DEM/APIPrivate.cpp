@@ -1703,11 +1703,10 @@ inline void DEMSolver::equipForceModel(std::unordered_map<std::string, std::stri
     strMap["_forceModelIngredientDefinition_;"] = ingredient_definition;
     strMap["_forceModelIngredientAcqForA_;"] = ingredient_acquisition_A;
     strMap["_forceModelIngredientAcqForB_;"] = ingredient_acquisition_B;
-    strMap["_forceModelGeoWildcardAcqForASph_;"] = " ";
-    strMap["_forceModelGeoWildcardAcqForAMeshPatch_;"] = " ";
-    strMap["_forceModelGeoWildcardAcqForBSph_;"] = " ";
-    strMap["_forceModelGeoWildcardAcqForBMeshPatch_;"] = " ";
-    strMap["_forceModelGeoWildcardAcqForBAnal_;"] = " ";
+    // Geometry wildcard acquisition hooks are intentionally not registered for JIT replacement. The corresponding
+    // hook markers are commented out in the force-kernel templates so geo wildcard scaffolding cannot silently enter
+    // performance-critical kernels. Any future replacement must define its indexing semantics explicitly before these
+    // hooks are restored.
 
     // This should be empty as of now...
     strMap["_forceModelOwnerWildcardWrite_;"] = owner_geo_wildcard_write_back;
