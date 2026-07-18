@@ -11,6 +11,7 @@ SET(LIBRARIES
 # ------------------------------------------------------------------------------
 
 SET(MODULAR_TESTS
+		DEMTest_AdaptiveTimestep
 		DEMTest_CombinedOwners
 		DEMTest_ContactIslandFlooding
 		DEMTest_ConeGrazingPlane

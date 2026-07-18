@@ -133,7 +133,7 @@ enum class OUTPUT_FORMAT { CSV, BINARY };
 // Mesh output format
 enum class MESH_FORMAT { VTK, OBJ, STL, PLY };
 // Adaptive time step size methods
-enum class ADAPT_TS_TYPE { NONE, MAX_VEL, INT_DIFF };
+enum class ADAPT_TS_TYPE { NONE, HERTZ_CONST, MAX_VEL, INT_DIFF };
 
 // =============================================================================
 // NOW DEFINING MACRO COMMANDS USED BY THE DEM MODULE

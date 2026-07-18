@@ -568,7 +568,10 @@ PYBIND11_MODULE(DEME, obj) {
         .def("UpdateClumps", &deme::DEMSolver::UpdateClumps,
              "Transfer newly loaded clumps to the GPU-side in mid-simulation.")
         .def("SetAdaptiveTimeStepType", &deme::DEMSolver::SetAdaptiveTimeStepType,
-             "Set the strategy for auto-adapting time step size (NOT implemented, no effect yet).")
+             "Set the strategy for auto-adapting time step size. Currently, hertz_const computes one fixed setup-time "
+             "timestep; max_vel and int_diff are accepted but not implemented.")
+        .def("UseHertzConstTimeStep", &deme::DEMSolver::UseHertzConstTimeStep,
+             "Use the setup-time Hertzian constant timestep estimate.")
         .def("SetIntegrator",
              static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetIntegrator),
              "Set the time integrator for this simulator.")
@@ -646,6 +649,11 @@ PYBIND11_MODULE(DEME, obj) {
              "Set whether the solver should expect the user to mark certain contacts as persistent across kT updates. "
              "Set this to true if you later will call MarkPersistentContact series of methods.",
              py::arg("use") = true)
+        .def("SetSimplePatchCombination", &deme::DEMSolver::SetSimplePatchCombination,
+             "Use simple patch-ID based triangle contact combination. Disable to opt into connected-component flooding.",
+             py::arg("use") = true)
+        .def("SetStablePatchIslandIDs", &deme::DEMSolver::SetStablePatchIslandIDs,
+             "Stabilize flooded patch-island IDs across contact-detection steps.", py::arg("use") = true)
         .def("SetMeshParticlesLowPoly", &deme::DEMSolver::SetMeshParticlesLowPoly,
              "Declare that all meshed particles have a low polygon count (e.g. box, tetrahedron). When enabled, the "
              "per-triangle maxTriTriPenetration array is neither computed, transferred to kT, nor used to inflate "
@@ -894,6 +902,8 @@ PYBIND11_MODULE(DEME, obj) {
              "Get the clumps that are in contact with this owner as a vector.")
         .def("GetOwnerPosition", &deme::DEMSolver::GetOwnerPosition, "Get position of n consecutive owners.",
              py::arg("ownerID"), py::arg("n") = 1)
+        .def("GetClumpPositionsHandover", &deme::DEMSolver::GetClumpPositionsHandover,
+             "Get all clump-owner center positions ordered by owner ID.")
         .def("GetOwnerAngVel", &deme::DEMSolver::GetOwnerAngVel, "Get angular velocity of n consecutive owners.",
              py::arg("ownerID"), py::arg("n") = 1)
         .def("GetOwnerOriQ", &deme::DEMSolver::GetOwnerOriQ, "Get quaternion of n consecutive owners.",
@@ -1500,6 +1510,16 @@ PYBIND11_MODULE(DEME, obj) {
         .def("IsShell", &deme::DEMMeshConnected::IsShell, "Return whether this mesh is configured as a shell.")
         .def("GetShellThickness", &deme::DEMMeshConnected::GetShellThickness, "Return the full shell thickness.")
         .def("GetTriangle", &deme::DEMMeshConnected::GetTriangle, "Access the n-th triangle in mesh")
+        .def("SetPatchIDs", &deme::DEMMeshConnected::SetPatchIDs, "Set one patch ID per triangle.",
+             py::arg("patch_ids"))
+        .def("GetPatchIDs", &deme::DEMMeshConnected::GetPatchIDs, "Get one patch ID per triangle.")
+        .def("GetNumPatches", &deme::DEMMeshConnected::GetNumPatches, "Get the number of mesh patches.")
+        .def("ArePatchesExplicitlySet", &deme::DEMMeshConnected::ArePatchesExplicitlySet,
+             "Return whether patch IDs were explicitly supplied or computed.")
+        .def("SplitIntoConvexPatches",
+             static_cast<unsigned int (deme::DEMMeshConnected::*)(float)>(
+                 &deme::DEMMeshConnected::SplitIntoConvexPatches),
+             "Split the mesh into connected angle-threshold patches.", py::arg("hard_angle_deg") = 30.0f)
         .def("SetMass", &deme::DEMMeshConnected::SetMass)
         .def("SetMOI",
              static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(&deme::DEMMeshConnected::SetMOI))

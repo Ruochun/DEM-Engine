@@ -1013,16 +1013,22 @@ void DEMSolver::SetIntegrator(const std::string& intg) {
 }
 
 void DEMSolver::SetAdaptiveTimeStepType(const std::string& type) {
-    DEME_WARNING(std::string(
-        "SetAdaptiveTimeStepType is currently not implemented and has no effect, time step size is still fixed."));
     switch (hash_charr(type.c_str())) {
         case ("none"_):
             adapt_ts_type = ADAPT_TS_TYPE::NONE;
             break;
+        case ("hertz_const"_):
+            DEME_WARNING(
+                "SetAdaptiveTimeStepType(\"hertz_const\") is a beta setup-time estimate. It computes one fixed "
+                "timestep from Hertzian stiffness, minimum clump mass, and minimum radius.");
+            adapt_ts_type = ADAPT_TS_TYPE::HERTZ_CONST;
+            break;
         case ("max_vel"_):
+            DEME_WARNING("SetAdaptiveTimeStepType(\"max_vel\") is not implemented yet and has no runtime effect.");
             adapt_ts_type = ADAPT_TS_TYPE::MAX_VEL;
             break;
         case ("int_diff"_):
+            DEME_WARNING("SetAdaptiveTimeStepType(\"int_diff\") is not implemented yet and has no runtime effect.");
             adapt_ts_type = ADAPT_TS_TYPE::INT_DIFF;
             break;
         default:

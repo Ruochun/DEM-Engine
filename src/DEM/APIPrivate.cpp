@@ -1290,6 +1290,61 @@ void DEMSolver::setSimParams() {
         m_approx_max_vel = threshold_error_out_vel;
     }
 
+    // Beta adaptive timestep mode: compute one fixed Hertzian timestep at setup time. The other adaptive modes are
+    // accepted by the public API for compatibility but do not have behavior yet.
+    if (adapt_ts_type == ADAPT_TS_TYPE::HERTZ_CONST) {
+        auto sqr = [](double x) { return x * x; };
+        auto effective_E = [&](double E1, double nu1, double E2, double nu2) -> double {
+            if (E1 <= 0.0 || E2 <= 0.0) {
+                return 0.0;
+            }
+            return 1.0 / (((1.0 - sqr(nu1)) / E1) + ((1.0 - sqr(nu2)) / E2));
+        };
+
+        double max_eff_E = 0.0;
+        for (size_t i = 0; i < m_loaded_materials.size(); ++i) {
+            const auto& mat_a = m_loaded_materials[i]->mat_prop;
+            const double E1 = mat_a.count("E") ? static_cast<double>(mat_a.at("E")) : 0.0;
+            const double nu1 = mat_a.count("nu") ? static_cast<double>(mat_a.at("nu")) : 0.3;
+            for (size_t j = i; j < m_loaded_materials.size(); ++j) {
+                const auto& mat_b = m_loaded_materials[j]->mat_prop;
+                const double E2 = mat_b.count("E") ? static_cast<double>(mat_b.at("E")) : 0.0;
+                const double nu2 = mat_b.count("nu") ? static_cast<double>(mat_b.at("nu")) : 0.3;
+                max_eff_E = std::max(max_eff_E, effective_E(E1, nu1, E2, nu2));
+            }
+        }
+
+        double min_mass = std::numeric_limits<double>::infinity();
+        for (double mass : m_template_clump_mass) {
+            if (mass > 0.0 && mass < min_mass) {
+                min_mass = mass;
+            }
+        }
+
+        const double min_radius = static_cast<double>(m_smallest_radius);
+        if (std::isfinite(min_mass) && min_radius > 0.0 && max_eff_E > 0.0) {
+            const double effective_radius = 0.5 * min_radius;
+            const double effective_mass = 0.5 * min_mass;
+            const double hertz_stiffness = FOUR_OVER_THREE * std::sqrt(0.1) * max_eff_E * effective_radius;
+            const double hertz_dt = (PI / (2.0 * N_DT)) * std::sqrt(effective_mass / hertz_stiffness);
+            if (hertz_dt > 0.0 && std::isfinite(hertz_dt)) {
+                m_ts_size = hertz_dt;
+                DEME_INFO(
+                    "Adaptive timestep hertz_const selected dt %.9g from min mass %.6g, min radius %.6g, max "
+                    "effective E %.6g, and N_DT %.1f.",
+                    m_ts_size, min_mass, min_radius, max_eff_E, N_DT);
+            } else {
+                DEME_WARNING("Adaptive timestep hertz_const produced invalid dt; keeping existing timestep %.9g.",
+                             m_ts_size);
+            }
+        } else {
+            DEME_WARNING(
+                "Adaptive timestep hertz_const could not compute dt because setup data is incomplete or invalid "
+                "(min mass %.6g, min radius %.6g, max effective E %.6g); keeping existing timestep %.9g.",
+                min_mass, min_radius, max_eff_E, m_ts_size);
+        }
+    }
+
     if (!m_use_angvel_margin_user_set) {
         bool has_multi_sphere_clump = false;
         for (const auto& radii : m_template_sp_radii) {

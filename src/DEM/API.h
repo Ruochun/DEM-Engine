@@ -109,9 +109,12 @@ class DEMSolver {
     double GetSimTime() const;
     /// Set the simulation time manually.
     void SetSimTime(double time);
-    /// @brief Set the strategy for auto-adapting time step size (NOT implemented, no effect yet).
-    /// @param type "none" or "max_vel" or "int_diff".
+    /// @brief Set the strategy for auto-adapting time step size.
+    /// @param type "none", "hertz_const", "max_vel" or "int_diff". Currently, only "hertz_const" has behavior; it
+    /// computes a fixed setup-time timestep from Hertzian material stiffness, minimum clump mass, and minimum radius.
     void SetAdaptiveTimeStepType(const std::string& type);
+    /// @brief Use the setup-time Hertzian constant timestep estimate.
+    void UseHertzConstTimeStep() { SetAdaptiveTimeStepType("hertz_const"); }
 
     /// @brief Set the time integrator for this simulator.
     /// @param intg "forward_euler" or "extended_taylor" or "centered_difference".
