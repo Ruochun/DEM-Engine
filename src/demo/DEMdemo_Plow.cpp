@@ -45,6 +45,8 @@ void AdvanceSimulation(DEMSolver& DEMSim,
 }
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_Plow ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.UseFrictionalHertzianModel();
     DEMSim.SetVerbosity("INFO");

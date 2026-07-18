@@ -891,7 +891,7 @@ void DEMSolver::preprocessTriangleObjs() {
 
         // Initialize patch IDs if not already set (default: all facets in patch 0)
         if (!mesh_obj->patches_explicitly_set && mesh_obj->m_patch_ids.empty()) {
-            mesh_obj->SetPatchIDs({0});
+            mesh_obj->SetPatchIDs(std::vector<patchID_t>(mesh_obj->GetNumTriangles(), 0));
         }
 
         // Populate patch owner and material arrays (one entry per patch in this mesh)

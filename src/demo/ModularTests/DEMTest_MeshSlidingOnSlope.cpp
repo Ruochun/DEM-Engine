@@ -20,6 +20,7 @@
 #include <iostream>
 #include <vector>
 #include <filesystem>
+#include <system_error>
 
 using namespace deme;
 using namespace std::filesystem;
@@ -75,13 +76,14 @@ int main() {
     // Solver setup
     // =========================================================================
     DEMSolver DEMSim;
-    DEMSim.SetVerbosity("INFO");
+    DEMSim.SetVerbosity("ERROR");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
     DEMSim.InstructBoxDomainDimension(5, 5, 5);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -g));
     // Enable mesh-mesh contacts (required for cube-slope mesh contact)
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetExpandSafetyType("auto");
+    // DEMSim.SetSimplePatchCombination(true);
 
     auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}});
 
@@ -147,9 +149,13 @@ int main() {
     std::cout << "Running simulation for " << total_time << " s ..." << std::endl;
     std::cout << "----------------------------------------------------" << std::endl;
 
-    path out_dir = current_path();
-    out_dir /= "DEMTest_MeshSlidingOnSlope";
-    create_directory(out_dir);
+    path out_dir = current_path() / "modular_test_output" / "DEMTest_MeshSlidingOnSlope";
+    std::error_code dir_ec;
+    create_directories(out_dir, dir_ec);
+    if (dir_ec || !is_directory(out_dir)) {
+        std::cerr << "Failed to create output directory: " << out_dir << " (" << dir_ec.message() << ")" << std::endl;
+        return 1;
+    }
 
     std::vector<double> force_mags;
     const int n_frames = static_cast<int>(total_time / frame_time);

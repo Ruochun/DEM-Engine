@@ -286,6 +286,8 @@ void SphereStack() {
 }
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_TestPack ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     // Choose a validation test by uncommenting it
     SphereRollUpIncline();
     // EllpsiodFallingOver();

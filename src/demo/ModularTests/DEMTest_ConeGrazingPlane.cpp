@@ -20,6 +20,7 @@
 #include <iostream>
 #include <vector>
 #include <filesystem>
+#include <system_error>
 
 using namespace std::filesystem;
 using namespace deme;
@@ -75,7 +76,7 @@ int main() {
     // Solver setup
     // =========================================================================
     DEMSolver DEMSim;
-    DEMSim.SetVerbosity("INFO");
+    DEMSim.SetVerbosity("ERROR");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
     DEMSim.InstructBoxDomainDimension(30, 30, 5);
     // No gravity: we are controlling the cone position/velocity explicitly
@@ -84,6 +85,7 @@ int main() {
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetExpandSafetyType("auto");
     DEMSim.SetExpandSafetyAdder(graze_speed);
+    DEMSim.SetContactOutputContent({"OWNER", "FORCE", "POINT", "NORMAL"});
 
     auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}});
 
@@ -142,9 +144,13 @@ int main() {
     std::cout << "Running simulation for " << total_time << " s ..." << std::endl;
     std::cout << "----------------------------------------------------" << std::endl;
 
-    path out_dir = current_path();
-    out_dir /= "DEMTest_ConeGrazingPlane";
-    create_directory(out_dir);
+    path out_dir = current_path() / "modular_test_output" / "DEMTest_ConeGrazingPlane";
+    std::error_code dir_ec;
+    create_directories(out_dir, dir_ec);
+    if (dir_ec || !is_directory(out_dir)) {
+        std::cerr << "Failed to create output directory: " << out_dir << " (" << dir_ec.message() << ")" << std::endl;
+        return 1;
+    }
 
     std::vector<double> force_mags;
     std::vector<double> force_z_components;
@@ -171,15 +177,36 @@ int main() {
         float tip_x = pos.x;
         float tip_z = pos.z - centroid_above_tip;
 
+        auto cnt_info = DEMSim.GetContactDetailedInfo(0.0f);
+        float3 avg_normal = make_float3(0.f);
+        int num_cnts = 0;
+        const auto& cnt_types = cnt_info->GetContactType();
+        const auto& cnt_normals = cnt_info->GetNormal();
+        for (size_t k = 0; k < cnt_types.size(); k++) {
+            if (cnt_types[k] == "MM") {
+                avg_normal += cnt_normals[k];
+                num_cnts++;
+            }
+        }
+        if (num_cnts > 0) {
+            avg_normal *= 1.0f / static_cast<float>(num_cnts);
+        }
+
         std::cout << "t=" << i * frame_time << "s"
                   << "  tip_x=" << tip_x << " m"
                   << "  tip_z=" << tip_z << " m"
-                  << "  |F_cnt|=" << force_mag << " N";
+                  << "  #MM_contacts=" << num_cnts << "  |F_cnt|=" << force_mag << " N";
 
         if (force_mag > 1e-3) {
             float inv_f = static_cast<float>(1.0 / force_mag);
             std::cout << "  F_dir=(" << cnt_force.x * inv_f << "," << cnt_force.y * inv_f << "," << cnt_force.z * inv_f
                       << ")";
+        }
+        const float normal_mag = length(avg_normal);
+        if (normal_mag > 1e-6f) {
+            const float inv_nm = 1.0f / normal_mag;
+            std::cout << "  contact_normal=(" << avg_normal.x * inv_nm << "," << avg_normal.y * inv_nm << ","
+                      << avg_normal.z * inv_nm << ")";
         }
         std::cout << std::endl;
     }

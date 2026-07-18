@@ -22,6 +22,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_BallDrop ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     float ball_densities[] = {2.2e3, 3.8e3, 7.8e3, 15e3};
     float Hs[] = {0.05, 0.1, 0.2};
     double R = 0.0254 / 2.;

@@ -33,6 +33,8 @@ void writeFloat3VectorsToCSV(const std::string& header,
                              size_t num_items);
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_FlexibleMesh ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("INFO");
     DEMSim.SetOutputFormat("CSV");

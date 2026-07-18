@@ -22,6 +22,8 @@ using namespace deme;
 const double math_PI = 3.14159;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_Shake ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("INFO");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);

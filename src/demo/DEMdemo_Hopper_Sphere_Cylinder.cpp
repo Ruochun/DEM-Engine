@@ -22,6 +22,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_Hopper_Sphere_Cylinder ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.UseFrictionalHertzianModel();
     DEMSim.SetVerbosity("INFO");

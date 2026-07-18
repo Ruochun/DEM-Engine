@@ -75,6 +75,8 @@ std::pair<float3, float3> ComputeBounds(const std::vector<float3>& vertices) {
 }  // namespace
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_ResponseAngleMesh ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
     DEMSim.SetOutputContent(OUTPUT_CONTENT::FAMILY);

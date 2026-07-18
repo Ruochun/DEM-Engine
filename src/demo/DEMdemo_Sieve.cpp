@@ -21,6 +21,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_Sieve ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     // I generally use this demo to inspect if I have "lost contact pairs", so the verbosity is set to METRIC...
     DEMSim.SetVerbosity("METRIC");

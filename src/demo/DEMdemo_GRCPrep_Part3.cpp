@@ -19,6 +19,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_GRCPrep_Part3 ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("INFO");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);

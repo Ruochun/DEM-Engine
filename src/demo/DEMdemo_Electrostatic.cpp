@@ -41,6 +41,8 @@ const double math_PI = 3.1415927;
 std::string force_model();
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_Electrostatic ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("INFO");
     DEMSim.SetOutputFormat("CSV");

@@ -21,6 +21,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_Mixer ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("METRIC");
     // For general use cases, you want to set the verbosity to INFO: It's also a bit faster than "METRIC".
@@ -28,6 +30,7 @@ int main() {
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
     DEMSim.SetOutputContent(OUTPUT_CONTENT::ABSV);
     DEMSim.SetMeshOutputFormat(MESH_FORMAT::VTK);
+    // DEMSim.SetSimplePatchCombination(true);
 
     // If you don't need individual force information, then this option makes the solver run a bit faster.
     DEMSim.SetNoForceRecord();

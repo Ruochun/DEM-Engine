@@ -24,6 +24,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_DrumCubesSmall ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("METRIC");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);

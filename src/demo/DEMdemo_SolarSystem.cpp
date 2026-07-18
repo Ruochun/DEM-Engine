@@ -36,6 +36,8 @@ const double math_PI = 3.14159;
 const double G = 6.674e-11 * 86400 * 86400 / 1.496e+11 / 1.496e+11 / 1.496e+11;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_SolarSystem ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("INFO");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);

@@ -17,6 +17,8 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
+    std::cout << "==== DEME demo/test: DEMdemo_TestRestart ====" << std::endl;
+    std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("DEBUG");
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
