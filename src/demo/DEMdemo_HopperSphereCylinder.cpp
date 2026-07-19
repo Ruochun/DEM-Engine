@@ -4,8 +4,8 @@
 //	SPDX-License-Identifier: BSD-3-Clause
 
 // =============================================================================
-// A repose angle test. Particles flow through a mesh-represented funnel and form
-// a pile that has an apparent angle.
+// A hopper discharge demo with a mixed bed of sphere and cylinder clumps.
+// Particles flow through a mesh-represented funnel after the gate opens.
 // =============================================================================
 
 #include <core/ApiVersion.h>
@@ -22,7 +22,7 @@ using namespace deme;
 using namespace std::filesystem;
 
 int main() {
-    std::cout << "==== DEME demo/test: DEMdemo_Hopper_Sphere_Cylinder ====" << std::endl;
+    std::cout << "==== DEME demo/test: DEMdemo_HopperSphereCylinder ====" << std::endl;
     std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.UseFrictionalHertzianModel();
@@ -60,8 +60,7 @@ int main() {
     double gateWidth = 0.1295;
 
     path out_dir = current_path();
-    out_dir /= "Test_Plastic_Sphere_Cylinder";
-    out_dir /= "Hopper";
+    out_dir /= "DemoOutput_HopperSphereCylinder";
 
     auto mat_type_bottom = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}});
     auto mat_type_flume = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}});
@@ -449,6 +448,6 @@ int main() {
     DEMSim.ShowMemStats();
     std::cout << "----------------------------------------" << std::endl;
 
-    std::cout << "DEMdemo_Hopper exiting..." << std::endl;
+    std::cout << "DEMdemo_HopperSphereCylinder exiting..." << std::endl;
     return 0;
 }
