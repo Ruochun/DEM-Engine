@@ -1668,10 +1668,13 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 }
 
+                // Primitive arrays can legitimately contain NOT_A_CONTACT sentinel slots. They still form a run-length
+                // segment during simple patch grouping, so this scratch buffer must have room for the null segment in
+                // addition to the physical contact types.
                 contact_t* unique_types = (contact_t*)scratchPad.allocateTempVector(
-                    "unique_types", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contact_t));
+                    "unique_types", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contact_t));
                 contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "type_counts", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contactPairs_t));
+                    "type_counts", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contactPairs_t));
                 scratchPad.allocateDualStruct("numUniqueTypes");
 
                 cubDEMRunLengthEncode<contact_t, contactPairs_t>(
@@ -1948,10 +1951,12 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 // Preserve the RefBranch invariant that primitive contacts are sorted by patch pair within each contact
                 // type segment before patch grouping. The flooded path builds extra island labels on top of these base
                 // groups, but dT still assumes each type segment has dense, ordered patch-contact IDs.
+                // Same null-aware sizing as the simple route: NOT_A_CONTACT can be present as a deterministic sentinel
+                // type and should not overflow run-length scratch storage.
                 contact_t* segment_unique_types = (contact_t*)scratchPad.allocateTempVector(
-                    "segment_unique_types", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contact_t));
+                    "segment_unique_types", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contact_t));
                 contactPairs_t* segment_type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "segment_type_counts", NUM_SUPPORTED_CONTACT_TYPES * sizeof(contactPairs_t));
+                    "segment_type_counts", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contactPairs_t));
                 scratchPad.allocateDualStruct("numSegmentTypes");
                 cubDEMRunLengthEncode<contact_t, contactPairs_t>(
                     granData->contactTypePrimitive, segment_unique_types, segment_type_counts,
@@ -2585,7 +2590,7 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             for (size_t i = 0; i < numTypes; i++) {
                                 const contact_t type = host_unique_types[i];
                                 const contactPairs_t cnt = host_type_counts[i];
-                                if (isSupportedContactType(type) && cnt > 0) {
+                                if ((isSupportedContactType(type) || type == NOT_A_CONTACT) && cnt > 0) {
                                     typeStartCountPatchMap_thisStep[type] = {offset, cnt};
                                 }
                                 offset += host_type_counts[i];
@@ -2700,13 +2705,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 granData.toDevice();
             }
 
-            // Build patch-based contact mapping using per-type kernels
-            // Iterate over all supported contact types and launch a kernel for each type that has contacts
-            for (size_t type_idx = 0; type_idx < NUM_SUPPORTED_CONTACT_TYPES; type_idx++) {
-                contact_t thisType = ALL_CONTACT_TYPES[type_idx];
+            // Build patch-based contact mapping using per-type kernels. This loop intentionally includes
+            // NOT_A_CONTACT: CD kernels may carry null sentinel slots through patch grouping, and those mapping entries
+            // must be explicitly initialized so dT never consumes stale contactMapping values for them.
+            for (size_t type_idx = 0; type_idx < NUM_CONTACT_TYPES_INCLUDING_NULL; type_idx++) {
+                contact_t thisType = ALL_CONTACT_TYPES_INCLUDING_NULL[type_idx];
 
-                // Get start/count for this type in the current and previous steps
-                // Using operator[] is safe here since ContactTypeMap initializes all types in constructor
+                // Get start/count for this type in the current and previous steps. Physical types are pre-initialized;
+                // NOT_A_CONTACT is inserted on demand with the default zero range when absent.
                 const auto& curr_info = typeStartCountPatchMap_thisStep[thisType];
                 const auto& prev_info = typeStartCountPatchMap[thisType];
 
@@ -2722,6 +2728,16 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
                 // Launch appropriate kernel based on whether previous step had this type
                 size_t blocks_needed = (curr_count + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+
+                if (thisType == NOT_A_CONTACT) {
+                    // Null contacts are placeholders, not physical history carriers. A null slot in the current kT
+                    // product should never inherit history from an old null slot, but it still needs a deterministic
+                    // mapping value so it cannot disturb real contact migration on dT.
+                    setNullMappingForType<<<dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+                        granData->contactMapping, curr_start, curr_count);
+                    DEME_GPU_DEBUG_SYNC(this_stream);
+                    continue;
+                }
 
                 if (prev_count == 0) {
                     // Previous step has no contacts of this type - set all to NULL_MAPPING_PARTNER
