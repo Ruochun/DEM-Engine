@@ -30,7 +30,7 @@ int main() {
     std::cout << "==== DEME demo/test: DEMdemo_WheelSlopeSlip ====" << std::endl;
     std::cout << "========================================" << std::endl;
     std::filesystem::path out_dir = std::filesystem::current_path();
-    out_dir /= "DemoOuput_WheelSlopeSlip";
+    out_dir /= "DemoOutput_WheelSlopeSlip";
     std::filesystem::create_directory(out_dir);
 
     // `World'
