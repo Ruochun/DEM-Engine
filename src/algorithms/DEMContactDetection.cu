@@ -292,6 +292,59 @@ inline void sortABTypePersistencyByType(bodyID_t* idA,
     scratchPad.finishUsingTempVector("sortType_idx_sorted");
 }
 
+inline void sortPrimitiveContactsByTypeInPlace(DualStruct<DEMDataKT>& granData,
+                                               size_t numCnts,
+                                               cudaStream_t& stream,
+                                               DEMSolverScratchData& scratchPad) {
+    if (numCnts == 0) {
+        return;
+    }
+
+    const size_t total_ids_bytes = numCnts * sizeof(bodyID_t);
+    const size_t total_types_bytes = numCnts * sizeof(contact_t);
+    const size_t total_persistency_bytes = numCnts * sizeof(notStupidBool_t);
+    contact_t* contactType_sorted = (contact_t*)scratchPad.allocateTempVector("contactType_sorted", total_types_bytes);
+    bodyID_t* idPrimitiveA_sorted = (bodyID_t*)scratchPad.allocateTempVector("idPrimitiveA_sorted", total_ids_bytes);
+    bodyID_t* idPrimitiveB_sorted = (bodyID_t*)scratchPad.allocateTempVector("idPrimitiveB_sorted", total_ids_bytes);
+    notStupidBool_t* contactPersistency_sorted =
+        (notStupidBool_t*)scratchPad.allocateTempVector("contactPersistency_sorted", total_persistency_bytes);
+
+    sortABTypePersistencyByType(granData->idPrimitiveA, granData->idPrimitiveB, granData->contactTypePrimitive,
+                                granData->contactPersistency, idPrimitiveA_sorted, idPrimitiveB_sorted,
+                                contactType_sorted, contactPersistency_sorted, numCnts, stream, scratchPad);
+    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveA, idPrimitiveA_sorted, total_ids_bytes, cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveB, idPrimitiveB_sorted, total_ids_bytes, cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(
+        cudaMemcpy(granData->contactTypePrimitive, contactType_sorted, total_types_bytes, cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL(cudaMemcpy(granData->contactPersistency, contactPersistency_sorted, total_persistency_bytes,
+                             cudaMemcpyDeviceToDevice));
+
+    scratchPad.finishUsingTempVector("contactType_sorted");
+    scratchPad.finishUsingTempVector("idPrimitiveA_sorted");
+    scratchPad.finishUsingTempVector("idPrimitiveB_sorted");
+    scratchPad.finishUsingTempVector("contactPersistency_sorted");
+}
+
+inline bool primitiveTypeRunsAreFragmented(contact_t* uniqueTypes, size_t numTypes) {
+    constexpr size_t maxKnownContactTypeRuns = (size_t)NUM_CONTACT_TYPES_INCLUDING_NULL;
+    if (numTypes > maxKnownContactTypeRuns) {
+        return true;
+    }
+
+    contact_t hostTypes[maxKnownContactTypeRuns];
+    if (numTypes > 0) {
+        DEME_GPU_CALL(cudaMemcpy(hostTypes, uniqueTypes, numTypes * sizeof(contact_t), cudaMemcpyDeviceToHost));
+    }
+    for (size_t i = 0; i < numTypes; i++) {
+        for (size_t j = i + 1; j < numTypes; j++) {
+            if (hostTypes[i] == hostTypes[j]) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 inline void stabilizeFloodedPatchIslandIDs(DualStruct<DEMDataKT>& granData,
                                            DualArray<bodyID_t>& previous_primitivePatchIsland,
                                            size_t numCurrentPrimitiveContacts,
@@ -1626,35 +1679,41 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
                 // RefBranch-style simple grouping: sort and group patch pairs inside each contact-type segment.
                 if (!primitiveContactArraysAreSortedByType) {
-                    size_t total_ids_bytes = numTotalCnts * sizeof(bodyID_t);
-                    size_t total_types_bytes = numTotalCnts * sizeof(contact_t);
-                    size_t total_persistency_bytes = numTotalCnts * sizeof(notStupidBool_t);
-                    contact_t* contactType_sorted =
-                        (contact_t*)scratchPad.allocateTempVector("contactType_sorted", total_types_bytes);
-                    bodyID_t* idPrimitiveA_sorted =
-                        (bodyID_t*)scratchPad.allocateTempVector("idPrimitiveA_sorted", total_ids_bytes);
-                    bodyID_t* idPrimitiveB_sorted =
-                        (bodyID_t*)scratchPad.allocateTempVector("idPrimitiveB_sorted", total_ids_bytes);
-                    notStupidBool_t* contactPersistency_sorted = (notStupidBool_t*)scratchPad.allocateTempVector(
-                        "contactPersistency_sorted", total_persistency_bytes);
-                    sortABTypePersistencyByType(granData->idPrimitiveA, granData->idPrimitiveB,
-                                                granData->contactTypePrimitive, granData->contactPersistency,
-                                                idPrimitiveA_sorted, idPrimitiveB_sorted, contactType_sorted,
-                                                contactPersistency_sorted, numTotalCnts, this_stream, scratchPad);
-                    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveA, idPrimitiveA_sorted, total_ids_bytes,
-                                             cudaMemcpyDeviceToDevice));
-                    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveB, idPrimitiveB_sorted, total_ids_bytes,
-                                             cudaMemcpyDeviceToDevice));
-                    DEME_GPU_CALL(cudaMemcpy(granData->contactTypePrimitive, contactType_sorted, total_types_bytes,
-                                             cudaMemcpyDeviceToDevice));
-                    DEME_GPU_CALL(cudaMemcpy(granData->contactPersistency, contactPersistency_sorted,
-                                             total_persistency_bytes, cudaMemcpyDeviceToDevice));
-                    scratchPad.finishUsingTempVector("contactType_sorted");
-                    scratchPad.finishUsingTempVector("idPrimitiveA_sorted");
-                    scratchPad.finishUsingTempVector("idPrimitiveB_sorted");
-                    scratchPad.finishUsingTempVector("contactPersistency_sorted");
+                    sortPrimitiveContactsByTypeInPlace(granData, numTotalCnts, this_stream, scratchPad);
                 }
                 primitiveContactArraysAreSortedByType = true;
+
+                // Primitive arrays can legitimately contain NOT_A_CONTACT sentinel slots. These null records can be
+                // interleaved with real contact types even when the physical contacts were counted into type-specific
+                // report regions. The simple patch route stores one start/count range per type, so repeated type runs
+                // would overwrite each other and leave many real contacts unmapped. Use the RLE we need anyway to
+                // detect fragmented type runs, and only pay for a full type sort when such fragmentation is present.
+                const size_t type_buf_len = DEME_MAX((size_t)1, numTotalCnts);
+                contact_t* unique_types =
+                    (contact_t*)scratchPad.allocateTempVector("unique_types", type_buf_len * sizeof(contact_t));
+                contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
+                    "type_counts", type_buf_len * sizeof(contactPairs_t));
+                scratchPad.allocateDualStruct("numUniqueTypes");
+
+                cubDEMRunLengthEncode<contact_t, contactPairs_t>(
+                    granData->contactTypePrimitive, unique_types, type_counts,
+                    scratchPad.getDualStructDevice("numUniqueTypes"), numTotalCnts, this_stream, scratchPad);
+                scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
+                size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
+                if (primitiveTypeRunsAreFragmented(unique_types, numTypes)) {
+                    sortPrimitiveContactsByTypeInPlace(granData, numTotalCnts, this_stream, scratchPad);
+                    cubDEMRunLengthEncode<contact_t, contactPairs_t>(
+                        granData->contactTypePrimitive, unique_types, type_counts,
+                        scratchPad.getDualStructDevice("numUniqueTypes"), numTotalCnts, this_stream, scratchPad);
+                    scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
+                    numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
+                    if (numTypes > NUM_CONTACT_TYPES_INCLUDING_NULL) {
+                        DEME_ERROR(
+                            "Primitive contact type run-length output (%zu) exceeds known contact type count (%u) "
+                            "after type canonicalization.",
+                            numTypes, (unsigned int)NUM_CONTACT_TYPES_INCLUDING_NULL);
+                    }
+                }
 
                 patchIDPair_t* contactPatchPairs = (patchIDPair_t*)scratchPad.allocateTempVector(
                     "contactPatchPairs", numTotalCnts * sizeof(patchIDPair_t));
@@ -1667,21 +1726,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         granData->idPrimitiveB, granData->triPatchID, numTotalCnts);
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 }
-
-                // Primitive arrays can legitimately contain NOT_A_CONTACT sentinel slots. They still form a run-length
-                // segment during simple patch grouping, so this scratch buffer must have room for the null segment in
-                // addition to the physical contact types.
-                contact_t* unique_types = (contact_t*)scratchPad.allocateTempVector(
-                    "unique_types", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contact_t));
-                contactPairs_t* type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "type_counts", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contactPairs_t));
-                scratchPad.allocateDualStruct("numUniqueTypes");
-
-                cubDEMRunLengthEncode<contact_t, contactPairs_t>(
-                    granData->contactTypePrimitive, unique_types, type_counts,
-                    scratchPad.getDualStructDevice("numUniqueTypes"), numTotalCnts, this_stream, scratchPad);
-                scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
-                size_t numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
 
                 if (numTypes > 0) {
                     contactPairs_t* host_type_counts = new contactPairs_t[numTypes];
@@ -1949,10 +1993,11 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 }
 
                 // Preserve the RefBranch invariant that primitive contacts are sorted by patch pair within each contact
-                // type segment before patch grouping. The flooded path builds extra island labels on top of these base
-                // groups, but dT still assumes each type segment has dense, ordered patch-contact IDs.
-                // Same null-aware sizing as the simple route: NOT_A_CONTACT can be present as a deterministic sentinel
-                // type and should not overflow run-length scratch storage.
+                // type segment before patch grouping. The type sort above also gathers any NOT_A_CONTACT sentinels into
+                // one contiguous null segment, so the flooded route has the same type-run safety as the simple route.
+                // The flooded path builds extra island labels on top of these base groups, but dT still assumes each
+                // type segment has dense, ordered patch-contact IDs. Null-aware sizing prevents sentinel runs from
+                // overflowing run-length scratch storage.
                 contact_t* segment_unique_types = (contact_t*)scratchPad.allocateTempVector(
                     "segment_unique_types", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contact_t));
                 contactPairs_t* segment_type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
