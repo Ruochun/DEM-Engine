@@ -1836,7 +1836,7 @@ class DEMSolver {
     // The max velocity at which the simulation should error out
     float threshold_error_out_vel = 1e3;
     // The max angular velocity at which the simulation should error out
-    float threshold_error_out_angvel = 1e4;
+    float threshold_error_out_angvel = DEME_HUGE_FLOAT;
     // Num of steps that kT takes average before making a conclusion on the performance of this bin size
     unsigned int auto_adjust_observe_steps = 25;
     // See corresponding method for those...
