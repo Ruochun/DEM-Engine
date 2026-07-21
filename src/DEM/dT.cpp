@@ -3149,8 +3149,16 @@ inline void DEMDynamicThread::unpack_impl() {
     // dT got the produce, now mark its buffer to be no longer fresh.
     pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.store(false, std::memory_order_release);
     // Used for inspecting on average how stale kT's produce is.
-    pSchedSupport->schedulingStats.accumKinematicLagSteps +=
-        (pSchedSupport->currentStampOfDynamic).load() - (pSchedSupport->stampLastDynamicUpdateProdDate).load();
+    const int64_t current_dynamic_stamp = (pSchedSupport->currentStampOfDynamic).load();
+    const int64_t previous_contact_prod_stamp = (pSchedSupport->stampLastDynamicUpdateProdDate).load();
+    pSchedSupport->schedulingStats.accumKinematicLagSteps += current_dynamic_stamp - previous_contact_prod_stamp;
+    if (previous_contact_prod_stamp >= 0 && current_dynamic_stamp >= previous_contact_prod_stamp) {
+        // The contact set just replaced had to cover this many dT steps. This is the safest signal for future-drift
+        // tuning because it measures the actual two-thread handoff, not just kT's isolated runtime.
+        const int64_t covered_drift = current_dynamic_stamp - previous_contact_prod_stamp;
+        futureDriftRegulator.RecordContactSetCoverage(static_cast<unsigned int>(
+            std::min<int64_t>(covered_drift, static_cast<int64_t>(solverFlags.upperBoundFutureDrift))));
+    }
     // dT needs to know how fresh the contact pair info is, and that is determined by when kT received this batch of
     // ingredients.
     pSchedSupport->stampLastDynamicUpdateProdDate = (pSchedSupport->kinematicIngredProdDateStamp).load();
@@ -3226,20 +3234,13 @@ inline void DEMDynamicThread::calibrateParams() {
     determineSysVel();  // This will set pCycleVel and pCycleAngVel
 
     if (solverFlags.autoUpdateFreq) {
-        unsigned int comfortable_drift;
-        if (accumStepUpdater.Query(comfortable_drift)) {
-            // If perhapsIdealFutureDrift needs to increase, then the following value much = perhapsIdealFutureDrift.
-            comfortable_drift =
-                (float)comfortable_drift * solverFlags.targetDriftMultipleOfAvg + solverFlags.targetDriftMoreThanAvg;
-            if (*perhapsIdealFutureDrift > comfortable_drift) {
-                *perhapsIdealFutureDrift -= FUTURE_DRIFT_TWEAK_STEP_SIZE;
-            } else if (*perhapsIdealFutureDrift < comfortable_drift) {
-                *perhapsIdealFutureDrift += FUTURE_DRIFT_TWEAK_STEP_SIZE;
-            }
-            *perhapsIdealFutureDrift = clampBetween<unsigned int, unsigned int>(*perhapsIdealFutureDrift, 0,
-                                                                                solverFlags.upperBoundFutureDrift);
+        if (futureDriftRegulator.HasContactSetCoverageSample()) {
+            *perhapsIdealFutureDrift = futureDriftRegulator.Recommend(
+                *perhapsIdealFutureDrift, solverFlags.targetDriftMultipleOfAvg, solverFlags.targetDriftMoreThanAvg,
+                solverFlags.upperBoundFutureDrift, FUTURE_DRIFT_TWEAK_STEP_SIZE);
 
-            DEME_DEBUG_PRINTF("Comfortable future drift is %u", comfortable_drift);
+            DEME_DEBUG_PRINTF("Observed covered future drift is %u",
+                              futureDriftRegulator.LastObservedContactSetCoverage());
             DEME_DEBUG_PRINTF("Current future drift is %u", *perhapsIdealFutureDrift);
         }
     }
@@ -3255,13 +3256,15 @@ inline void DEMDynamicThread::ifProduceFreshThenUseItAndSendNewOrder() {
         timers.GetTimer("Send to kT buffer").start();
         // Acquire lock and refresh the work order for the kinematic
         {
+            // Scheduling safety invariant: consuming one kT product and posting the next work order stay coupled. The
+            // future-drift regulator may change the margin command, but it must not defer this send; deferring it lets
+            // dT and kT span multiple unmatched contact arrays and breaks contact-history migration.
             calibrateParams();
             std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
             sendToTheirBuffer();
         }
         pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
         pSchedSupport->schedulingStats.nKinematicUpdates++;
-        accumStepUpdater.AddUpdate();
 
         timers.GetTimer("Send to kT buffer").stop();
         // Signal the kinematic that it has data for a new work order
@@ -3326,7 +3329,6 @@ void DEMDynamicThread::workerThread() {
             pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
             contactPairArr_isFresh = true;
             pSchedSupport->schedulingStats.nKinematicUpdates++;
-            accumStepUpdater.AddUpdate();
             // Signal the kinematic that it has data for a new work order.
             pSchedSupport->cv_KinematicCanProceed.notify_all();
             // Then dT will wait for kT to finish one initial run
@@ -3368,8 +3370,10 @@ void DEMDynamicThread::workerThread() {
                 }
                 pSchedSupport->schedulingStats.nTimesDynamicHeldBack++;
                 // If dT waits, it is penalized, since waiting means double-wait, very bad.
-                if (solverFlags.autoUpdateFreq)
-                    *perhapsIdealFutureDrift += FUTURE_DRIFT_TWEAK_STEP_SIZE;
+                if (solverFlags.autoUpdateFreq) {
+                    *perhapsIdealFutureDrift = futureDriftRegulator.BumpAfterWait(
+                        *perhapsIdealFutureDrift, solverFlags.upperBoundFutureDrift, FUTURE_DRIFT_TWEAK_STEP_SIZE);
+                }
                 timers.GetTimer("Wait for kT update").stop();
             }
             // NOTE: This ShouldWait check should follow the ifProduceFreshThenUseItAndSendNewOrder call. Because we
@@ -3424,7 +3428,6 @@ void DEMDynamicThread::workerThread() {
             // Dynamic wrapped up one cycle, record this fact into schedule support
             pSchedSupport->currentStampOfDynamic++;
             nTotalSteps++;
-            accumStepUpdater.AddStep();
 
             DEME_DEBUG_PRINTF("Completed step %zu, time %.9g", nTotalSteps, simParams->dyn.timeElapsed);
         }
@@ -3461,7 +3464,7 @@ void DEMDynamicThread::resetUserCallStat() {
     // Reset dT stats variables, making ready for next user call
     pSchedSupport->dynamicDone = false;
     contactPairArr_isFresh = true;
-    accumStepUpdater.Clear();
+    futureDriftRegulator.Clear();
 
     // Do not let user artificially set dynamicOwned_Prod2ConsBuffer_isFresh false. B/c only dT has the say on that. It
     // could be that kT has a new produce ready, but dT idled for long and do not want to use it and want a new produce.

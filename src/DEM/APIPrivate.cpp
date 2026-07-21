@@ -1251,7 +1251,7 @@ void DEMSolver::setSolverParams() {
     dT->solverFlags.upperBoundFutureDrift = upper_bound_future_drift;
     dT->solverFlags.targetDriftMoreThanAvg = max_drift_ahead_of_avg_drift;
     dT->solverFlags.targetDriftMultipleOfAvg = max_drift_multiple_of_avg_drift;
-    dT->accumStepUpdater.SetCacheSize(max_drift_gauge_history_size);
+    dT->futureDriftRegulator.SetCacheSize(max_drift_gauge_history_size);
 }
 
 void DEMSolver::setSimParams() {

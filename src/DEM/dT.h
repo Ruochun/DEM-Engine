@@ -21,6 +21,7 @@
 #include "Defines.h"
 #include "Structs.h"
 #include "AuxClasses.h"
+#include "utils/DynamicThreadHelpers.hpp"
 
 namespace deme {
 
@@ -28,7 +29,6 @@ namespace deme {
 class DEMKinematicThread;
 class DEMDynamicThread;
 class DEMSolverScratchData;
-struct LostContactDebugSnapshot;
 
 /// DynamicThread class
 class DEMDynamicThread {
@@ -75,6 +75,7 @@ class DEMDynamicThread {
 
     // dT believes this amount of future drift is ideal
     DualStruct<unsigned int> perhapsIdealFutureDrift = DualStruct<unsigned int>(0);
+    FutureDriftRegulator futureDriftRegulator;
 
     // Buffer arrays for storing info from the dT side.
     // kT modifies these arrays; dT uses them only.
@@ -868,41 +869,6 @@ class DEMDynamicThread {
     std::shared_ptr<JitHelper::CachedProgram> mod_kernels;
     // Instantiate common dT kernels during initialization so first-use JIT costs are paid before time stepping.
     void prewarmKernels();
-
-    // Adjuster for update freq
-    class AccumStepUpdater {
-      private:
-        unsigned int num_steps = 0;
-        unsigned int num_updates = 0;
-        unsigned int cached_size = 200;
-
-      public:
-        AccumStepUpdater() {}
-        ~AccumStepUpdater() {}
-        inline void AddUpdate() { num_updates++; }
-        inline void AddStep() { num_steps++; }
-        inline bool Query(unsigned int& ideal) {
-            if (num_updates > NUM_STEPS_RESERVED_AFTER_RENEWING_FREQ_TUNER) {
-                // * 2 because double update freq is an ideal future drift
-                ideal = (unsigned int)((double)num_steps / num_updates * 2);
-                if (num_updates >= cached_size) {
-                    Clear();
-                }
-                return true;
-            } else {
-                return false;
-            }
-        }
-
-        // Return this accumulator to initial state
-        void Clear() {
-            num_steps = 0;
-            num_updates = 0;
-        }
-
-        void SetCacheSize(unsigned int n) { cached_size = n; }
-    };
-    AccumStepUpdater accumStepUpdater = AccumStepUpdater();
 
     // A collection of migrate-to-host methods. Bulk migrate-to-host is by nature on-demand only.
     void migrateFamilyToHost();
