@@ -2882,6 +2882,13 @@ void DEMSolver::Initialize(bool dry_run) {
     // Always clear cache after init
     ClearCache();
 
+    // m_gpu_timers_enabled defaults to true, so create the corresponding CUDA events once the initialized solver is
+    // ready to run. Otherwise the public flag can report enabled timing while StartGpuTimer/StopGpuTimer are no-ops,
+    // producing mostly zero dT GPU timing statistics unless the user explicitly calls SetGPUTimersEnabled(true).
+    if (m_gpu_timers_enabled) {
+        SetGPUTimersEnabled(true);
+    }
+
     if (dry_run) {
         // Do a dry-run: It establishes contact pairs. It helps to locate obvious problems at the start (like, too many
         // contact pairs), and if the user needs to modify the contact wildcards before simulation starts, this step is

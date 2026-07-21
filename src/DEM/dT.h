@@ -749,6 +749,7 @@ class DEMDynamicThread {
         for (const auto& name : timer_names) {
             timers.GetTimer(name).reset();
         }
+        timers.ResetGpuTimers();
     }
 
     /// Get the simulation time passed since the start of simulation

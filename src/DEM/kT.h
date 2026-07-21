@@ -443,6 +443,7 @@ class DEMKinematicThread {
         for (const auto& name : timer_names) {
             timers.GetTimer(name).reset();
         }
+        timers.ResetGpuTimers();
     }
 
     /// Change all entities with (user-level) family number ID_from to have a new number ID_to
