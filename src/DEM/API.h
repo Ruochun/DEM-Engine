@@ -1716,7 +1716,7 @@ class DEMSolver {
     // The output file content for contact pairs
     unsigned int m_cnt_out_content = CNT_OUTPUT_CONTENT::OWNER | CNT_OUTPUT_CONTENT::GEO_ID |
                                      CNT_OUTPUT_CONTENT::FORCE | CNT_OUTPUT_CONTENT::CNT_POINT |
-                                     CNT_OUTPUT_CONTENT::CNT_WILDCARD;
+                                     CNT_OUTPUT_CONTENT::NORMAL | CNT_OUTPUT_CONTENT::CNT_WILDCARD;
     // The output file format for meshes
     MESH_FORMAT m_mesh_out_format = MESH_FORMAT::VTK;
     bool m_mesh_out_ply_patch_colors = false;
@@ -1809,10 +1809,10 @@ class DEMSolver {
 
     // The number of dT steps before it waits for a kT update. The default value means every dT step will wait for a
     // newly produced contact-pair info (from kT) before proceeding.
-    int m_suggestedFutureDrift = 40;
+    int m_suggestedFutureDrift = 12;
 
     // This is an unused variable which is supposed to be related to m_suggestedFutureDrift...
-    int m_updateFreq = 20;
+    int m_updateFreq = 6;
 
     // The extra libs that the kernels need to include.
     std::string kernel_includes = "#include <curand_kernel.h>\n";
