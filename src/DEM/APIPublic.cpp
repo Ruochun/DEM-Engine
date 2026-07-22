@@ -235,8 +235,6 @@ void DEMSolver::SetContactOutputContent(const std::vector<std::string>& content)
                 break;
             case ("NORMAL"_):
                 m_cnt_out_content = m_cnt_out_content | CNT_OUTPUT_CONTENT::NORMAL;
-                // Normal is special, only store when needed
-                EnableStoreNormals(true);
                 break;
             case ("TORQUE"_):
                 m_cnt_out_content = m_cnt_out_content | CNT_OUTPUT_CONTENT::TORQUE;
@@ -256,19 +254,6 @@ void DEMSolver::SetContactOutputContent(const std::vector<std::string>& content)
             default:
                 DEME_ERROR("Instruction %s is unknown in SetContactOutputContent call.", content[i].c_str());
         }
-    }
-}
-
-void DEMSolver::EnableStoreNormals(bool enable) {
-    kT->simParams->storeNormal = enable;
-    dT->simParams->storeNormal = enable;
-    {
-        ScopedCudaDevice device_scope(kT->streamInfo.device);
-        kT->simParams.toDevice();
-    }
-    {
-        ScopedCudaDevice device_scope(dT->streamInfo.device);
-        dT->simParams.toDevice();
     }
 }
 

@@ -1172,6 +1172,11 @@ void DEMSolver::setSolverParams() {
         output_level = output_level | CNT_OUTPUT_CONTENT::CNT_WILDCARD;
     }
     dT->solverFlags.cntOutFlags = output_level;
+    // Contact normals are a contact-output field, so the internal storage flag follows the output content instead of a
+    // separate user-facing toggle. This keeps the write-back kernel enabled exactly when normal output can read it.
+    const bool store_contact_normals = (output_level & CNT_OUTPUT_CONTENT::NORMAL) != 0;
+    kT->simParams->storeNormal = store_contact_normals;
+    dT->simParams->storeNormal = store_contact_normals;
 
     // Transfer historyless-ness
     kT->solverFlags.isHistoryless = (m_force_model->m_contact_wildcards.size() == 0);
