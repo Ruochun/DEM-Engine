@@ -193,7 +193,7 @@ inline __host__ __device__ void applyOriQToVector3(T1& v, const T2& Q) {
 
 template <typename T1, typename T2, typename T3>
 __host__ __device__ void applyFrameTransformLocalToGlobal(T1& pos, const T2& vec, const T3& rot_Q) {
-    applyOriQToVector3(pos.x, pos.y, pos.z, rot_Q.w, rot_Q.x, rot_Q.y, rot_Q.z);
+    applyOriQToVector3(pos, rot_Q);
     pos.x += vec.x;
     pos.y += vec.y;
     pos.z += vec.z;
@@ -264,12 +264,12 @@ __host__ __device__ void HamiltonProduct(T1& A,
 
 // Compute the binID for a point in space
 template <typename T1>
-__host__ __device__ T1 getPointBinID(const double& X,
-                                     const double& Y,
-                                     const double& Z,
-                                     const double& inv_binSize,
-                                     const T1& nbX,
-                                     const T1& nbY) {
+inline __host__ __device__ T1 getPointBinID(const double& X,
+                                            const double& Y,
+                                            const double& Z,
+                                            const double& inv_binSize,
+                                            const T1& nbX,
+                                            const T1& nbY) {
     T1 binIDX = X * inv_binSize;
     T1 binIDY = Y * inv_binSize;
     T1 binIDZ = Z * inv_binSize;
@@ -534,11 +534,11 @@ inline __device__ void boundingBoxIntersectBin(deme::binID_t* L,
     min_pt.z = DEME_MIN(vA.z, DEME_MIN(vB.z, vC.z));
 
     // Enlarge bounding box, so that no triangle lies right between 2 layers of bins
-    min_pt -= DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
+    min_pt -= (float)DEME_BIN_ENLARGE_RATIO_FOR_FACETS * (float)simParams->dyn.binSize;
     // A point on a mesh can be out of the simulation world. In this case, becasue we only need to detect contacts
     // inside the simulation world, so we just clamp out the bins that are outside the simulation world.
     int3 min_bin =
-        clampBetween3Comp<float3, int3>(min_pt / simParams->dyn.binSize, make_int3(0, 0, 0),
+        clampBetween3Comp<float3, int3>(min_pt * (float)simParams->dyn.inv_binSize, make_int3(0, 0, 0),
                                         make_int3(simParams->nbX - 1, simParams->nbY - 1, simParams->nbZ - 1));
 
     float3 max_pt;
@@ -546,9 +546,9 @@ inline __device__ void boundingBoxIntersectBin(deme::binID_t* L,
     max_pt.y = DEME_MAX(vA.y, DEME_MAX(vB.y, vC.y));
     max_pt.z = DEME_MAX(vA.z, DEME_MAX(vB.z, vC.z));
 
-    max_pt += DEME_BIN_ENLARGE_RATIO_FOR_FACETS * simParams->dyn.binSize;
+    max_pt += (float)DEME_BIN_ENLARGE_RATIO_FOR_FACETS * (float)simParams->dyn.binSize;
     int3 max_bin =
-        clampBetween3Comp<float3, int3>(max_pt / simParams->dyn.binSize, make_int3(0, 0, 0),
+        clampBetween3Comp<float3, int3>(max_pt * (float)simParams->dyn.inv_binSize, make_int3(0, 0, 0),
                                         make_int3(simParams->nbX - 1, simParams->nbY - 1, simParams->nbZ - 1));
 
     L[0] = min_bin.x;

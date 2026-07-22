@@ -33,13 +33,13 @@ __device__ __forceinline__ float getApproxAbsVel(deme::DEMSimParams* simParams,
     return vel;
 }
 
-__global__ void computeMarginFromAbsv_implSph(deme::DEMSimParams* simParams,
-                                              deme::DEMDataKT* granData,
-                                              const float* absVel_owner,
-                                              const float* absAngVel_owner,
-                                              float* ts,
-                                              unsigned int* maxDrift,
-                                              size_t n) {
+DEME_KERNEL void computeMarginFromAbsv_implSph(deme::DEMSimParams* simParams,
+                                               deme::DEMDataKT* granData,
+                                               const float* absVel_owner,
+                                               const float* absAngVel_owner,
+                                               float* ts,
+                                               unsigned int* maxDrift,
+                                               size_t n) {
     size_t sphereID = blockIdx.x * blockDim.x + threadIdx.x;
     if (sphereID < n) {
         float3 myRelPos;
@@ -58,15 +58,15 @@ __global__ void computeMarginFromAbsv_implSph(deme::DEMSimParams* simParams,
     }
 }
 
-__global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
-                                              deme::DEMDataKT* granData,
-                                              const float* absVel_owner,
-                                              const float* absAngVel_owner,
-                                              float* ts,
-                                              unsigned int* maxDrift,
-                                              float* maxTriTriPenetration,
-                                              bool meshUniversalContact,
-                                              size_t n) {
+DEME_KERNEL void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
+                                               deme::DEMDataKT* granData,
+                                               const float* absVel_owner,
+                                               const float* absAngVel_owner,
+                                               float* ts,
+                                               unsigned int* maxDrift,
+                                               float* maxTriTriPenetration,
+                                               bool meshUniversalContact,
+                                               size_t n) {
     size_t triID = blockIdx.x * blockDim.x + threadIdx.x;
     if (triID < n) {
         float3 triBNode1 = granData->relPosNode1[triID];
@@ -100,13 +100,13 @@ __global__ void computeMarginFromAbsv_implTri(deme::DEMSimParams* simParams,
     }
 }
 
-__global__ void computeMarginFromAbsv_implAnal(deme::DEMSimParams* simParams,
-                                               deme::DEMDataKT* granData,
-                                               const float* absVel_owner,
-                                               const float* absAngVel_owner,
-                                               float* ts,
-                                               unsigned int* maxDrift,
-                                               size_t n) {
+DEME_KERNEL void computeMarginFromAbsv_implAnal(deme::DEMSimParams* simParams,
+                                                deme::DEMDataKT* granData,
+                                                const float* absVel_owner,
+                                                const float* absAngVel_owner,
+                                                float* ts,
+                                                unsigned int* maxDrift,
+                                                size_t n) {
     size_t objID = blockIdx.x * blockDim.x + threadIdx.x;
     if (objID < n) {
         deme::bodyID_t ownerID = granData->ownerAnalBody[objID];

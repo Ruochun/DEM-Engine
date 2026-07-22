@@ -13,6 +13,8 @@
 
 #include <DEM/utils/HostSideHelpers.hpp>
 
+#include <algorithm>
+
 namespace deme {
 
 // Forward declarations (helpers are defined later in this TU)
@@ -1060,14 +1062,19 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 scratchPad.syncDualArrayDeviceToHost("activeBinIDsForTri");
                 binID_t* activeBinIDsForTri = (binID_t*)scratchPad.getDualArrayHost("activeBinIDsForTri");
                 // There has to be spheres for activeBinIDs to exist, so we have to check
-                binID_t* activeBinIDs;
+                binID_t* activeBinIDs = nullptr;
                 if (scratchPad.existDualArray("activeBinIDs")) {
                     scratchPad.syncDualArrayDeviceToHost("activeBinIDs");
                     activeBinIDs = (binID_t*)scratchPad.getDualArrayHost("activeBinIDs");
                 }
                 binID_t* mapTriActBinToSphActBin = (binID_t*)scratchPad.getDualArrayHost("mapTriActBinToSphActBin");
-                hostMergeSearchMapGen(activeBinIDsForTri, activeBinIDs, mapTriActBinToSphActBin, *pNumActiveBinsForTri,
-                                      *pNumActiveBins, deme::NULL_BINID);
+                if (activeBinIDs && *pNumActiveBins > 0) {
+                    hostMergeSearchMapGen(activeBinIDsForTri, activeBinIDs, mapTriActBinToSphActBin,
+                                          *pNumActiveBinsForTri, *pNumActiveBins, deme::NULL_BINID);
+                } else {
+                    // No active sphere bins this step: every tri-active bin maps to NULL.
+                    std::fill_n(mapTriActBinToSphActBin, *pNumActiveBinsForTri, deme::NULL_BINID);
+                }
                 // activeBinIDsForTri and activeBinIDs are not changed, so no need to sync them back
                 scratchPad.syncDualArrayHostToDevice("mapTriActBinToSphActBin");
             }
