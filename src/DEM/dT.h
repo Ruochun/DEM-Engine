@@ -771,6 +771,15 @@ class DEMDynamicThread {
                        DualArray<scratch_t>& reduceRes,
                        bool return_device_ptr = false);
 
+    // Device-only inspection helper for dT worker paths that need per-entity values, such as kT margin inputs.
+    float* inspectCallDeviceNoReduce(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
+                                     const std::string& kernel_name,
+                                     INSPECT_ENTITY_TYPE thing_to_insp,
+                                     CUB_REDUCE_FLAVOR reduce_flavor,
+                                     bool all_domain,
+                                     DualArray<scratch_t>& reduceResArr,
+                                     DualArray<scratch_t>& reduceRes);
+
   private:
     // Name for this class
     const std::string Name = "dT";

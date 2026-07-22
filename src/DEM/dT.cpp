@@ -3070,7 +3070,7 @@ inline void DEMDynamicThread::integrateOwnerMotions() {
     integrator_kernels->kernel("integrateOwners")
         .instantiate()
         .configure(dim3(blocks_needed_for_clumps), dim3(DEME_NUM_BODIES_PER_BLOCK), 0, streamInfo.stream)
-        .launch(&simParams, &granData);
+        .launch(&simParams, &granData, (double)simParams->dyn.timeElapsed);
     DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 
     if (simParams->nCombinedOwners > 0) {
@@ -3101,9 +3101,9 @@ inline void DEMDynamicThread::routineChecks() {
 
 inline void DEMDynamicThread::determineSysVel() {
     // Get linear velocity
-    pCycleVel = approxVelFunc->dT_GetDeviceValue();
+    pCycleVel = approxVelFunc->dT_GetDeviceValues();
     // Get angular velocity magnitude
-    pCycleAngVel = approxAngVelFunc->dT_GetDeviceValue();
+    pCycleAngVel = approxAngVelFunc->dT_GetDeviceValues();
 }
 
 inline void DEMDynamicThread::unpack_impl() {
@@ -3401,6 +3401,9 @@ void DEMDynamicThread::workerThread() {
             } while ((!solverFlags.isStepConst) || (!step_accepted));
 
             //// TODO: make changes for variable time step size cases
+            // Keep the host copy authoritative for API queries. integrateOwners also writes the same next time into
+            // device simParams so downstream stream work can observe the advanced time before this host-to-device
+            // refresh executes.
             simParams->dyn.timeElapsed += (double)simParams->dyn.h;
             simParams.syncMemberToDeviceAsync<double>(
                 offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, timeElapsed), streamInfo.stream);
@@ -3685,6 +3688,17 @@ float* DEMDynamicThread::inspectCall(const std::shared_ptr<JitHelper::CachedProg
         reduceRes.toHost();
         return (float*)reduceRes.host();
     }
+}
+
+float* DEMDynamicThread::inspectCallDeviceNoReduce(const std::shared_ptr<JitHelper::CachedProgram>& inspection_kernel,
+                                                   const std::string& kernel_name,
+                                                   INSPECT_ENTITY_TYPE thing_to_insp,
+                                                   CUB_REDUCE_FLAVOR reduce_flavor,
+                                                   bool all_domain,
+                                                   DualArray<scratch_t>& reduceResArr,
+                                                   DualArray<scratch_t>& reduceRes) {
+    return inspectCall(inspection_kernel, kernel_name, thing_to_insp, reduce_flavor, all_domain, reduceResArr,
+                       reduceRes, true);
 }
 
 void DEMDynamicThread::initAllocation() {
