@@ -9,10 +9,10 @@ float3 torqueB = make_float3(-torque_only_force.x, -torque_only_force.y, -torque
     const bool bad_vec = !isfinite3(forceA) || !isfinite3(torqueA);
     if (bad_cp || bad_vec) {
         DEME_ABORT_KERNEL(
-            "In-place force reduction found invalid force/torque/contact point for A: contact %llu, owner %llu, type "
+            "In-place force reduction found invalid force/torque/contact point for A: contact owner %llu, type "
             "%u, bad_vec=%d, bad_cp=%d.\n",
-            static_cast<unsigned long long>(myPrimitiveContactID), static_cast<unsigned long long>(AOwner),
-            static_cast<unsigned int>(ContactType), static_cast<int>(bad_vec), static_cast<int>(bad_cp));
+            static_cast<unsigned long long>(AOwner), static_cast<unsigned int>(ContactType), static_cast<int>(bad_vec),
+            static_cast<int>(bad_cp));
     }
 
     atomicAdd(granData->aX + AOwner, forceA.x / AOwnerMass);
@@ -36,10 +36,10 @@ float3 torqueB = make_float3(-torque_only_force.x, -torque_only_force.y, -torque
     const bool bad_vec = !isfinite3(forceB) || !isfinite3(torqueB);
     if (bad_cp || bad_vec) {
         DEME_ABORT_KERNEL(
-            "In-place force reduction found invalid force/torque/contact point for B: contact %llu, owner %llu, type "
+            "In-place force reduction found invalid force/torque/contact point for B: contact owner %llu, type "
             "%u, bad_vec=%d, bad_cp=%d.\n",
-            static_cast<unsigned long long>(myPrimitiveContactID), static_cast<unsigned long long>(BOwner),
-            static_cast<unsigned int>(ContactType), static_cast<int>(bad_vec), static_cast<int>(bad_cp));
+            static_cast<unsigned long long>(BOwner), static_cast<unsigned int>(ContactType), static_cast<int>(bad_vec),
+            static_cast<int>(bad_cp));
     }
 
     atomicAdd(granData->aX + BOwner, forceB.x / BOwnerMass);
