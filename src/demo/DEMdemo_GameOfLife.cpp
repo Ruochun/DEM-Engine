@@ -133,7 +133,7 @@ int main() {
     create_directory(out_dir);
 
     std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < 3000; i++) {
+    for (int i = 0; i < 1000; i++) {
         char filename[100];
         sprintf(filename, "DEMdemo_output_%04d.csv", i);
         DEMSim.WriteSphereFile(out_dir / filename);

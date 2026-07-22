@@ -153,7 +153,7 @@ int main() {
     out_dir /= "DemoOutput_FlexibleMesh";
     std::filesystem::create_directory(out_dir);
 
-    float sim_end = 2.0;  // 9.0
+    float sim_end = 9.0;
     unsigned int fps = 20;
     float frame_time = 1.0 / fps;
     std::cout << "Output at " << fps << " FPS" << std::endl;
