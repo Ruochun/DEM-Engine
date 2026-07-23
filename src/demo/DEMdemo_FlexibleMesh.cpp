@@ -165,6 +165,11 @@ int main() {
     std::vector<float3> forces, points;
     size_t num_force_pairs = 0;
 
+    // Debug isolation: this deforming-mesh demo stresses dT-to-kT transfer of updated triangle coordinates. Keep the
+    // worker threads synchronized after each advance so the test can distinguish stale async geometry handoff from the
+    // contact/force kernels themselves.
+    constexpr bool force_kt_dt_sync_for_deforming_mesh_debug = true;
+
     // Settle
     for (float t = 0; t < 0.5; t += frame_time) {
         char filename[100], meshname[100], force_filename[100];
@@ -177,7 +182,11 @@ int main() {
         std::filesystem::path force_filepath = out_dir / force_filename;
         writeFloat3VectorsToCSV(force_csv_header, {points, forces}, force_filepath.string(), num_force_pairs);
         DEMSim.ShowThreadCollaborationStats();
-        DEMSim.DoDynamics(frame_time);
+        if (force_kt_dt_sync_for_deforming_mesh_debug) {
+            DEMSim.DoDynamicsThenSync(frame_time);
+        } else {
+            DEMSim.DoDynamics(frame_time);
+        }
     }
 
     // It's possible that you don't have to update the mesh every time step so you can set this number larger than 1.
@@ -256,8 +265,13 @@ int main() {
             num_force_pairs = flex_mesh_tracker->GetContactForces(points, forces);
         }
 
-        // Means advance simulation by one time step
-        DEMSim.DoStepDynamics();
+        // Means advance simulation by one time step. The sync path is intentionally enabled on this debug branch to
+        // isolate whether deforming mesh geometry gets stale between dT and kT on two GPUs.
+        if (force_kt_dt_sync_for_deforming_mesh_debug) {
+            DEMSim.DoDynamicsThenSync(step_size);
+        } else {
+            DEMSim.DoStepDynamics();
+        }
     }
     std::chrono::high_resolution_clock::time_point end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> time_sec = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
