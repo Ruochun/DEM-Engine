@@ -85,6 +85,80 @@ inline void primitiveHistoryArraysResize(size_t nContactPairs,
     granData.toDevice();
 }
 
+inline void removeNullPrimitiveContacts(DualStruct<DEMDataKT>& granData,
+                                        cudaStream_t& this_stream,
+                                        DEMSolverScratchData& scratchPad) {
+    const size_t numTotalCnts = *scratchPad.numPrimitiveContacts;
+    if (numTotalCnts == 0) {
+        return;
+    }
+
+    // kT kernels can emit NOT_A_CONTACT sentinels into fixed-size primitive report slots. Those records are useful while
+    // filling candidate arrays, but they are not physical contacts and their idA/idB values are not valid patch/history
+    // identities. Compact them out before any patch-contact derivation or history mapping can observe them.
+    const size_t blocks_needed = (numTotalCnts + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+    notStupidBool_t* keep_flags = (notStupidBool_t*)scratchPad.allocateTempVector(
+        "non_null_primitive_keep_flags", numTotalCnts * sizeof(notStupidBool_t));
+    markPhysicalPrimitiveContacts<<<dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
+        keep_flags, granData->contactTypePrimitive, numTotalCnts);
+    DEME_GPU_DEBUG_SYNC(this_stream);
+
+    scratchPad.allocateDualStruct("numNonNullPrimitiveContacts");
+    cubDEMSum<notStupidBool_t, size_t>(keep_flags, scratchPad.getDualStructDevice("numNonNullPrimitiveContacts"),
+                                       numTotalCnts, this_stream, scratchPad);
+    scratchPad.syncDualStructDeviceToHost("numNonNullPrimitiveContacts");
+    const size_t numKept = *scratchPad.getDualStructHost("numNonNullPrimitiveContacts");
+
+    if (numKept < numTotalCnts) {
+        const size_t alloc_kept = DEME_MAX((size_t)1, numKept);
+        const size_t ids_bytes = alloc_kept * sizeof(bodyID_t);
+        const size_t type_bytes = alloc_kept * sizeof(contact_t);
+        const size_t persist_bytes = alloc_kept * sizeof(notStupidBool_t);
+        bodyID_t* keptA = (bodyID_t*)scratchPad.allocateTempVector("non_null_primitive_idA", ids_bytes);
+        bodyID_t* keptB = (bodyID_t*)scratchPad.allocateTempVector("non_null_primitive_idB", ids_bytes);
+        contact_t* keptType = (contact_t*)scratchPad.allocateTempVector("non_null_primitive_type", type_bytes);
+        notStupidBool_t* keptPersist =
+            (notStupidBool_t*)scratchPad.allocateTempVector("non_null_primitive_persist", persist_bytes);
+
+        cubDEMSelectFlagged<bodyID_t, notStupidBool_t>(
+            granData->idPrimitiveA, keptA, keep_flags, scratchPad.getDualStructDevice("numNonNullPrimitiveContacts"),
+            numTotalCnts, this_stream, scratchPad);
+        cubDEMSelectFlagged<bodyID_t, notStupidBool_t>(
+            granData->idPrimitiveB, keptB, keep_flags, scratchPad.getDualStructDevice("numNonNullPrimitiveContacts"),
+            numTotalCnts, this_stream, scratchPad);
+        cubDEMSelectFlagged<contact_t, notStupidBool_t>(
+            granData->contactTypePrimitive, keptType, keep_flags,
+            scratchPad.getDualStructDevice("numNonNullPrimitiveContacts"), numTotalCnts, this_stream, scratchPad);
+        cubDEMSelectFlagged<notStupidBool_t, notStupidBool_t>(
+            granData->contactPersistency, keptPersist, keep_flags,
+            scratchPad.getDualStructDevice("numNonNullPrimitiveContacts"), numTotalCnts, this_stream, scratchPad);
+
+        if (numKept > 0) {
+            DEME_GPU_CALL_ASYNC(
+                cudaMemcpyAsync(granData->idPrimitiveA, keptA, ids_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                this_stream);
+            DEME_GPU_CALL_ASYNC(
+                cudaMemcpyAsync(granData->idPrimitiveB, keptB, ids_bytes, cudaMemcpyDeviceToDevice, this_stream),
+                this_stream);
+            DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactTypePrimitive, keptType, type_bytes,
+                                                cudaMemcpyDeviceToDevice, this_stream),
+                                this_stream);
+            DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactPersistency, keptPersist, persist_bytes,
+                                                cudaMemcpyDeviceToDevice, this_stream),
+                                this_stream);
+        }
+
+        *scratchPad.numPrimitiveContacts = numKept;
+        scratchPad.finishUsingTempVector("non_null_primitive_idA");
+        scratchPad.finishUsingTempVector("non_null_primitive_idB");
+        scratchPad.finishUsingTempVector("non_null_primitive_type");
+        scratchPad.finishUsingTempVector("non_null_primitive_persist");
+    }
+
+    scratchPad.finishUsingDualStruct("numNonNullPrimitiveContacts");
+    scratchPad.finishUsingTempVector("non_null_primitive_keep_flags");
+}
+
 inline void removeDuplicateContacts(DualStruct<DEMDataKT>& granData,
                                     bodyID_t* idA_sorted,
                                     bodyID_t* idB_sorted,
@@ -312,12 +386,18 @@ inline void sortPrimitiveContactsByTypeInPlace(DualStruct<DEMDataKT>& granData,
     sortABTypePersistencyByType(granData->idPrimitiveA, granData->idPrimitiveB, granData->contactTypePrimitive,
                                 granData->contactPersistency, idPrimitiveA_sorted, idPrimitiveB_sorted,
                                 contactType_sorted, contactPersistency_sorted, numCnts, stream, scratchPad);
-    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveA, idPrimitiveA_sorted, total_ids_bytes, cudaMemcpyDeviceToDevice));
-    DEME_GPU_CALL(cudaMemcpy(granData->idPrimitiveB, idPrimitiveB_sorted, total_ids_bytes, cudaMemcpyDeviceToDevice));
-    DEME_GPU_CALL(
-        cudaMemcpy(granData->contactTypePrimitive, contactType_sorted, total_types_bytes, cudaMemcpyDeviceToDevice));
-    DEME_GPU_CALL(cudaMemcpy(granData->contactPersistency, contactPersistency_sorted, total_persistency_bytes,
-                             cudaMemcpyDeviceToDevice));
+    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveA, idPrimitiveA_sorted, total_ids_bytes,
+                                        cudaMemcpyDeviceToDevice, stream),
+                        stream);
+    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->idPrimitiveB, idPrimitiveB_sorted, total_ids_bytes,
+                                        cudaMemcpyDeviceToDevice, stream),
+                        stream);
+    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactTypePrimitive, contactType_sorted, total_types_bytes,
+                                        cudaMemcpyDeviceToDevice, stream),
+                        stream);
+    DEME_GPU_CALL_ASYNC(cudaMemcpyAsync(granData->contactPersistency, contactPersistency_sorted,
+                                        total_persistency_bytes, cudaMemcpyDeviceToDevice, stream),
+                        stream);
 
     scratchPad.finishUsingTempVector("contactType_sorted");
     scratchPad.finishUsingTempVector("idPrimitiveA_sorted");
@@ -326,7 +406,7 @@ inline void sortPrimitiveContactsByTypeInPlace(DualStruct<DEMDataKT>& granData,
 }
 
 inline bool primitiveTypeRunsAreFragmented(contact_t* uniqueTypes, size_t numTypes) {
-    constexpr size_t maxKnownContactTypeRuns = (size_t)NUM_CONTACT_TYPES_INCLUDING_NULL;
+    constexpr size_t maxKnownContactTypeRuns = (size_t)NUM_SUPPORTED_CONTACT_TYPES;
     if (numTypes > maxKnownContactTypeRuns) {
         return true;
     }
@@ -1318,6 +1398,11 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         scratchPad.finishUsingDualStruct("numActiveBins");
         scratchPad.finishUsingDualStruct("numActiveBinsForTri");
 
+        // Raw primitive CD uses fixed-size report regions, so NOT_A_CONTACT records are expected. They must not survive
+        // into persistent-contact carryover, duplicate removal, or patch-contact derivation because their primitive IDs
+        // are report-slot artifacts rather than valid physical contact identities.
+        removeNullPrimitiveContacts(granData, this_stream, scratchPad);
+
         // -----------------------------------------------------------------------------------------------------------
         // One more task: If the user specified persistent contacts, we check the previous contact list
         // and see if there are some contacts we need to add to the current list. Even if we detected 0 contacts, we
@@ -1569,6 +1654,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
             scratchPad.finishUsingTempVector("combined_keep_flags");
         }
 
+        // Defensive cleanup: this is normally a no-op because raw CD sentinels were compacted above. Keep it here so
+        // stale previous arrays or future filters cannot reintroduce NOT_A_CONTACT into patch-level grouping.
+        removeNullPrimitiveContacts(granData, this_stream, scratchPad);
+
         // -----------------------------------------------------------------------------------------------------------
         // We need to now do some sanity checks. If primitive contacts are already sorted by idA, we just use them (they
         // are stored in granData). If sorted by type, then we have to sort by idA but do not change the granData
@@ -1683,11 +1772,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 }
                 primitiveContactArraysAreSortedByType = true;
 
-                // Primitive arrays can legitimately contain NOT_A_CONTACT sentinel slots. These null records can be
-                // interleaved with real contact types even when the physical contacts were counted into type-specific
-                // report regions. The simple patch route stores one start/count range per type, so repeated type runs
-                // would overwrite each other and leave many real contacts unmapped. Use the RLE we need anyway to
-                // detect fragmented type runs, and only pay for a full type sort when such fragmentation is present.
+                // The simple patch route stores one start/count range per physical contact type. Use the RLE we need
+                // anyway to detect repeated physical type runs, and only pay for a full type sort when fragmentation is
+                // present.
                 const size_t type_buf_len = DEME_MAX((size_t)1, numTotalCnts);
                 contact_t* unique_types =
                     (contact_t*)scratchPad.allocateTempVector("unique_types", type_buf_len * sizeof(contact_t));
@@ -1707,11 +1794,11 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                         scratchPad.getDualStructDevice("numUniqueTypes"), numTotalCnts, this_stream, scratchPad);
                     scratchPad.syncDualStructDeviceToHost("numUniqueTypes");
                     numTypes = *scratchPad.getDualStructHost("numUniqueTypes");
-                    if (numTypes > NUM_CONTACT_TYPES_INCLUDING_NULL) {
+                    if (numTypes > NUM_SUPPORTED_CONTACT_TYPES) {
                         DEME_ERROR(
                             "Primitive contact type run-length output (%zu) exceeds known contact type count (%u) "
                             "after type canonicalization.",
-                            numTypes, (unsigned int)NUM_CONTACT_TYPES_INCLUDING_NULL);
+                            numTypes, (unsigned int)NUM_SUPPORTED_CONTACT_TYPES);
                     }
                 }
 
@@ -1992,16 +2079,14 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                     DEME_GPU_DEBUG_SYNC(this_stream);
                 }
 
-                // Preserve the RefBranch invariant that primitive contacts are sorted by patch pair within each contact
-                // type segment before patch grouping. The type sort above also gathers any NOT_A_CONTACT sentinels into
-                // one contiguous null segment, so the flooded route has the same type-run safety as the simple route.
-                // The flooded path builds extra island labels on top of these base groups, but dT still assumes each
-                // type segment has dense, ordered patch-contact IDs. Null-aware sizing prevents sentinel runs from
-                // overflowing run-length scratch storage.
+                // Preserve the RefBranch invariant that primitive contacts are sorted by patch pair within each physical
+                // contact type segment before patch grouping. The flooded path builds extra island labels on top of
+                // these base groups, but dT still assumes each type segment has dense, ordered patch-contact IDs.
+                const size_t segment_type_buf_len = DEME_MAX((size_t)1, numTotalCnts);
                 contact_t* segment_unique_types = (contact_t*)scratchPad.allocateTempVector(
-                    "segment_unique_types", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contact_t));
+                    "segment_unique_types", segment_type_buf_len * sizeof(contact_t));
                 contactPairs_t* segment_type_counts = (contactPairs_t*)scratchPad.allocateTempVector(
-                    "segment_type_counts", NUM_CONTACT_TYPES_INCLUDING_NULL * sizeof(contactPairs_t));
+                    "segment_type_counts", segment_type_buf_len * sizeof(contactPairs_t));
                 scratchPad.allocateDualStruct("numSegmentTypes");
                 cubDEMRunLengthEncode<contact_t, contactPairs_t>(
                     granData->contactTypePrimitive, segment_unique_types, segment_type_counts,
@@ -2635,8 +2720,10 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                             for (size_t i = 0; i < numTypes; i++) {
                                 const contact_t type = host_unique_types[i];
                                 const contactPairs_t cnt = host_type_counts[i];
-                                if ((isSupportedContactType(type) || type == NOT_A_CONTACT) && cnt > 0) {
+                                if (isSupportedContactType(type) && cnt > 0) {
                                     typeStartCountPatchMap_thisStep[type] = {offset, cnt};
+                                } else if (cnt > 0) {
+                                    DEME_ERROR("Unsupported patch contact type %d survived kT patch derivation.", type);
                                 }
                                 offset += host_type_counts[i];
                             }
@@ -2750,14 +2837,12 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                 granData.toDevice();
             }
 
-            // Build patch-based contact mapping using per-type kernels. This loop intentionally includes
-            // NOT_A_CONTACT: CD kernels may carry null sentinel slots through patch grouping, and those mapping entries
-            // must be explicitly initialized so dT never consumes stale contactMapping values for them.
-            for (size_t type_idx = 0; type_idx < NUM_CONTACT_TYPES_INCLUDING_NULL; type_idx++) {
-                contact_t thisType = ALL_CONTACT_TYPES_INCLUDING_NULL[type_idx];
+            // Build patch-based contact mapping using physical contact types only. NOT_A_CONTACT sentinels must have
+            // been compacted before patch-contact derivation; if one reaches this map, dT should fail when dispatching.
+            for (size_t type_idx = 0; type_idx < NUM_SUPPORTED_CONTACT_TYPES; type_idx++) {
+                contact_t thisType = ALL_CONTACT_TYPES[type_idx];
 
-                // Get start/count for this type in the current and previous steps. Physical types are pre-initialized;
-                // NOT_A_CONTACT is inserted on demand with the default zero range when absent.
+                // Get start/count for this type in the current and previous steps.
                 const auto& curr_info = typeStartCountPatchMap_thisStep[thisType];
                 const auto& prev_info = typeStartCountPatchMap[thisType];
 
@@ -2773,16 +2858,6 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
 
                 // Launch appropriate kernel based on whether previous step had this type
                 size_t blocks_needed = (curr_count + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
-
-                if (thisType == NOT_A_CONTACT) {
-                    // Null contacts are placeholders, not physical history carriers. A null slot in the current kT
-                    // product should never inherit history from an old null slot, but it still needs a deterministic
-                    // mapping value so it cannot disturb real contact migration on dT.
-                    setNullMappingForType<<<dim3(blocks_needed), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, this_stream>>>(
-                        granData->contactMapping, curr_start, curr_count);
-                    DEME_GPU_DEBUG_SYNC(this_stream);
-                    continue;
-                }
 
                 if (prev_count == 0) {
                     // Previous step has no contacts of this type - set all to NULL_MAPPING_PARTNER

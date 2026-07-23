@@ -1656,9 +1656,9 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
         auto geoA = idPatchA[i];
         auto geoB = idPatchB[i];
         auto type = contactTypePatch[i];
-        // We don't output fake contacts; but right now, no contact will be marked fake by kT, so no need to check that
-        // if (type == NOT_A_CONTACT)
-        //     continue;
+        if (type == NOT_A_CONTACT) {
+            DEME_ERROR("NOT_A_CONTACT reached dT contact output; kT should compact null contacts before handoff.");
+        }
 
         float3 forcexyz = contactForces[i];
         float3 torque = contactTorque_convToForce[i];
@@ -2711,20 +2711,6 @@ inline void DEMDynamicThread::dispatchPrimitiveForceKernels(
 
         // For this contact type, get its list of (program bundle name, kernel name)
         if (typeKernelMap.count(contact_type) == 0) {
-            if (contact_type == NOT_A_CONTACT) {
-                // A null contact here likely means two CD sweeps produced inconsistent counted/fill results. This can
-                // happen with a very low probability in large problems. Log enough context, then keep the old
-                // behavior: skip the null segment without halting the program.
-                DEME_STATUS("NULL_CONTACT_FORCE_KERNEL_SKIPPED",
-                            "Skipping NOT_A_CONTACT primitive segment on dT at step %llu, time %.17g, dt %.17g (no "
-                            "action required from user, likely GPU execution order-induced disturbance). start=%u, "
-                            "count=%u, primitive_contacts=%zu, patch_contacts=%zu, async=%u",
-                            static_cast<unsigned long long>(nTotalSteps), simParams->dyn.timeElapsed,
-                            static_cast<double>(simParams->dyn.h), static_cast<unsigned int>(startOffset),
-                            static_cast<unsigned int>(count), *solverScratchSpace.numPrimitiveContacts,
-                            *solverScratchSpace.numContacts, static_cast<unsigned int>(solverFlags.isAsync));
-                continue;
-            }
             // displayDeviceArray<bodyID_t>(granData->idPrimitiveA, *solverScratchSpace.numPrimitiveContacts);
             // displayDeviceArray<bodyID_t>(granData->idPrimitiveB, *solverScratchSpace.numPrimitiveContacts);
             // displayDeviceArray<contact_t>(granData->contactTypePrimitive, *solverScratchSpace.numPrimitiveContacts);
@@ -2943,6 +2929,8 @@ inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
                                         finalContactPoints, startOffsetPatch, countPatch);
                         }
                     }
+                } else {
+                    DEME_ERROR("Patch contact type %d has no associated force kernel to execute!", contact_type);
                 }
                 DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 
