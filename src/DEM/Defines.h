@@ -132,17 +132,6 @@ constexpr contact_t ALL_CONTACT_TYPES[NUM_SUPPORTED_CONTACT_TYPES] = {
     SPHERE_SPHERE_CONTACT, SPHERE_TRIANGLE_CONTACT, SPHERE_ANALYTICAL_CONTACT, TRIANGLE_TRIANGLE_CONTACT,
     TRIANGLE_ANALYTICAL_CONTACT};
 
-// Force kernels only support the physical contact types above. Contact-history bookkeeping, however, can see
-// NOT_A_CONTACT sentinel segments because CD kernels may leave deterministic null records in reserved primitive slots.
-// Iterate this null-inclusive list only where those sentinel mapping slots must be initialized.
-constexpr contact_t NUM_CONTACT_TYPES_INCLUDING_NULL = NUM_SUPPORTED_CONTACT_TYPES + 1;
-constexpr contact_t ALL_CONTACT_TYPES_INCLUDING_NULL[NUM_CONTACT_TYPES_INCLUDING_NULL] = {NOT_A_CONTACT,
-                                                                                          SPHERE_SPHERE_CONTACT,
-                                                                                          SPHERE_TRIANGLE_CONTACT,
-                                                                                          SPHERE_ANALYTICAL_CONTACT,
-                                                                                          TRIANGLE_TRIANGLE_CONTACT,
-                                                                                          TRIANGLE_ANALYTICAL_CONTACT};
-
 // Device version of getting geo owner ID
 #define DEME_GET_GEO_OWNER_ID(geo, type)                                  \
     ((type) == deme::GEO_T_SPHERE       ? granData->ownerClumpBody[(geo)] \

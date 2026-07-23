@@ -38,6 +38,15 @@ __global__ void markBoolIf(notStupidBool_t* bool_arr, notStupidBool_t* value_arr
     }
 }
 
+// Mark primitive contacts that should survive into patch-contact derivation. NOT_A_CONTACT entries are temporary
+// sentinels emitted by CD kernels; they do not carry valid patch identity or force/history state.
+__global__ void markPhysicalPrimitiveContacts(notStupidBool_t* keep_flags, const contact_t* contact_types, size_t n) {
+    contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
+    if (myID < n) {
+        keep_flags[myID] = (contact_types[myID] == NOT_A_CONTACT) ? 0 : 1;
+    }
+}
+
 __global__ void setArr(notStupidBool_t* arr, size_t n, notStupidBool_t val) {
     contactPairs_t myID = blockIdx.x * blockDim.x + threadIdx.x;
     if (myID < n) {
