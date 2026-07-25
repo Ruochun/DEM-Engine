@@ -42,8 +42,8 @@ int main() {
     DEMSim.SetNoForceRecord();
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type_mixer = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.0}});
-    auto mat_type_granular = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.2}, {"Crr", 0.0}});
+    auto mat_type_mixer = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.0}});
+    auto mat_type_granular = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.2}, {"Crr", 0.0}});
     // If you don't have this line, then mu between mixer material and granular material will be 0.35 (average of the
     // two).
     DEMSim.SetMaterialPropertyPair("mu", mat_type_mixer, mat_type_granular, 0.5);
@@ -98,7 +98,7 @@ int main() {
 
     // A full one-for-one mesh replacement of the original fill would instantiate more than a million moving triangles.
     // Keep the same filled volume but cap the count so this remains a practical universal-mesh-contact demo.
-    const unsigned int target_cubes = 25000;
+    const unsigned int target_cubes = 45000;
     std::mt19937 rng(42);
     std::shuffle(input_xyz.begin(), input_xyz.end(), rng);
     if (input_xyz.size() > target_cubes) {
@@ -117,20 +117,10 @@ int main() {
 
     DEMSim.SetInitTimeStep(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
-    DEMSim.SetCDUpdateFreq(40);
     DEMSim.SetErrorOutVelocity(40.);
     // Mesh universal contact uses triangle primitives, so let the safety margin follow the measured mesh velocity and
     // seed it with the rotating mixer tip speed.
     DEMSim.SetExpandSafetyType("auto");
-    DEMSim.SetExpandSafetyAdder(mixer_ang_vel * world_size / 2.f);
-    // You usually don't have to worry about initial bin size. In very rare cases, init bin size is so bad that auto bin
-    // size adaption is effectless, and you should notice in that case kT runs extremely slow. Then in that case setting
-    // init bin size may save the simulation.
-    // DEMSim.SetInitBinSize(25 * granular_rad);
-    // The following parameters control how the solver adapts its update frequency in response to max velocity changes.
-    // For most end users, using the default is fine; here we just show an example.
-    DEMSim.SetCDNumStepsMaxDriftMultipleOfAvg(1.2);
-    DEMSim.SetCDNumStepsMaxDriftAheadOfAvg(6);
     // Force the solver to error out if something went crazy. A good practice to add them, but not necessary.
     DEMSim.SetErrorOutAvgContacts(50);
 
