@@ -915,7 +915,7 @@ unsigned int DEMMesh::SplitIntoConvexPatches(float hard_angle_deg,
         } else if (materials.size() != nPatches) {
             DEME_ERROR(
                 "The number of materials set (%zu) does not match the number of patches (%u). Please set the "
-                "material for each patch or use a single material for all patches.",
+                "material (SetMaterial) for each patch or use a single material for all patches.",
                 materials.size(), nPatches);
         }
     }
@@ -1030,14 +1030,15 @@ void DEMMesh::SetPatchIDs(const std::vector<patchID_t>& patch_ids) {
 
     patches_explicitly_set = true;
 
-    if (isMaterialSet && materials.size() != nPatches) {
-        DEME_ERROR(
-            "The number of materials set (%zu) does not match the number of patches (%u). Please set the "
-            "material (SetMaterial) for each patch or use a single material for all patches.",
-            materials.size(), nPatches);
-    }
-    if (isMaterialSet && materials.size() == 1) {
-        materials = std::vector<std::shared_ptr<DEMMaterial>>(nPatches, materials[0]);
+    if (isMaterialSet) {
+        if (materials.size() == 1) {
+            materials = std::vector<std::shared_ptr<DEMMaterial>>(nPatches, materials[0]);
+        } else if (materials.size() != nPatches) {
+            DEME_ERROR(
+                "The number of materials set (%zu) does not match the number of patches (%u). Please set the "
+                "material (SetMaterial) for each patch or use a single material for all patches.",
+                materials.size(), nPatches);
+        }
     }
 }
 
