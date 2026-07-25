@@ -517,10 +517,8 @@ __device__ bool checkSphereOuterTriPrismBarrier(const T1& A,
     const T2 sphere_to_cp = radius - (T2)0.5 * capped_depth;
     pt1 = sphere_pos - sphere_to_cp * normal;
 
-    const float depth_f = static_cast<float>(capped_depth);
-    const float radius_f = static_cast<float>(radius);
-    const float overlap_area_f = static_cast<float>(deme::PI) * (2.0f * radius_f * depth_f - depth_f * depth_f);
-    overlapArea = overlap_area_f > 0.0f ? static_cast<T2>(overlap_area_f) : (T2)0;
+    const T2 overlap_area = static_cast<T2>(deme::PI * (2.0 * radius * depth - depth * depth));
+    overlapArea = overlap_area > static_cast<T2>(0.0) ? overlap_area : static_cast<T2>(0.0);
     return true;
 }
 
@@ -718,12 +716,7 @@ __device__ bool checkTriSphereOverlap(const T1& A,           ///< First vertex o
         // In the edge case, overlapArea is a bit tricky to define accurately.
         // Here we still just approximate it as a circle area.
     }
-    {
-        const float depth_f = static_cast<float>(depth);
-        const float radius_f = static_cast<float>(radius);
-        const float overlap_area_f = static_cast<float>(deme::PI) * (2.0f * radius_f * depth_f - depth_f * depth_f);
-        overlapArea = static_cast<T2>(overlap_area_f);
-    }
+    overlapArea = static_cast<T2>(deme::PI * (2.0 * radius * depth - depth * depth));
     return in_contact;
 }
 
