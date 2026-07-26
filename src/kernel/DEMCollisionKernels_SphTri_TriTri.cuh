@@ -1114,10 +1114,10 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
         // Calculate area using fan triangulation from centroid
         area = 0.0;
         for (int8_t i = 0; i < numInputVerts; ++i) {
-            float3 v1 = resultPoly[i] - centroid_f;
-            float3 v2 = resultPoly[(i + 1) % numInputVerts] - centroid_f;
-            float3 crossProd = cross(v1, v2);
-            area_f += sqrt(dot(crossProd, crossProd));
+            T1 v1 = resultPoly[i] - centroid;
+            T1 v2 = resultPoly[(i + 1) % numInputVerts] - centroid;
+            T1 crossProd = cross(v1, v2);
+            area += sqrt(dot(crossProd, crossProd));
         }
         area *= static_cast<T2>(0.5);
         return true;
