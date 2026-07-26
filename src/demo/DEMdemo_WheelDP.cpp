@@ -75,9 +75,8 @@ int main() {
         wheel->SetMOI(make_float3(wheel_IXX, wheel_IYY, wheel_IXX));
         // Give the wheel a family number so we can potentially add prescription
         wheel->SetFamily(1);
-        // Split it into patches: if angle more than 30 deg, split
-        wheel->SplitIntoConvexPatches(30.);
-        // Track it
+        // Split it into patches: if angle more than 30 deg, split. This is not strictly needed; but more physically
+        // plausible. wheel->SplitIntoConvexPatches(30.); Track it
         auto wheel_tracker = DEMSim.Track(wheel);
 
         // Define the terrain particle templates

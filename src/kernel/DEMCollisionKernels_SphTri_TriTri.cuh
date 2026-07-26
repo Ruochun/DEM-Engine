@@ -98,18 +98,16 @@ bool __device__ tri_plane_penetration(const T1** tri,
         centroid - planeSignedDistance<T2>(centroid, entityLoc, entityDir) * to_real3<float3, T1>(entityDir);
 
     // Calculate the area of the clipping polygon using fan triangulation from centroid
-    float overlap_area_f = 0.0f;
+    overlapArea = 0.0;
     if (hasIntersection && nNode >= 3) {
-        const float3 centroid_f = to_float3(centroid);
         for (int i = 0; i < nNode; ++i) {
-            float3 v1 = to_float3(poly[i]) - centroid_f;
-            float3 v2 = to_float3(poly[(i + 1) % nNode]) - centroid_f;
-            float3 crossProd = cross(v1, v2);
-            overlap_area_f += sqrtf(dot(crossProd, crossProd));
+            T1 v1 = poly[i] - centroid;
+            T1 v2 = poly[(i + 1) % nNode] - centroid;
+            T1 crossProd = cross(v1, v2);
+            overlapArea += sqrt(dot(crossProd, crossProd));
         }
-        overlap_area_f *= 0.5f;
+        overlapArea *= static_cast<T2>(0.5);
     }
-    overlapArea = static_cast<T2>(overlap_area_f);
 
     // cntPnt is from the projection point, go half penetration depth.
     // Note this penetration depth is signed, so if no contact, we go positive plane normal; if in contact, we go
@@ -928,6 +926,7 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
 
     // If no vertices are submerged, no contact
     if (numSubmerged == 0) {
+        // Non-contact placeholder contact info is set outside this function
         // depth = T2(0.0);
         // area = T2(0.0);
         // centroid.x = T2(0.0);
@@ -940,7 +939,7 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
     // Sutherland-Hodgman clipping can produce up to (n+m) vertices where n and m are
     // the number of vertices in the input polygons. For triangle-triangle clipping,
     // we conservatively use 9 (more than the theoretical max of 6) for safety.
-    const int8_t SH_MAX_CLIPPING_VERTICES = 9;
+    constexpr int8_t SH_MAX_CLIPPING_VERTICES = 9;
 
     // Build polygon from projected submerged vertices and edge-plane intersections
     T1 projectedPoly[SH_MAX_CLIPPING_VERTICES];
@@ -971,6 +970,7 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
 
     // If we don't have at least 3 vertices, no valid polygon
     if (nPoly < 3) {
+        // Non-contact placeholder contact info is set outside this function
         // depth = maxPenetration;
         // area = T2(0.0);
         // centroid = (incTri[0] + incTri[1] + incTri[2]) / T2(3.0);
@@ -1112,19 +1112,19 @@ __device__ bool projectTriangleOntoTriangle(const T1* incTri,
         centroid = centroid / T2(numInputVerts);
 
         // Calculate area using fan triangulation from centroid
-        float area_f = 0.0f;
-        const float3 centroid_f = to_float3(centroid);
+        area = 0.0;
         for (int8_t i = 0; i < numInputVerts; ++i) {
-            float3 v1 = to_float3(resultPoly[i]) - centroid_f;
-            float3 v2 = to_float3(resultPoly[(i + 1) % numInputVerts]) - centroid_f;
+            float3 v1 = resultPoly[i] - centroid_f;
+            float3 v2 = resultPoly[(i + 1) % numInputVerts] - centroid_f;
             float3 crossProd = cross(v1, v2);
-            area_f += sqrtf(dot(crossProd, crossProd));
+            area_f += sqrt(dot(crossProd, crossProd));
         }
-        area = static_cast<T2>(area_f * 0.5f);
+        area *= static_cast<T2>(0.5);
         return true;
     } else {
         // Degenerate intersection polygon
         // centroid = (incTri[0] + incTri[1] + incTri[2]) / T2(3.0);
+        // Non-contact placeholder contact info is set outside this function
         return false;
     }
 }
