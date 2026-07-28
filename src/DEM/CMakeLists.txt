@@ -89,25 +89,27 @@ install(
 if(DEME_BUILD_PYTHON)
 	message(STATUS "==== Building Python Bindings ====")
 	
-	pybind11_add_module(DEME 
+	# Keep the compiled extension private so the public ``deme`` package can
+	# provide a stable Python namespace and compatibility aliases.
+	pybind11_add_module(_deme
 		${DEM_headers}
 		${DEM_sources}
 		${CMAKE_CURRENT_SOURCE_DIR}/python/bindings.cpp
 	)
 	
-	set_target_properties(DEME PROPERTIES 
+	set_target_properties(_deme PROPERTIES
 		LINKER_LANGUAGE CXX
 		CXX_STANDARD ${CXXSTD_SUPPORTED}
 		POSITION_INDEPENDENT_CODE True
 	)
 	
-	target_include_directories(DEME
+	target_include_directories(_deme
 		PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES}
 		PUBLIC ${ProjectIncludeSource}
 		PUBLIC ${ProjectIncludeGenerated}
 	)
 	
-	target_link_libraries(DEME
+	target_link_libraries(_deme
 		PUBLIC CUDA::cudart
 		PUBLIC CUDA::nvrtc
 		PUBLIC CUDA::cuda_driver
@@ -118,8 +120,21 @@ if(DEME_BUILD_PYTHON)
 	)
 	
 	# Install the Python module
-	install(TARGETS DEME
-		LIBRARY DESTINATION .
+	install(TARGETS _deme
+		LIBRARY DESTINATION deme
+		COMPONENT python
+	)
+
+	# ``deme`` is the canonical package. DEME.py preserves the historical
+	# capitalized import without duplicating the compiled extension.
+	install(FILES
+		${CMAKE_CURRENT_SOURCE_DIR}/python/deme/__init__.py
+		DESTINATION deme
+		COMPONENT python
+	)
+	install(FILES
+		${CMAKE_CURRENT_SOURCE_DIR}/python/DEME.py
+		DESTINATION .
 		COMPONENT python
 	)
 	

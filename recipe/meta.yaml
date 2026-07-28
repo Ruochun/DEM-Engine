@@ -38,9 +38,10 @@ requirements:
 
 test:
   imports:
+    - deme
     - DEME
   commands:
-    - python -c "import DEME; print('DEME version:', DEME.__file__)"
+    - python -c "import deme, DEME; assert deme.__version__ == DEME.__version__ == '3.0.0'"
 
 about:
   home: https://github.com/projectchrono/DEM-Engine

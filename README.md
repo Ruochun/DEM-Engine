@@ -70,8 +70,19 @@ Once CUDA is ready, you can `pip` install _pyDEME_. In your conda environement, 
 conda create -n pyDEME python=3.11
 conda activate pyDEME
 conda install cmake
-pip3 install DEME
+pip3 install deme
 ```
+
+Use the conventional lowercase package name in Python:
+
+```python
+import deme
+
+solver = deme.DEMSolver()
+```
+
+The historical `import DEME` spelling is also supported for backward
+compatibility, but new code should use `import deme`.
 
 ~~You can also install pyDEME via `conda install`:~~ (Please don't use `conda install` for now, it is not yet behaving correctly)
 
@@ -85,7 +96,7 @@ pip3 install DEME
 
 Then [Python scripts](https://github.com/projectchrono/DEM-Engine/tree/pyDEME_demo/src/demo) can be executed in this environment. To understand the content of each Python demo, refer to the explanations of the C++ demos with the same names in <a href="#examples">Numerical examples</a> section.
 
-If you use _pyDEME_ in conjunction with PyChrono, you should `import pyDEME` first, then PyChrono.
+If you use _pyDEME_ in conjunction with PyChrono, import `deme` first, then PyChrono.
 
 <h2 id="compilation">Compilation</h2>
 

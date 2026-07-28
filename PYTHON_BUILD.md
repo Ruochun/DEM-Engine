@@ -93,14 +93,17 @@ cmake --build .
 After installation, you can import the package in Python:
 
 ```python
-import DEME
+import deme
 
 # Create a solver
-solver = DEME.DEMSolver()
+solver = deme.DEMSolver()
 
 # Use other classes and functions
 # ...
 ```
+
+The historical `import DEME` spelling remains available for compatibility,
+but new code should use the lowercase `deme` package.
 
 ## Package Contents
 

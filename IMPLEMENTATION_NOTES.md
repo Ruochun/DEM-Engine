@@ -55,7 +55,7 @@ python -m build
 
 ### To Test (requires CUDA):
 ```bash
-python -c "import DEME; print('Successfully imported DEME')"
+python -c "import deme, DEME; print(deme.__version__, DEME.__version__)"
 ```
 
 ## Advantages Over pyDEME_demo Branch

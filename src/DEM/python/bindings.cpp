@@ -14,6 +14,7 @@
 #include "core/utils/RuntimeData.h"
 #include "core/utils/DataMigrationHelper.hpp"
 #include "core/utils/DEMEPaths.h"
+#include "core/ApiVersion.h"
 #include "DEM/utils/HostSideHelpers.hpp"
 #include "DEM/utils/Samplers.hpp"
 #include "DEM/Defines.h"
@@ -78,7 +79,11 @@ struct type_caster<float4> {
 }  // namespace detail
 }  // namespace pybind11
 
-PYBIND11_MODULE(DEME, obj) {
+PYBIND11_MODULE(_deme, obj) {
+    // Report the same version as the CMake project so Python and C++ callers
+    // cannot observe conflicting release versions.
+    obj.attr("__version__") = std::to_string(DEME_VERSION_MAJOR) + "." + std::to_string(DEME_VERSION_MINOR) + "." +
+                              std::to_string(DEME_VERSION_PATCH);
     // Obtaining the location of python's site-packages dynamically and setting it
     // as path prefix
     try {
@@ -524,7 +529,7 @@ PYBIND11_MODULE(DEME, obj) {
                  const std::shared_ptr<deme::DEMCombinedTemplate>&, const float3&, const float4&)>(
                  &deme::DEMSolver::AddCombinedFromTemplate),
              "Instantiate a combined template at a single user-specified global pose.", py::arg("combined_template"),
-             py::arg("init_pos") = deme::make_float3(0), py::arg("init_oriQ") = deme::make_float4(0, 0, 0, 1))
+             py::arg("init_pos") = make_float3(0), py::arg("init_oriQ") = make_float4(0, 0, 0, 1))
         .def("GetNumCombinedInstances", &deme::DEMSolver::GetNumCombinedInstances,
              "Return the number of combined instances currently cached.")
         .def(
@@ -815,7 +820,7 @@ PYBIND11_MODULE(DEME, obj) {
              static_cast<std::shared_ptr<deme::DEMMesh> (deme::DEMSolver::*)(
                  const std::shared_ptr<deme::DEMMesh>&, const float3&)>(&deme::DEMSolver::AddMeshFromTemplate),
              "Instantiate a mesh from a cached template at the requested initial position.", py::arg("mesh_template"),
-             py::arg("init_pos") = deme::make_float3(0))
+             py::arg("init_pos") = make_float3(0))
         .def("InstructBoxDomainBoundingBC", &deme::DEMSolver::InstructBoxDomainBoundingBC,
              "Instruct if and how we should add boundaries to the simulation world upon initialization. Choose between "
              "`none', `all' (add 6 boundary planes) and `top_open' (add 5 boundary planes and leave the z-directon top "
