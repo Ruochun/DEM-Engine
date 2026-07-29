@@ -395,6 +395,9 @@ std::vector<std::vector<float>> DEMTracker::GetPositions() {
     std::vector<float3> res = Positions();
     return Real3VectorToVecOfVec<float, float3>(res);
 }
+void DEMTracker::PositionsToDevice(float3* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerPositionToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
+}
 
 float3 DEMTracker::AngVelLocal(size_t offset) {
     assertOwnerOffsetValid(offset, "AngVelLocal");
@@ -410,6 +413,9 @@ std::vector<float3> DEMTracker::AngularVelocitiesLocal() {
 std::vector<std::vector<float>> DEMTracker::GetAngularVelocitiesLocal() {
     std::vector<float3> res = AngularVelocitiesLocal();
     return Real3VectorToVecOfVec<float, float3>(res);
+}
+void DEMTracker::AngularVelocitiesLocalToDevice(float3* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerAngVelLocalToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
 }
 
 float3 DEMTracker::AngVelGlobal(size_t offset) {
@@ -435,6 +441,9 @@ std::vector<std::vector<float>> DEMTracker::GetAngularVelocitiesGlobal() {
     std::vector<float3> res = AngularVelocitiesGlobal();
     return Real3VectorToVecOfVec<float, float3>(res);
 }
+void DEMTracker::AngularVelocitiesGlobalToDevice(float3* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerAngVelGlobalToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
+}
 
 float3 DEMTracker::Vel(size_t offset) {
     assertOwnerOffsetValid(offset, "Vel");
@@ -450,6 +459,9 @@ std::vector<float3> DEMTracker::Velocities() {
 std::vector<std::vector<float>> DEMTracker::GetVelocities() {
     std::vector<float3> res = Velocities();
     return Real3VectorToVecOfVec<float, float3>(res);
+}
+void DEMTracker::VelocitiesToDevice(float3* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerVelocityToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
 }
 
 float4 DEMTracker::OriQ(size_t offset) {
@@ -467,6 +479,9 @@ std::vector<std::vector<float>> DEMTracker::GetOrientationQuaternions() {
     std::vector<float4> res = OrientationQuaternions();
     return Real4VectorToVecOfVec<float, float4>(res);
 }
+void DEMTracker::OrientationQuaternionsToDevice(float4* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerOriQToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
+}
 
 unsigned int DEMTracker::GetFamily(size_t offset) {
     assertOwnerOffsetValid(offset, "GetFamily");
@@ -475,6 +490,9 @@ unsigned int DEMTracker::GetFamily(size_t offset) {
 std::vector<unsigned int> DEMTracker::GetFamilies() {
     return sys->GetOwnerFamily(obj->ownerID, obj->nSpanOwners);
 }
+void DEMTracker::FamiliesToDevice(unsigned int* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerFamilyToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
+}
 
 float DEMTracker::Mass(size_t offset) {
     assertOwnerOffsetValid(offset, "Mass");
@@ -482,6 +500,9 @@ float DEMTracker::Mass(size_t offset) {
 }
 std::vector<float> DEMTracker::Masses() {
     return sys->GetOwnerMass(obj->ownerID, obj->nSpanOwners);
+}
+void DEMTracker::MassesToDevice(float* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerMassToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
 }
 
 float3 DEMTracker::MOI(size_t offset) {
@@ -498,6 +519,9 @@ std::vector<float3> DEMTracker::MOIs() {
 std::vector<std::vector<float>> DEMTracker::GetMOIs() {
     std::vector<float3> res = MOIs();
     return Real3VectorToVecOfVec<float, float3>(res);
+}
+void DEMTracker::MOIsToDevice(float3* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerMOIToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
 }
 
 // float3 DEMTracker::Acc(size_t offset) {
@@ -526,6 +550,9 @@ std::vector<std::vector<float>> DEMTracker::GetContactAccelerations() {
     std::vector<float3> res = ContactAccelerations();
     return Real3VectorToVecOfVec<float, float3>(res);
 }
+void DEMTracker::ContactAccelerationsToDevice(float3* destination, size_t capacity, int destination_device) {
+    sys->GetOwnerAccToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
+}
 
 float3 DEMTracker::ContactAngAccLocal(size_t offset) {
     assertOwnerOffsetValid(offset, "ContactAngAccLocal");
@@ -541,6 +568,11 @@ std::vector<float3> DEMTracker::ContactAngularAccelerationsLocal() {
 std::vector<std::vector<float>> DEMTracker::GetContactAngularAccelerationsLocal() {
     std::vector<float3> res = ContactAngularAccelerationsLocal();
     return Real3VectorToVecOfVec<float, float3>(res);
+}
+void DEMTracker::ContactAngularAccelerationsLocalToDevice(float3* destination,
+                                                          size_t capacity,
+                                                          int destination_device) {
+    sys->GetOwnerAngAccLocalToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
 }
 
 float3 DEMTracker::ContactAngAccGlobal(size_t offset) {
@@ -566,6 +598,11 @@ std::vector<std::vector<float>> DEMTracker::GetContactAngularAccelerationsGlobal
     std::vector<float3> res = ContactAngularAccelerationsGlobal();
     return Real3VectorToVecOfVec<float, float3>(res);
 }
+void DEMTracker::ContactAngularAccelerationsGlobalToDevice(float3* destination,
+                                                           size_t capacity,
+                                                           int destination_device) {
+    sys->GetOwnerAngAccGlobalToDevice(destination, capacity, destination_device, obj->ownerID, obj->nSpanOwners);
+}
 
 float DEMTracker::GetOwnerWildcardValue(const std::string& name, size_t offset) {
     assertOwnerOffsetValid(offset, "GetOwnerWildcardValue");
@@ -575,6 +612,12 @@ float DEMTracker::GetOwnerWildcardValue(const std::string& name, size_t offset) 
 std::vector<float> DEMTracker::GetOwnerWildcardValues(const std::string& name) {
     return sys->GetOwnerWildcardValue(obj->ownerID, name, obj->nSpanOwners);
 }
+void DEMTracker::OwnerWildcardValuesToDevice(const std::string& name,
+                                             float* destination,
+                                             size_t capacity,
+                                             int destination_device) {
+    sys->GetOwnerWildcardValueToDevice(destination, capacity, destination_device, obj->ownerID, name, obj->nSpanOwners);
+}
 
 size_t DEMTracker::GetContactForces(std::vector<float3>& points, std::vector<float3>& forces, size_t offset) {
     assertThereIsForcePairs("GetContactForces");
@@ -583,12 +626,29 @@ size_t DEMTracker::GetContactForces(std::vector<float3>& points, std::vector<flo
     forces.clear();
     return sys->GetOwnerContactForces({obj->ownerID + (bodyID_t)offset}, points, forces);
 }
+size_t DEMTracker::GetContactForcesToDevice(float3* points,
+                                            float3* forces,
+                                            size_t capacity,
+                                            int destination_device,
+                                            size_t offset) {
+    assertThereIsForcePairs("GetContactForcesToDevice");
+    assertOwnerOffsetValid(offset, "GetContactForcesToDevice");
+    return sys->GetOwnerContactForcesToDevice({obj->ownerID + static_cast<bodyID_t>(offset)}, points, forces, capacity,
+                                              destination_device);
+}
 
 size_t DEMTracker::GetContactForcesForAll(std::vector<float3>& points, std::vector<float3>& forces) {
     assertThereIsForcePairs("GetContactForcesForAll");
     points.clear();
     forces.clear();
     return sys->GetOwnerContactForces(GetOwnerIDs(), points, forces);
+}
+size_t DEMTracker::GetContactForcesForAllToDevice(float3* points,
+                                                  float3* forces,
+                                                  size_t capacity,
+                                                  int destination_device) {
+    assertThereIsForcePairs("GetContactForcesForAllToDevice");
+    return sys->GetOwnerContactForcesToDevice(GetOwnerIDs(), points, forces, capacity, destination_device);
 }
 
 size_t DEMTracker::GetContactForcesAndLocalTorque(std::vector<float3>& points,
@@ -602,6 +662,17 @@ size_t DEMTracker::GetContactForcesAndLocalTorque(std::vector<float3>& points,
     torques.clear();
     return sys->GetOwnerContactForces({obj->ownerID + (bodyID_t)offset}, points, forces, torques, true);
 }
+size_t DEMTracker::GetContactForcesAndLocalTorqueToDevice(float3* points,
+                                                          float3* forces,
+                                                          float3* torques,
+                                                          size_t capacity,
+                                                          int destination_device,
+                                                          size_t offset) {
+    assertThereIsForcePairs("GetContactForcesAndLocalTorqueToDevice");
+    assertOwnerOffsetValid(offset, "GetContactForcesAndLocalTorqueToDevice");
+    return sys->GetOwnerContactForcesToDevice({obj->ownerID + static_cast<bodyID_t>(offset)}, points, forces, torques,
+                                              capacity, destination_device, true);
+}
 
 size_t DEMTracker::GetContactForcesAndLocalTorqueForAll(std::vector<float3>& points,
                                                         std::vector<float3>& forces,
@@ -611,6 +682,15 @@ size_t DEMTracker::GetContactForcesAndLocalTorqueForAll(std::vector<float3>& poi
     forces.clear();
     torques.clear();
     return sys->GetOwnerContactForces(GetOwnerIDs(), points, forces, torques, true);
+}
+size_t DEMTracker::GetContactForcesAndLocalTorqueForAllToDevice(float3* points,
+                                                                float3* forces,
+                                                                float3* torques,
+                                                                size_t capacity,
+                                                                int destination_device) {
+    assertThereIsForcePairs("GetContactForcesAndLocalTorqueForAllToDevice");
+    return sys->GetOwnerContactForcesToDevice(GetOwnerIDs(), points, forces, torques, capacity, destination_device,
+                                              true);
 }
 
 size_t DEMTracker::GetContactForcesAndGlobalTorque(std::vector<float3>& points,
@@ -624,6 +704,17 @@ size_t DEMTracker::GetContactForcesAndGlobalTorque(std::vector<float3>& points,
     torques.clear();
     return sys->GetOwnerContactForces({obj->ownerID + (bodyID_t)offset}, points, forces, torques, false);
 }
+size_t DEMTracker::GetContactForcesAndGlobalTorqueToDevice(float3* points,
+                                                           float3* forces,
+                                                           float3* torques,
+                                                           size_t capacity,
+                                                           int destination_device,
+                                                           size_t offset) {
+    assertThereIsForcePairs("GetContactForcesAndGlobalTorqueToDevice");
+    assertOwnerOffsetValid(offset, "GetContactForcesAndGlobalTorqueToDevice");
+    return sys->GetOwnerContactForcesToDevice({obj->ownerID + static_cast<bodyID_t>(offset)}, points, forces, torques,
+                                              capacity, destination_device, false);
+}
 
 size_t DEMTracker::GetContactForcesAndGlobalTorqueForAll(std::vector<float3>& points,
                                                          std::vector<float3>& forces,
@@ -633,6 +724,15 @@ size_t DEMTracker::GetContactForcesAndGlobalTorqueForAll(std::vector<float3>& po
     forces.clear();
     torques.clear();
     return sys->GetOwnerContactForces(GetOwnerIDs(), points, forces, torques, false);
+}
+size_t DEMTracker::GetContactForcesAndGlobalTorqueForAllToDevice(float3* points,
+                                                                 float3* forces,
+                                                                 float3* torques,
+                                                                 size_t capacity,
+                                                                 int destination_device) {
+    assertThereIsForcePairs("GetContactForcesAndGlobalTorqueForAllToDevice");
+    return sys->GetOwnerContactForcesToDevice(GetOwnerIDs(), points, forces, torques, capacity, destination_device,
+                                              false);
 }
 
 void DEMTracker::AddAcc(float3 acc, size_t offset) {

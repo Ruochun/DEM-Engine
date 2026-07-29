@@ -583,6 +583,92 @@ std::vector<unsigned int> DEMSolver::GetOwnerFamily(bodyID_t ownerID, bodyID_t n
     return dT->getOwnerFamily(ownerID, n);
 }
 
+void DEMSolver::GetOwnerPositionToDevice(float3* destination,
+                                         size_t capacity,
+                                         int destination_device,
+                                         bodyID_t ownerID,
+                                         bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::POSITION);
+}
+
+void DEMSolver::GetOwnerVelocityToDevice(float3* destination,
+                                         size_t capacity,
+                                         int destination_device,
+                                         bodyID_t ownerID,
+                                         bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::VELOCITY);
+}
+
+void DEMSolver::GetOwnerAngVelLocalToDevice(float3* destination,
+                                            size_t capacity,
+                                            int destination_device,
+                                            bodyID_t ownerID,
+                                            bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n,
+                             OwnerDataField::ANGULAR_VELOCITY_LOCAL);
+}
+
+void DEMSolver::GetOwnerAngVelGlobalToDevice(float3* destination,
+                                             size_t capacity,
+                                             int destination_device,
+                                             bodyID_t ownerID,
+                                             bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n,
+                             OwnerDataField::ANGULAR_VELOCITY_GLOBAL);
+}
+
+void DEMSolver::GetOwnerOriQToDevice(float4* destination,
+                                     size_t capacity,
+                                     int destination_device,
+                                     bodyID_t ownerID,
+                                     bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::ORIENTATION);
+}
+
+void DEMSolver::GetOwnerAccToDevice(float3* destination,
+                                    size_t capacity,
+                                    int destination_device,
+                                    bodyID_t ownerID,
+                                    bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n,
+                             OwnerDataField::CONTACT_ACCELERATION);
+}
+
+void DEMSolver::GetOwnerAngAccLocalToDevice(float3* destination,
+                                            size_t capacity,
+                                            int destination_device,
+                                            bodyID_t ownerID,
+                                            bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n,
+                             OwnerDataField::CONTACT_ANGULAR_ACCELERATION_LOCAL);
+}
+
+void DEMSolver::GetOwnerAngAccGlobalToDevice(float3* destination,
+                                             size_t capacity,
+                                             int destination_device,
+                                             bodyID_t ownerID,
+                                             bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n,
+                             OwnerDataField::CONTACT_ANGULAR_ACCELERATION_GLOBAL);
+}
+
+void DEMSolver::GetOwnerFamilyToDevice(unsigned int* destination,
+                                       size_t capacity,
+                                       int destination_device,
+                                       bodyID_t ownerID,
+                                       bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::FAMILY);
+}
+
 void DEMSolver::RequestContactUpdate() {
     assertSysInit("RequestContactUpdate");
     ScopedCudaDevice device_scope(dT->streamInfo.device);
@@ -823,6 +909,24 @@ std::vector<float> DEMSolver::GetOwnerWildcardValue(bodyID_t ownerID, const std:
     return dT->getOwnerWildcardValue(ownerID, m_owner_wc_num.at(name), n);
 }
 
+void DEMSolver::GetOwnerWildcardValueToDevice(float* destination,
+                                              size_t capacity,
+                                              int destination_device,
+                                              bodyID_t ownerID,
+                                              const std::string& name,
+                                              bodyID_t n) {
+    assertSysInit("GetOwnerWildcardValueToDevice");
+    if (m_owner_wc_num.find(name) == m_owner_wc_num.end()) {
+        DEME_ERROR(
+            "No owner wildcard in the force model is named %s.\nIf you need to use it, declare it via "
+            "SetPerOwnerWildcards first.",
+            name.c_str());
+    }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::WILDCARD,
+                             m_owner_wc_num.at(name));
+}
+
 std::vector<float> DEMSolver::GetAllOwnerWildcardValue(const std::string& name) {
     assertSysInit("GetAllOwnerWildcardValue");
     if (m_owner_wc_num.find(name) == m_owner_wc_num.end()) {
@@ -866,6 +970,28 @@ size_t DEMSolver::GetOwnerContactForces(const std::vector<bodyID_t>& ownerIDs,
     return dT->getOwnerContactForces(ownerIDs, points, forces, torques, torque_in_local);
 }
 
+size_t DEMSolver::GetOwnerContactForcesToDevice(const std::vector<bodyID_t>& ownerIDs,
+                                                float3* points,
+                                                float3* forces,
+                                                size_t capacity,
+                                                int destination_device) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    return dT->getOwnerContactForcesToDevice(ownerIDs, points, forces, nullptr, capacity, destination_device, false,
+                                             false);
+}
+
+size_t DEMSolver::GetOwnerContactForcesToDevice(const std::vector<bodyID_t>& ownerIDs,
+                                                float3* points,
+                                                float3* forces,
+                                                float3* torques,
+                                                size_t capacity,
+                                                int destination_device,
+                                                bool torque_in_local) {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    return dT->getOwnerContactForcesToDevice(ownerIDs, points, forces, torques, capacity, destination_device, true,
+                                             torque_in_local);
+}
+
 std::vector<float> DEMSolver::GetOwnerMass(bodyID_t ownerID, bodyID_t n) const {
     std::vector<float> res(n);
     for (bodyID_t i = 0; i < n; i++) {
@@ -898,6 +1024,24 @@ std::vector<float3> DEMSolver::GetOwnerMOI(bodyID_t ownerID, bodyID_t n) const {
         }
     }
     return res;
+}
+
+void DEMSolver::GetOwnerMassToDevice(float* destination,
+                                     size_t capacity,
+                                     int destination_device,
+                                     bodyID_t ownerID,
+                                     bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::MASS);
+}
+
+void DEMSolver::GetOwnerMOIToDevice(float3* destination,
+                                    size_t capacity,
+                                    int destination_device,
+                                    bodyID_t ownerID,
+                                    bodyID_t n) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n, OwnerDataField::MOI);
 }
 
 void DEMSolver::AddOwnerNextStepAcc(bodyID_t ownerID, const std::vector<float3>& acc) {

@@ -8,6 +8,7 @@
 #include <iostream>
 #include <sstream>
 #include <array>
+#include <cstdint>
 #include <cmath>
 #include <memory>
 
@@ -351,6 +352,91 @@ PYBIND11_MODULE(_deme, obj) {
              static_cast<std::vector<float> (deme::DEMTracker::*)(const std::string&)>(
                  &deme::DEMTracker::GetOwnerWildcardValues),
              "Get the owner wildcard values for all the owners entities tracked by this tracker.", py::arg("name"))
+        .def(
+            "PositionsToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.PositionsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked positions.", py::arg("pointer"), py::arg("capacity"),
+            py::arg("device"))
+        .def(
+            "VelocitiesToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.VelocitiesToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked velocities.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "AngularVelocitiesLocalToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.AngularVelocitiesLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked local angular velocities.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "AngularVelocitiesGlobalToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.AngularVelocitiesGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked global angular velocities.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "OrientationQuaternionsToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.OrientationQuaternionsToDevice(reinterpret_cast<float4*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked (x, y, z, w) quaternions.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "FamiliesToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.FamiliesToDevice(reinterpret_cast<unsigned int*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked family numbers.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "MassesToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.MassesToDevice(reinterpret_cast<float*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked masses.", py::arg("pointer"), py::arg("capacity"),
+            py::arg("device"))
+        .def(
+            "MOIsToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.MOIsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked moments of inertia.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "ContactAccelerationsToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.ContactAccelerationsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked contact accelerations.", py::arg("pointer"),
+            py::arg("capacity"), py::arg("device"))
+        .def(
+            "ContactAngularAccelerationsLocalToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.ContactAngularAccelerationsLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked local contact angular accelerations.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+        .def(
+            "ContactAngularAccelerationsGlobalToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
+                tracker.ContactAngularAccelerationsGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with tracked global contact angular accelerations.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+        .def(
+            "OwnerWildcardValuesToDevice",
+            [](deme::DEMTracker& tracker, const std::string& name, std::uintptr_t pointer, size_t capacity,
+               int device) {
+                tracker.OwnerWildcardValuesToDevice(name, reinterpret_cast<float*>(pointer), capacity, device);
+            },
+            "Synchronously fill a CUDA device pointer with one tracked owner wildcard.", py::arg("name"),
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
 
         .def("SetPos", static_cast<void (deme::DEMTracker::*)(float3, size_t)>(&deme::DEMTracker::SetPos),
              "Set the position of this tracked object.", py::arg("pos"), py::arg("offset") = 0)
@@ -460,7 +546,35 @@ PYBIND11_MODULE(_deme, obj) {
              static_cast<size_t (deme::DEMTracker::*)(std::vector<float3>&, std::vector<float3>&)>(
                  &deme::DEMTracker::GetContactForcesForAll),
              "Get all contact forces that concern all objects tracked by this tracker. Returns number of force pairs.",
-             py::arg("points"), py::arg("forces"));
+             py::arg("points"), py::arg("forces"))
+        .def(
+            "GetContactForcesForAllToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t points, std::uintptr_t forces, size_t capacity, int device) {
+                return tracker.GetContactForcesForAllToDevice(reinterpret_cast<float3*>(points),
+                                                              reinterpret_cast<float3*>(forces), capacity, device);
+            },
+            "Synchronously compact contact points and forces into CUDA device pointers.", py::arg("points"),
+            py::arg("forces"), py::arg("capacity"), py::arg("device"))
+        .def(
+            "GetContactForcesAndLocalTorqueForAllToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t points, std::uintptr_t forces, std::uintptr_t torques,
+               size_t capacity, int device) {
+                return tracker.GetContactForcesAndLocalTorqueForAllToDevice(
+                    reinterpret_cast<float3*>(points), reinterpret_cast<float3*>(forces),
+                    reinterpret_cast<float3*>(torques), capacity, device);
+            },
+            "Synchronously compact contact points, forces, and local torques into CUDA device pointers.",
+            py::arg("points"), py::arg("forces"), py::arg("torques"), py::arg("capacity"), py::arg("device"))
+        .def(
+            "GetContactForcesAndGlobalTorqueForAllToDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t points, std::uintptr_t forces, std::uintptr_t torques,
+               size_t capacity, int device) {
+                return tracker.GetContactForcesAndGlobalTorqueForAllToDevice(
+                    reinterpret_cast<float3*>(points), reinterpret_cast<float3*>(forces),
+                    reinterpret_cast<float3*>(torques), capacity, device);
+            },
+            "Synchronously compact contact points, forces, and global torques into CUDA device pointers.",
+            py::arg("points"), py::arg("forces"), py::arg("torques"), py::arg("capacity"), py::arg("device"));
 
     py::class_<deme::DEMForceModel, std::shared_ptr<deme::DEMForceModel>>(obj, "DEMForceModel")
         .def(py::init<deme::FORCE_MODEL>())
