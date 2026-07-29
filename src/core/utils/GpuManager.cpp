@@ -34,6 +34,25 @@ GpuManager::GpuManager(unsigned int total_streams) {
     }
 }
 
+GpuManager::GpuManager(const std::vector<int>& stream_devices) {
+    ndevices = scanNumDevices();
+    if (stream_devices.empty()) {
+        DEME_ERROR("GpuManager requires at least one CUDA device assignment.");
+    }
+
+    this->streams.resize(ndevices);
+    for (int device : stream_devices) {
+        if (device < 0 || device >= ndevices) {
+            DEME_ERROR("CUDA device ID %d is out of range. %d CUDA device(s) are visible.", device, ndevices);
+        }
+
+        cudaStream_t new_stream = nullptr;
+        // Worker streams currently use CUDA's default stream. Keep a separate record per worker even when both workers
+        // share a device so stream assignment remains deterministic and can adopt non-default streams independently.
+        this->streams[device].push_back(StreamInfo{device, new_stream, false});
+    }
+}
+
 // TODO: add CUDA error checking
 GpuManager::~GpuManager() {
     for (auto outer = this->streams.begin(); outer != this->streams.end(); outer++) {

@@ -26,26 +26,70 @@
 namespace deme {
 
 DEMSolver::DEMSolver(unsigned int nGPUs) {
+    if (nGPUs == 0 || nGPUs > 2) {
+        DEME_ERROR("DEMSolver supports one or two GPU devices, but %u was requested.", nGPUs);
+    }
+
+    int visible_devices = 0;
+    DEME_GPU_CALL(cudaGetDeviceCount(&visible_devices));
+    if (visible_devices < 1) {
+        DEME_ERROR("DEMSolver requires at least one visible CUDA device.");
+    }
+
+    if (nGPUs == 2 && visible_devices >= 2) {
+        constructWorkers({0, 1});
+    } else {
+        if (nGPUs == 2) {
+            DEME_WARNING(
+                "Two GPUs were requested, but only one CUDA device is visible. Both DEME workers will use device 0.");
+        }
+        constructWorkers({0});
+    }
+}
+
+DEMSolver::DEMSolver(const std::vector<int>& device_ids) {
+    constructWorkers(device_ids);
+}
+
+void DEMSolver::constructWorkers(const std::vector<int>& device_ids) {
+    if (device_ids.empty() || device_ids.size() > 2) {
+        DEME_ERROR("DEMSolver device selection requires one or two CUDA device IDs; received %zu.", device_ids.size());
+    }
+
+    int visible_devices = 0;
+    DEME_GPU_CALL(cudaGetDeviceCount(&visible_devices));
+    if (visible_devices < 1) {
+        DEME_ERROR("DEMSolver requires at least one visible CUDA device.");
+    }
+    for (int device : device_ids) {
+        if (device < 0 || device >= visible_devices) {
+            DEME_ERROR("CUDA device ID %d is out of range. %d CUDA device(s) are visible.", device, visible_devices);
+        }
+    }
+
+    const int dT_device = device_ids[0];
+    const int kT_device = device_ids.size() == 1 ? device_ids[0] : device_ids[1];
+    m_gpu_device_ids = {dT_device, kT_device};
+
     dTkT_InteractionManager = new ThreadManager();
     kTMain_InteractionManager = new WorkerReportChannel();
     dTMain_InteractionManager = new WorkerReportChannel();
 
-    // 2 means 2 threads (nGPUs is currently not used)
-    dTkT_GpuManager = new GpuManager(2);
+    // There is one stream record per worker. Repeated IDs intentionally place both workers on the same GPU.
+    dTkT_GpuManager = new GpuManager(m_gpu_device_ids);
 
     // Set default solver params
     setDefaultSolverParams();
 
     // Thread-based worker creation may be needed as the workers allocate DualStructs on construction
     std::thread dT_construct([&]() {
-        // Get a device/stream ID to use from the GPU Manager
-        const GpuManager::StreamInfo dT_stream_info = dTkT_GpuManager->getAvailableStream();
+        const GpuManager::StreamInfo dT_stream_info = dTkT_GpuManager->getAvailableStreamFromDevice(dT_device);
         DEME_GPU_CALL(cudaSetDevice(dT_stream_info.device));
         dT = new DEMDynamicThread(dTMain_InteractionManager, dTkT_InteractionManager, dT_stream_info);
     });
 
     std::thread kT_construct([&]() {
-        const GpuManager::StreamInfo kT_stream_info = dTkT_GpuManager->getAvailableStream();
+        const GpuManager::StreamInfo kT_stream_info = dTkT_GpuManager->getAvailableStreamFromDevice(kT_device);
         DEME_GPU_CALL(cudaSetDevice(kT_stream_info.device));
         kT = new DEMKinematicThread(kTMain_InteractionManager, dTkT_InteractionManager, kT_stream_info);
     });

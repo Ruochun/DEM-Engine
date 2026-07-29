@@ -492,6 +492,9 @@ PYBIND11_MODULE(_deme, obj) {
 
     py::class_<deme::DEMSolver>(obj, "DEMSolver")
         .def(py::init<unsigned int>(), py::arg("nGPUs") = 2)
+        .def(py::init<const std::vector<int>&>(), py::arg("device_ids"))
+        .def("GetGPUDeviceIDs", &deme::DEMSolver::GetGPUDeviceIDs,
+             "Return the logical CUDA devices assigned to the dynamic and kinematic workers.")
         .def("UpdateStepSize", &deme::DEMSolver::UpdateStepSize,
              "Update the time step size. Used after system initialization.", py::arg("ts") = -1.0)
         .def("SetNoForceRecord", &deme::DEMSolver::SetNoForceRecord,

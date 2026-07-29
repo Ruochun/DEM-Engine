@@ -50,8 +50,16 @@ class DEMTracker;
 /// Main DEM-Engine solver.
 class DEMSolver {
   public:
+    /// Construct a solver using the requested number of visible CUDA devices. One GPU places both workers on device 0;
+    /// two GPUs place dT on device 0 and kT on device 1 when available, falling back to device 0 on a one-GPU system.
     DEMSolver(unsigned int nGPUs = 2);
+    /// Construct a solver on explicitly selected logical CUDA devices. One ID places both workers on that device; two
+    /// IDs assign dT and kT respectively. IDs follow CUDA_VISIBLE_DEVICES remapping.
+    explicit DEMSolver(const std::vector<int>& device_ids);
     ~DEMSolver();
+
+    /// Return the logical CUDA devices assigned to dT and kT, in that order.
+    std::vector<int> GetGPUDeviceIDs() const { return m_gpu_device_ids; }
 
     /// Instruct the dimension of the `world'. On initialization, this info will be used to figure out how to assign the
     /// num of voxels in each direction. If your `useful' domain is not box-shaped, then define a box that contains your
@@ -1676,6 +1684,9 @@ class DEMSolver {
                                    DualArray<scratch_t>& reduceRes);
 
   private:
+    /// Validate device placement and construct the two GPU workers on their assigned devices.
+    void constructWorkers(const std::vector<int>& device_ids);
+
     ////////////////////////////////////////////////////////////////////////////////
     // Flag-like behavior-related variables cached on the host side
     ////////////////////////////////////////////////////////////////////////////////
@@ -2188,6 +2199,8 @@ class DEMSolver {
     WorkerReportChannel* kTMain_InteractionManager;
     WorkerReportChannel* dTMain_InteractionManager;
     GpuManager* dTkT_GpuManager;
+    // Logical CUDA device IDs assigned to the dynamic and kinematic workers, respectively.
+    std::vector<int> m_gpu_device_ids;
     ThreadManager* dTkT_InteractionManager;
     DEMKinematicThread* kT;
     DEMDynamicThread* dT;
