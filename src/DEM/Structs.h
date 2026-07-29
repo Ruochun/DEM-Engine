@@ -993,9 +993,9 @@ class DEMClumpBatch : public DEMInitializer {
         SetOriQ(Q);
     }
 
-    /// Specify the `family' code for each clump. Then you can specify if they should go with some prescribed motion or
+    /// Specify the "family" code for each clump. Then you can specify if they should use some prescribed motion or
     /// some special physics (for example, being fixed). The default behavior (without specification) for every family
-    /// is using `normal' physics.
+    /// uses "normal" physics.
     void SetFamilies(const std::vector<unsigned int>& input) {
         assertLength(input.size(), "SetFamilies");
         if (any_of(input.begin(), input.end(),

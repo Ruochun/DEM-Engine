@@ -53,11 +53,11 @@ class DEMSolver {
     DEMSolver(unsigned int nGPUs = 2);
     ~DEMSolver();
 
-    /// Instruct the dimension of the `world'. On initialization, this info will be used to figure out how to assign the
-    /// num of voxels in each direction. If your `useful' domain is not box-shaped, then define a box that contains your
+    /// Instruct the dimension of the "world". On initialization, this info will be used to figure out how to assign the
+    /// num of voxels in each direction. If your "useful" domain is not box-shaped, then define a box that contains your
     /// domian.
     void InstructBoxDomainDimension(float x, float y, float z, const std::string& dir_exact = "none");
-    /// @brief Set the size of the simulation `world'.
+    /// @brief Set the size of the simulation "world".
     /// @param x Lower and upper limit for X coordinate.
     /// @param y Lower and upper limit for Y coordinate.
     /// @param z Lower and upper limit for Z coordinate.
@@ -68,8 +68,8 @@ class DEMSolver {
                                     const std::pair<float, float>& z,
                                     const std::string& dir_exact = "none");
 
-    /// Instruct if and how we should add boundaries to the simulation world upon initialization. Choose between `none',
-    /// `all' (add 6 boundary planes) and `top_open' (add 5 boundary planes and leave the z-directon top open). Also
+    /// Instruct if and how we should add boundaries to the simulation world upon initialization. Choose between "none",
+    /// "all" (add 6 boundary planes) and "top_open" (add 5 boundary planes and leave the z-directon top open). Also
     /// specifies the material that should be assigned to those bounding boundaries.
     void InstructBoxDomainBoundingBC(const std::string& inst, const std::shared_ptr<DEMMaterial>& mat) {
         m_user_add_bounding_box = inst;
@@ -202,8 +202,8 @@ class DEMSolver {
         m_expand_factor = beta;
         use_user_defined_expand_factor = fix;
     }
-    /// Input the maximum expected particle velocity. If `force' is set to false, the solver will not use a velocity
-    /// larger than max_vel for determining the margin thickness; if `force' is set to true, the solver will not
+    /// Input the maximum expected particle velocity. If "force" is set to false, the solver will not use a velocity
+    /// larger than max_vel for determining the margin thickness; if "force" is set to true, the solver will not
     /// calculate maximum system velocity and will always use max_vel to calculate the margin thickness.
 
     /// @brief Set the maximum expected simulation velocity. Note this call is not necessarily required; the solver can
@@ -223,11 +223,11 @@ class DEMSolver {
     // }
 
     /// Assign a multiplier to our estimated maximum system velocity, when deriving the thinckness of the contact
-    /// `safety' margin. This can be greater than one if the simulation velocity can increase significantly in one kT
+    /// "safety" margin. This can be greater than one if the simulation velocity can increase significantly in one kT
     /// update cycle, but this is not common and should be close to 1 in general.
     void SetExpandSafetyMultiplier(float param) { m_expand_safety_multi = param; }
-    /// Set a `base' velocity, which we will always add to our estimated maximum system velocity, when deriving the
-    /// thinckness of the contact `safety' margin. This need not to be large unless the simulation velocity can increase
+    /// Set a "base" velocity, which we will always add to our estimated maximum system velocity, when deriving the
+    /// thinckness of the contact "safety" margin. This need not to be large unless the simulation velocity can increase
     /// significantly in one kT update cycle.
     void SetExpandSafetyAdder(float vel) { m_expand_base_vel = vel; }
     /// @brief Control whether angular velocity contributes to the contact detection margin.
@@ -608,7 +608,7 @@ class DEMSolver {
     void AddOwnerNextStepAcc(bodyID_t ownerID, const std::vector<float3>& acc);
     /// @brief Add an extra angular accelerations to consecutive owners for the next time step.
     /// @param ownerID The number of the starting owner.
-    /// @param acc The extra angular acceleration to add. N (the size of this vector) elements will be modified based on
+    /// @param angAcc The extra angular acceleration to add. N (the size of this vector) elements will be modified based on
     /// its values.
     void AddOwnerNextStepAngAcc(bodyID_t ownerID, const std::vector<float3>& angAcc);
 
@@ -744,7 +744,7 @@ class DEMSolver {
     }
 
     /// @brief Load clumps (of the same template) into the simulation.
-    /// @param input_types The type (shared pointer pointing to the clump type handle).
+    /// @param input_type The type (shared pointer pointing to the clump type handle).
     /// @param input_xyz Vector of the initial locations of the clumps.
     /// @return Handle to the loaded batch of clumps.
     std::shared_ptr<DEMClumpBatch> AddClumps(std::shared_ptr<DEMClumpTemplate>& input_type,
@@ -1013,16 +1013,16 @@ class DEMSolver {
                                    const std::string& velZ,
                                    bool dictate = true,
                                    const std::string& pre = "none");
-    /// Let the linear velocities of all entites in this family always keep `as is', and not influenced by the force
+    /// Let the linear velocities of all entites in this family always remain "as is" and not be influenced by the force
     /// exerted from other simulation entites.
     void SetFamilyPrescribedLinVel(unsigned int ID);
-    /// Let the X component of the linear velocities of all entites in this family always keep `as is', and not
+    /// Let the X component of the linear velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.
     void SetFamilyPrescribedLinVelX(unsigned int ID);
-    /// Let the Y component of the linear velocities of all entites in this family always keep `as is', and not
+    /// Let the Y component of the linear velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.
     void SetFamilyPrescribedLinVelY(unsigned int ID);
-    /// Let the Z component of the linear velocities of all entites in this family always keep `as is', and not
+    /// Let the Z component of the linear velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.
     void SetFamilyPrescribedLinVelZ(unsigned int ID);
 
@@ -1042,16 +1042,16 @@ class DEMSolver {
                                    const std::string& velZ,
                                    bool dictate = true,
                                    const std::string& pre = "none");
-    /// Let the linear velocities of all entites in this family always keep `as is', and not influenced by the force
+    /// Let the angular velocities of all entites in this family always remain "as is" and not be influenced by the force
     /// exerted from other simulation entites.
     void SetFamilyPrescribedAngVel(unsigned int ID);
-    /// Let the X component of the angular velocities of all entites in this family always keep `as is', and not
+    /// Let the X component of the angular velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.
     void SetFamilyPrescribedAngVelX(unsigned int ID);
-    /// Let the Y component of the angular velocities of all entites in this family always keep `as is', and not
+    /// Let the Y component of the angular velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.
     void SetFamilyPrescribedAngVelY(unsigned int ID);
-    /// Let the Z component of the angular velocities of all entites in this family always keep `as is', and not
+    /// Let the Z component of the angular velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.
     void SetFamilyPrescribedAngVelZ(unsigned int ID);
 
@@ -1061,7 +1061,7 @@ class DEMSolver {
     /// @param Y Y coordinate (can be an expression).
     /// @param Z Z coordinate (can be an expression).
     /// @param dictate If true, prevent entities in this family to have (both linear and rotational) positional updates
-    /// resulted from the `simulation physics'; if false, only specified components (that is, not specified with "none")
+    /// resulted from the "simulation physics"; if false, only specified components (that is, not specified with "none")
     /// will not be influenced by the force exerted from other simulation entites.
     /// @param pre Prerequisite code. For example, you can generate a float3 with this prerequisite code, then assign
     /// XYZ components based on this float3.
@@ -1071,27 +1071,31 @@ class DEMSolver {
                                      const std::string& Z,
                                      bool dictate = true,
                                      const std::string& pre = "none");
-    /// @brief Let the linear positions of all entites in this family always keep `as is'.
+    /// @brief Let the linear positions of all entites in this family always remain "as is".
     void SetFamilyPrescribedPosition(unsigned int ID);
-    /// @brief Let the X component of the linear positions of all entites in this family always keep `as is'.
+    /// @brief Let the X component of the linear positions of all entites in this family always remain "as is".
     void SetFamilyPrescribedPositionX(unsigned int ID);
-    /// @brief Let the Y component of the linear positions of all entites in this family always keep `as is'.
+    /// @brief Let the Y component of the linear positions of all entites in this family always remain "as is".
     void SetFamilyPrescribedPositionY(unsigned int ID);
-    /// @brief Let the Z component of the linear positions of all entites in this family always keep `as is'.
+    /// @brief Let the Z component of the linear positions of all entites in this family always remain "as is".
     void SetFamilyPrescribedPositionZ(unsigned int ID);
 
     /// @brief Keep the orientation quaternions of all entites in this family to remain exactly the user-specified
     /// values.
     /// @param ID Family number.
-    /// @param q_formula The code from which the quaternion should be calculated. Must `return' a float4. For example,
+    /// @param q_formula The code from which the quaternion should be calculated. Must return a float4. For example,
     /// "float tmp=make_float4(1,1,1,1); return tmp;".
     /// @param dictate If true, prevent entities in this family to have (both linear and rotational) positional updates
-    /// resulted from the `simulation physics'; otherwise, the `simulation physics' still takes effect.
+    /// resulted from the "simulation physics"; otherwise, the "simulation physics" still takes effect.
     void SetFamilyPrescribedQuaternion(unsigned int ID, const std::string& q_formula, bool dictate = true);
-    /// @brief Let the orientation quaternions of all entites in this family always keep `as is'.
+    /// @brief Let the orientation quaternions of all entites in this family always remain "as is".
     void SetFamilyPrescribedQuaternion(unsigned int ID);
 
     /// @brief The entities in this family will always experience an extra acceleration defined using this method.
+    /// @param ID Family number.
+    /// @param X X component of the acceleration expression.
+    /// @param Y Y component of the acceleration expression.
+    /// @param Z Z component of the acceleration expression.
     /// @param pre Prerequisite code. For example, you can generate a float3 with this prerequisite code, then assign
     /// XYZ components based on this float3.
     void AddFamilyPrescribedAcc(unsigned int ID,
@@ -1101,6 +1105,10 @@ class DEMSolver {
                                 const std::string& pre = "none");
     /// @brief The entities in this family will always experience an extra angular acceleration defined using this
     /// method.
+    /// @param ID Family number.
+    /// @param X X component of the angular-acceleration expression.
+    /// @param Y Y component of the angular-acceleration expression.
+    /// @param Z Z component of the angular-acceleration expression.
     /// @param pre Prerequisite code. For example, you can generate a float3 with this prerequisite code, then assign
     /// XYZ components based on this float3.
     void AddFamilyPrescribedAngAcc(unsigned int ID,
@@ -1110,7 +1118,11 @@ class DEMSolver {
                                    const std::string& pre = "none");
 
     /// @brief The entities in this family will always experience an added linear-velocity correction defined using this
-    /// method. At the same time, they are still subject to the `simulation physics'.
+    /// method. At the same time, they are still subject to the "simulation physics".
+    /// @param ID Family number.
+    /// @param X X component of the velocity-correction expression.
+    /// @param Y Y component of the velocity-correction expression.
+    /// @param Z Z component of the velocity-correction expression.
     /// @param pre Prerequisite code. For example, you can generate a float3 with this prerequisite code, then assign
     /// XYZ components based on this float3.
     void CorrectFamilyLinVel(unsigned int ID,
@@ -1119,7 +1131,11 @@ class DEMSolver {
                              const std::string& Z,
                              const std::string& pre = "none");
     /// @brief The entities in this family will always experience an added angular-velocity correction defined using
-    /// this method. At the same time, they are still subject to the `simulation physics'.
+    /// this method. At the same time, they are still subject to the "simulation physics".
+    /// @param ID Family number.
+    /// @param X X component of the angular-velocity-correction expression.
+    /// @param Y Y component of the angular-velocity-correction expression.
+    /// @param Z Z component of the angular-velocity-correction expression.
     /// @param pre Prerequisite code. For example, you can generate a float3 with this prerequisite code, then assign
     /// XYZ components based on this float3.
     void CorrectFamilyAngVel(unsigned int ID,
@@ -1129,7 +1145,11 @@ class DEMSolver {
                              const std::string& pre = "none");
 
     /// @brief The entities in this family will always experience an added positional correction defined using this
-    /// method. At the same time, they are still subject to the `simulation physics'.
+    /// method. At the same time, they are still subject to the "simulation physics".
+    /// @param ID Family number.
+    /// @param X X component of the position-correction expression.
+    /// @param Y Y component of the position-correction expression.
+    /// @param Z Z component of the position-correction expression.
     /// @param pre Prerequisite code. For example, you can generate a float3 with this prerequisite code, then assign
     /// XYZ components based on this float3.
     void CorrectFamilyPosition(unsigned int ID,
@@ -1138,8 +1158,9 @@ class DEMSolver {
                                const std::string& Z,
                                const std::string& pre = "none");
     /// @brief The entities in this family will always experience an added quaternion correction defined using this
-    /// method. At the same time, they are still subject to the `simulation physics'.
-    /// @param q_formula The code from which the quaternion should be calculated. Must `return' a float4. For example,
+    /// method. At the same time, they are still subject to the "simulation physics".
+    /// @param ID Family number.
+    /// @param q_formula The code from which the quaternion should be calculated. Must return a float4. For example,
     /// "float tmp=make_float4(1,1,1,1); return tmp;".
     void CorrectFamilyQuaternion(unsigned int ID, const std::string& q_formula);
 
@@ -1357,7 +1378,7 @@ class DEMSolver {
     void WriteClumpFile(const std::filesystem::path& outfilename, unsigned int accuracy = 10) const {
         WriteClumpFile(outfilename.string(), accuracy);
     }
-    /// Write the current status of `clumps' to a file, but not as clumps, instead, as each individual sphere. This may
+    /// Write the current status of "clumps" to a file, but not as clumps, instead, as each individual sphere. This may
     /// make small-scale rendering easier.
     void WriteSphereFile(const std::string& outfilename) const;
     void WriteSphereFile(const std::filesystem::path& outfilename) const { WriteSphereFile(outfilename.string()); }
@@ -2291,6 +2312,11 @@ class DEMSolver {
     /// Assert that the DEM simulation system is not initialized
     void assertSysNotInit(const std::string& method_name);
     /// @brief Implementation of getting (unsorted) contact pairs from dT.
+    /// @param idA Output owner IDs for the first geometry in each contact.
+    /// @param idB Output owner IDs for the second geometry in each contact.
+    /// @param cnt_type Output contact types.
+    /// @param famA Output families for the first geometry in each contact.
+    /// @param famB Output families for the second geometry in each contact.
     /// @param type_func Exclude certain contact types from being outputted if this evaluates to false.
     void getContacts_impl(std::vector<bodyID_t>& idA,
                           std::vector<bodyID_t>& idB,

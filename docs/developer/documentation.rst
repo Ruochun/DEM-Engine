@@ -1,0 +1,45 @@
+Building the documentation
+==========================
+
+Prerequisites
+-------------
+
+Install Doxygen through the operating system or Conda, then create an isolated
+Python environment:
+
+.. code-block:: console
+
+   python3 -m venv .venv-docs
+   . .venv-docs/bin/activate
+   python -m pip install -r docs/requirements.txt
+
+Standalone build
+----------------
+
+.. code-block:: console
+
+   make -C docs html
+
+Open ``docs/_build/html/index.html`` in a browser.
+
+CMake target
+------------
+
+When configuring the complete project:
+
+.. code-block:: console
+
+   cmake -S . -B build-docs -DDEME_BUILD_DOCS=ON
+   cmake --build build-docs --target docs
+
+Documentation policy
+--------------------
+
+* Doxygen parses the public C++ headers and emits XML.
+* Sphinx and Breathe render the C++ API alongside authored guides.
+* Worker internals and CUDA kernels belong in architecture pages rather than
+  the public API reference.
+* New public functions should describe intent, parameters, units, frames,
+  setup/runtime restrictions, and return values.
+* The HTML build uses warnings-as-errors so broken API references do not
+  silently enter published documentation.

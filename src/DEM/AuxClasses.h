@@ -338,7 +338,7 @@ class DEMTracker {
 
     /// @brief Get all contact forces and global torques that concern this track object, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
-    /// experiences. Since we are getting all force pairs, the torque should be considered as `extra torque', since you
+    /// experiences. Since we are getting all force pairs, the torque should be considered as "extra torque", since you
     /// should be able to derive the normal and tangential force-induced torques based on all the force pairs. The extra
     /// torques emerge depending on your force model. For example, in the default force model, rolling friction could
     /// contribute to the torque. But if you do not have rolling friction, then you do not have torque here. The torques
@@ -355,7 +355,7 @@ class DEMTracker {
 
     /// @brief Get all contact forces and global torques that concern all objects tracked by this tracker, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
-    /// experiences. Since we are getting all force pairs, the torque should be considered as `extra torque', since you
+    /// experiences. Since we are getting all force pairs, the torque should be considered as "extra torque", since you
     /// should be able to derive the normal and tangential force-induced torques based on all the force pairs. The extra
     /// torques emerge depending on your force model. For example, in the default force model, rolling friction could
     /// contribute to the torque. But if you do not have rolling friction, then you do not have torque here. The torques
@@ -372,7 +372,7 @@ class DEMTracker {
 
     /// @brief Get all contact forces and local torques that concern this track object, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
-    /// experiences. Since we are getting all force pairs, the torque should be considered as `extra torque', since you
+    /// experiences. Since we are getting all force pairs, the torque should be considered as "extra torque", since you
     /// should be able to derive the normal and tangential force-induced torques based on all the force pairs. The extra
     /// torques emerge depending on your force model. For example, in the default force model, rolling friction could
     /// contribute to the torque. But if you do not have rolling friction, then you do not have torque here. The torques
@@ -389,7 +389,7 @@ class DEMTracker {
 
     /// @brief Get all contact forces and local torques that concern all objects tracked by this tracker, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
-    /// experiences. Since we are getting all force pairs, the torque should be considered as `extra torque', since you
+    /// experiences. Since we are getting all force pairs, the torque should be considered as "extra torque", since you
     /// should be able to derive the normal and tangential force-induced torques based on all the force pairs. The extra
     /// torques emerge depending on your force model. For example, in the default force model, rolling friction could
     /// contribute to the torque. But if you do not have rolling friction, then you do not have torque here. The torques

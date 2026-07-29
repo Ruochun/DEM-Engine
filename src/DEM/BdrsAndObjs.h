@@ -24,7 +24,7 @@
 namespace deme {
 
 /// External object type
-/// Note all of them are `shell', not solid objects. If you need a solid cylinder for example, then use one CYLINDER as
+/// Note all of them are "shell" objects, not solid objects. If you need a solid cylinder, use one CYLINDER as
 /// the side plus 2 CIRCLE as the ends to emulate it. Please be sure to set OUTWARD CYLINDER normal in this case.
 enum class OBJ_COMPONENT { PLANE, SPHERE, PLATE, CIRCLE, CYL, CYL_INF, CONE, CONE_INF, TRIANGLE };
 
@@ -76,7 +76,7 @@ class DEMExternObj : public DEMInitializer {
     // Component object materials
     std::vector<std::shared_ptr<DEMMaterial>> materials;
     // Family code (used in prescribing its motions etc.)
-    unsigned int family_code = RESERVED_FAMILY_NUM;  ///< Means it is default to the `fixed' family
+    unsigned int family_code = RESERVED_FAMILY_NUM;  ///< Means it defaults to the "fixed" family
 
     // // The coordinate of the CoM of this external object, in the frame where all its components' properties are
     // // reported. This is usually all-0 (meaning you should define the object's components in its CoM frame to begin
@@ -303,7 +303,7 @@ class DEMMesh : public DEMInitializer {
     std::vector<std::shared_ptr<DEMMaterial>> materials;
     bool isMaterialSet = false;
     // Family code (used in prescribing its motions etc.)
-    unsigned int family_code = RESERVED_FAMILY_NUM;  ///< Means it is default to the `fixed' family
+    unsigned int family_code = RESERVED_FAMILY_NUM;  ///< Means it defaults to the "fixed" family
 
     // // The coordinate of the CoM of this meshed object, in the frame where all the mesh's node coordinates are
     // // reported. This is usually all-0 (meaning you should define the object's components in its CoM frame to begin

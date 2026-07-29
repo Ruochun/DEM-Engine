@@ -184,7 +184,18 @@ After the build process is done, you can start trying out the demos. On Windows,
 - `./bin/DEMdemo_Fracture_Box` simulates a concrete bar breaking using a custom force model that creates inter-particle bonds and lets them break under certain conditions. This is a showcase for advanced usage of custom models that involves per-contact wildcard variables.
 - It is a good idea to read the comment lines at the top of the demo files to understand what they each does.
 
-[The documentations for _DEME_](https://api.projectchrono.org/) are hosted on Chrono website (work in progress).
+The DEME documentation sources live in [`docs/`](docs/index.rst). The site combines
+the user and Python guides with a Doxygen-generated C++ API reference. To build
+the viewable HTML locally, install Doxygen and the Python dependencies in
+`docs/requirements.txt`, then run:
+
+```bash
+make -C docs html
+```
+
+Open `docs/_build/html/index.html` after the build completes. See the
+[documentation build guide](docs/developer/documentation.rst) for the optional
+CMake target and documentation conventions.
 
 Some additional troubleshooting tips for running the demos:
 
