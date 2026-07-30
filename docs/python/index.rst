@@ -1,6 +1,19 @@
 Python interface
 ================
 
+The Python package exposes DEM-Engine's solver, setup objects, trackers, and
+CUDA-aware data access. Start with the quickstart, then use the focused guides
+for device placement and result retrieval.
+
+.. toctree::
+   :maxdepth: 2
+
+   quickstart
+   solver-lifecycle
+   device-selection
+   data-access
+   api-overview
+
 Import and compatibility
 ------------------------
 
@@ -37,10 +50,11 @@ Objects returned by solver setup methods frequently own or reference native
 simulation state. Keep the solver alive for as long as trackers, inspectors, or
 other solver-owned handles are in use.
 
-Python API reference status
----------------------------
+Reference status
+----------------
 
-The extension contains pybind11 docstrings, but a complete generated Python API
-reference and type-stub set are still pending. The generated
-:doc:`../cpp-api/index` is currently the detailed method reference; Python-only
-differences should be documented on this page as they are audited.
+The :doc:`api-overview` inventories the main Python objects and points to the
+task-oriented guides. The extension also contains runtime pybind11 docstrings;
+use ``help(deme.DEMSolver)`` or ``help(deme.Tracker)`` in an installed
+environment. The generated :doc:`../cpp-api/index` remains the exhaustive
+low-level reference for APIs shared with C++.

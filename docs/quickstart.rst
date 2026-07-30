@@ -4,23 +4,9 @@ Quickstart
 Python
 ------
 
-The package follows the same setup flow as the C++ API:
-
-.. code-block:: python
-
-   import deme
-
-   solver = deme.DEMSolver()
-   solver.InstructBoxDomainDimension(1.0, 1.0, 1.0)
-   solver.SetGravitationalAcceleration([0.0, 0.0, -9.81])
-
-Material, particle, boundary, timestep, and output choices must be supplied
-before ``Initialize()``. Once initialized, advance the simulation with
-``DoDynamics()`` or the corresponding duration-based helper.
-
-The complete runnable Python examples are still being brought into this branch.
-Until then, use the C++ demos as the authoritative examples for simulation
-setup and consult the :doc:`python/index` for Python-specific conventions.
+The :doc:`python/quickstart` contains a complete runnable sphere simulation.
+The Python guide also covers the setup/runtime boundary, multi-GPU device
+selection, tracker access, and direct retrieval into CUDA arrays.
 
 C++
 ---
