@@ -50,11 +50,19 @@ class DEMTracker;
 /// Main DEM-Engine solver.
 class DEMSolver {
   public:
+    /// Construct a solver using the requested number of visible CUDA devices. One GPU places both workers on device 0;
+    /// two GPUs place dT on device 0 and kT on device 1 when available, falling back to device 0 on a one-GPU system.
     DEMSolver(unsigned int nGPUs = 2);
+    /// Construct a solver on explicitly selected logical CUDA devices. One ID places both workers on that device; two
+    /// IDs assign dT and kT respectively. IDs follow CUDA_VISIBLE_DEVICES remapping.
+    explicit DEMSolver(const std::vector<int>& device_ids);
     ~DEMSolver();
 
-    /// Instruct the dimension of the "world". On initialization, this info will be used to figure out how to assign the
-    /// num of voxels in each direction. If your "useful" domain is not box-shaped, then define a box that contains your
+    /// Return the logical CUDA devices assigned to dT and kT, in that order.
+    std::vector<int> GetGPUDeviceIDs() const { return m_gpu_device_ids; }
+
+    /// Instruct the dimension of the `world'. On initialization, this info will be used to figure out how to assign the
+    /// num of voxels in each direction. If your `useful' domain is not box-shaped, then define a box that contains your
     /// domian.
     void InstructBoxDomainDimension(float x, float y, float z, const std::string& dir_exact = "none");
     /// @brief Set the size of the simulation "world".
@@ -530,6 +538,60 @@ class DEMSolver {
     /// @param n The number of consecutive owners.
     /// @return The family number.
     std::vector<unsigned int> GetOwnerFamily(bodyID_t ownerID, bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with positions of consecutive owners. Capacity is measured in elements.
+    void GetOwnerPositionToDevice(float3* destination,
+                                  size_t capacity,
+                                  int destination_device,
+                                  bodyID_t ownerID,
+                                  bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with velocities of consecutive owners.
+    void GetOwnerVelocityToDevice(float3* destination,
+                                  size_t capacity,
+                                  int destination_device,
+                                  bodyID_t ownerID,
+                                  bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with local-frame angular velocities of consecutive owners.
+    void GetOwnerAngVelLocalToDevice(float3* destination,
+                                     size_t capacity,
+                                     int destination_device,
+                                     bodyID_t ownerID,
+                                     bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with global-frame angular velocities of consecutive owners.
+    void GetOwnerAngVelGlobalToDevice(float3* destination,
+                                      size_t capacity,
+                                      int destination_device,
+                                      bodyID_t ownerID,
+                                      bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with public-order (x, y, z, w) orientation quaternions.
+    void GetOwnerOriQToDevice(float4* destination,
+                              size_t capacity,
+                              int destination_device,
+                              bodyID_t ownerID,
+                              bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with global-frame contact accelerations.
+    void GetOwnerAccToDevice(float3* destination,
+                             size_t capacity,
+                             int destination_device,
+                             bodyID_t ownerID,
+                             bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with local-frame contact angular accelerations.
+    void GetOwnerAngAccLocalToDevice(float3* destination,
+                                     size_t capacity,
+                                     int destination_device,
+                                     bodyID_t ownerID,
+                                     bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with global-frame contact angular accelerations.
+    void GetOwnerAngAccGlobalToDevice(float3* destination,
+                                      size_t capacity,
+                                      int destination_device,
+                                      bodyID_t ownerID,
+                                      bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with owner family numbers as unsigned integers.
+    void GetOwnerFamilyToDevice(unsigned int* destination,
+                                size_t capacity,
+                                int destination_device,
+                                bodyID_t ownerID,
+                                bodyID_t n = 1) const;
     /// @brief Handover helper: get all clump-owner center positions in one call.
     /// @return Position vector with one entry per clump owner, ordered by owner ID.
     std::vector<float3> GetClumpPositionsHandover() const;
@@ -582,6 +644,18 @@ class DEMSolver {
     /// @param n The number of consecutive owners.
     /// @return The moment of inertia (in principal axis frame).
     std::vector<float3> GetOwnerMOI(bodyID_t ownerID, bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with owner masses.
+    void GetOwnerMassToDevice(float* destination,
+                              size_t capacity,
+                              int destination_device,
+                              bodyID_t ownerID,
+                              bodyID_t n = 1) const;
+    /// Fill caller-provided CUDA memory with owner principal moments of inertia.
+    void GetOwnerMOIToDevice(float3* destination,
+                             size_t capacity,
+                             int destination_device,
+                             bodyID_t ownerID,
+                             bodyID_t n = 1) const;
 
     /// @brief Set position of consecutive owners starting from ownerID, based on input position vector. N (the size of
     /// the input vector) elements will be modified.
@@ -1252,6 +1326,21 @@ class DEMSolver {
                                  std::vector<float3>& forces,
                                  std::vector<float3>& torques,
                                  bool torque_in_local = false);
+    /// Compact contact points and forces concerning ownerIDs into caller-provided CUDA memory.
+    /// Capacity must be at least the solver's current total contact count; the returned value is the useful count.
+    size_t GetOwnerContactForcesToDevice(const std::vector<bodyID_t>& ownerIDs,
+                                         float3* points,
+                                         float3* forces,
+                                         size_t capacity,
+                                         int destination_device);
+    /// Compact contact points, forces, and extra torques concerning ownerIDs into caller-provided CUDA memory.
+    size_t GetOwnerContactForcesToDevice(const std::vector<bodyID_t>& ownerIDs,
+                                         float3* points,
+                                         float3* forces,
+                                         float3* torques,
+                                         size_t capacity,
+                                         int destination_device,
+                                         bool torque_in_local = false);
 
     /// @brief Set the wildcard values of some owners.
     /// @param ownerID The ID of the starting (first) owner that needs to be modified.
@@ -1297,6 +1386,13 @@ class DEMSolver {
     /// @param n Total number of owners to query, starting from ownerID.
     /// @return Value of this wildcard.
     std::vector<float> GetOwnerWildcardValue(bodyID_t ownerID, const std::string& name, bodyID_t n = 1);
+    /// Fill caller-provided CUDA memory with one owner wildcard over a consecutive owner range.
+    void GetOwnerWildcardValueToDevice(float* destination,
+                                       size_t capacity,
+                                       int destination_device,
+                                       bodyID_t ownerID,
+                                       const std::string& name,
+                                       bodyID_t n = 1);
     /// @brief Get the owner wildcard's values of all entities.
     std::vector<float> GetAllOwnerWildcardValue(const std::string& name);
     /// @brief Get the owner wildcard's values of all entities in family N.
@@ -1697,6 +1793,9 @@ class DEMSolver {
                                    DualArray<scratch_t>& reduceRes);
 
   private:
+    /// Validate device placement and construct the two GPU workers on their assigned devices.
+    void constructWorkers(const std::vector<int>& device_ids);
+
     ////////////////////////////////////////////////////////////////////////////////
     // Flag-like behavior-related variables cached on the host side
     ////////////////////////////////////////////////////////////////////////////////
@@ -2209,6 +2308,8 @@ class DEMSolver {
     WorkerReportChannel* kTMain_InteractionManager;
     WorkerReportChannel* dTMain_InteractionManager;
     GpuManager* dTkT_GpuManager;
+    // Logical CUDA device IDs assigned to the dynamic and kinematic workers, respectively.
+    std::vector<int> m_gpu_device_ids;
     ThreadManager* dTkT_InteractionManager;
     DEMKinematicThread* kT;
     DEMDynamicThread* dT;

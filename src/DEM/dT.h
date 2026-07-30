@@ -17,6 +17,8 @@
 #include "../core/utils/ThreadManager.h"
 #include "../core/utils/GpuManager.h"
 #include "../core/utils/DataMigrationHelper.hpp"
+#include "../core/utils/DeviceDataTransfer.hpp"
+#include "../algorithms/DEMOwnerDataRetrieval.h"
 #include "BdrsAndObjs.h"
 #include "Defines.h"
 #include "Structs.h"
@@ -69,6 +71,8 @@ class DEMDynamicThread {
 
     // A class that contains scratch pad and system status data (constructed with the number of temp arrays we need)
     DEMSolverScratchData solverScratchSpace = DEMSolverScratchData(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Reuses pinned staging storage only when a requested destination GPU cannot access dT's GPU directly.
+    device_data::TransferBuffer ownerDataTransferBuffer;
 
     // The number of for iterations dT does for a specific user "run simulation" call
     double cycleDuration;
@@ -453,6 +457,14 @@ class DEMDynamicThread {
     std::vector<float3> getOwnerAngAcc(bodyID_t ownerID, bodyID_t n = 1);
     /// Get this owner's family number, for n consecutive items.
     std::vector<unsigned int> getOwnerFamily(bodyID_t ownerID, bodyID_t n = 1);
+    /// Pack a consecutive owner range and synchronously fill caller-provided CUDA-accessible memory.
+    void getOwnerDataToDevice(void* destination,
+                              size_t capacity,
+                              int destination_device,
+                              bodyID_t ownerID,
+                              bodyID_t n,
+                              OwnerDataField field,
+                              unsigned int wildcard_index = 0);
     // Get the current auto-adjusted update freq.
     float getUpdateFreq() const;
 
@@ -543,6 +555,15 @@ class DEMDynamicThread {
                                  std::vector<float3>& forces,
                                  std::vector<float3>& torques,
                                  bool torque_in_local = false);
+    /// Compact contact-pair data concerning the selected owners directly into caller-provided CUDA memory.
+    size_t getOwnerContactForcesToDevice(const std::vector<bodyID_t>& ownerIDs,
+                                         float3* points,
+                                         float3* forces,
+                                         float3* torques,
+                                         size_t capacity,
+                                         int destination_device,
+                                         bool need_torque,
+                                         bool torque_in_local);
 
     /// Get owner of contact geometry (sphere, triangle, analytical entity).
     bodyID_t getGeoOwnerID(const bodyID_t& geo, const geoType_t& type) const;

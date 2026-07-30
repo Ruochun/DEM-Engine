@@ -3865,6 +3865,101 @@ size_t DEMDynamicThread::getOwnerContactForces(const std::vector<bodyID_t>& owne
     return numUsefulCnt;
 }
 
+size_t DEMDynamicThread::getOwnerContactForcesToDevice(const std::vector<bodyID_t>& ownerIDs,
+                                                       float3* points,
+                                                       float3* forces,
+                                                       float3* torques,
+                                                       size_t capacity,
+                                                       int destination_device,
+                                                       bool need_torque,
+                                                       bool torque_in_local) {
+    ScopedCudaDevice device_scope(streamInfo.device);
+    if (ownerIDs.empty()) {
+        DEME_ERROR("Contact-force device retrieval requires at least one owner ID.");
+    }
+    for (bodyID_t owner : ownerIDs) {
+        if (owner >= simParams->nOwnerBodies) {
+            DEME_ERROR("Contact-force device retrieval owner ID %zu exceeds the %zu owners in the simulation.",
+                       (size_t)owner, (size_t)simParams->nOwnerBodies);
+        }
+    }
+    const size_t num_contacts = *solverScratchSpace.numContacts;
+    if (capacity < num_contacts) {
+        DEME_ERROR(
+            "Contact-force device retrieval needs capacity for at least %zu entries (the current contact count), but "
+            "the destination capacity is %zu.",
+            num_contacts, capacity);
+    }
+
+    const size_t full_bytes = num_contacts * sizeof(float3);
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(points, full_bytes, destination_device));
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(forces, full_bytes, destination_device));
+    if (need_torque) {
+        DEME_GPU_CALL(device_data::ValidateOutputPointer(torques, full_bytes, destination_device));
+    }
+    if (num_contacts == 0) {
+        return 0;
+    }
+
+    solverScratchSpace.allocateDualArray("device_contact_owner_ids", ownerIDs.size() * sizeof(bodyID_t));
+    solverScratchSpace.allocateDualStruct("device_contact_count");
+    const std::vector<bodyID_t> sorted_owner_ids = hostSort(ownerIDs);
+    bodyID_t* host_owner_ids =
+        reinterpret_cast<bodyID_t*>(solverScratchSpace.getDualArrayHost("device_contact_owner_ids"));
+    std::copy(sorted_owner_ids.begin(), sorted_owner_ids.end(), host_owner_ids);
+    solverScratchSpace.syncDualArrayHostToDevice("device_contact_owner_ids");
+
+    size_t* host_count = solverScratchSpace.getDualStructHost("device_contact_count");
+    *host_count = 0;
+    solverScratchSpace.syncDualStructHostToDevice("device_contact_count");
+
+    const bool same_device = destination_device == streamInfo.device;
+    float3* packed_points = points;
+    float3* packed_forces = forces;
+    float3* packed_torques = torques;
+    if (!same_device) {
+        packed_points =
+            reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("device_contact_points", full_bytes));
+        packed_forces =
+            reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("device_contact_forces", full_bytes));
+        if (need_torque) {
+            packed_torques =
+                reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("device_contact_torques", full_bytes));
+        }
+    }
+
+    getContactForcesConcerningOwners(
+        packed_points, packed_forces, packed_torques, solverScratchSpace.getDualStructDevice("device_contact_count"),
+        reinterpret_cast<bodyID_t*>(solverScratchSpace.getDualArrayDevice("device_contact_owner_ids")),
+        sorted_owner_ids.size(), &simParams, &granData, num_contacts, need_torque, torque_in_local, streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    solverScratchSpace.syncDualStructDeviceToHost("device_contact_count");
+    const size_t useful_count = *host_count;
+
+    if (!same_device && useful_count > 0) {
+        const size_t useful_bytes = useful_count * sizeof(float3);
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(points, destination_device, packed_points, streamInfo.device, useful_bytes));
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(forces, destination_device, packed_forces, streamInfo.device, useful_bytes));
+        if (need_torque) {
+            DEME_GPU_CALL(ownerDataTransferBuffer.Copy(torques, destination_device, packed_torques, streamInfo.device,
+                                                       useful_bytes));
+        }
+    }
+
+    if (!same_device) {
+        solverScratchSpace.finishUsingTempVector("device_contact_points");
+        solverScratchSpace.finishUsingTempVector("device_contact_forces");
+        if (need_torque) {
+            solverScratchSpace.finishUsingTempVector("device_contact_torques");
+        }
+    }
+    solverScratchSpace.finishUsingDualArray("device_contact_owner_ids");
+    solverScratchSpace.finishUsingDualStruct("device_contact_count");
+    return useful_count;
+}
+
 void DEMDynamicThread::setFamilyContactWildcardValue_impl(
     unsigned int N1,
     unsigned int N2,
@@ -4096,6 +4191,46 @@ std::vector<unsigned int> DEMDynamicThread::getOwnerFamily(bodyID_t ownerID, bod
         fam[i] = (unsigned int)(+(short_fam[i]));
     }
     return fam;
+}
+
+void DEMDynamicThread::getOwnerDataToDevice(void* destination,
+                                            size_t capacity,
+                                            int destination_device,
+                                            bodyID_t ownerID,
+                                            bodyID_t n,
+                                            OwnerDataField field,
+                                            unsigned int wildcard_index) {
+    if (ownerID > simParams->nOwnerBodies || n > simParams->nOwnerBodies - ownerID) {
+        DEME_ERROR("Owner device retrieval range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
+                   (size_t)(ownerID + n), (size_t)simParams->nOwnerBodies);
+    }
+    if (capacity < n) {
+        DEME_ERROR("Owner device retrieval needs capacity for %zu elements, but the destination has %zu.", (size_t)n,
+                   capacity);
+    }
+
+    const size_t bytes = static_cast<size_t>(n) * OwnerDataElementSize(field);
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(destination, bytes, destination_device));
+    if (n == 0) {
+        return;
+    }
+
+    ScopedCudaDevice device_scope(streamInfo.device);
+    if (destination_device == streamInfo.device) {
+        PackOwnerData(destination, field, ownerID, n, &simParams, &granData, solverFlags.useMassJitify, wildcard_index,
+                      streamInfo.stream);
+        DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+        return;
+    }
+
+    // Cross-device output is packed once on dT's GPU, then copied through the generic peer/staging transfer utility.
+    const std::string scratch_name = "owner_device_retrieval";
+    void* packed = solverScratchSpace.allocateTempVector(scratch_name, bytes);
+    PackOwnerData(packed, field, ownerID, n, &simParams, &granData, solverFlags.useMassJitify, wildcard_index,
+                  streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    DEME_GPU_CALL(ownerDataTransferBuffer.Copy(destination, destination_device, packed, streamInfo.device, bytes));
+    solverScratchSpace.finishUsingTempVector(scratch_name);
 }
 
 void DEMDynamicThread::setOwnerAngVel(bodyID_t ownerID, const std::vector<float3>& angVel) {

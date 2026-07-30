@@ -127,6 +127,8 @@ class DEMTracker {
     /// Get the positions of all tracked objects.
     std::vector<float3> Positions();
     std::vector<std::vector<float>> GetPositions();
+    /// Fill CUDA-accessible memory with all tracked positions. Capacity is measured in float3 elements.
+    void PositionsToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// Get the angular velocity of this tracked object in its own local coordinate system. Applying OriQ to it would
     /// give you the ang vel in global frame.
@@ -136,6 +138,8 @@ class DEMTracker {
     /// give you the ang vel in global frame.
     std::vector<float3> AngularVelocitiesLocal();
     std::vector<std::vector<float>> GetAngularVelocitiesLocal();
+    /// Fill CUDA-accessible memory with all tracked local-frame angular velocities.
+    void AngularVelocitiesLocalToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// Get the angular velocity of this tracked object in global coordinate system.
     float3 AngVelGlobal(size_t offset = 0);
@@ -143,6 +147,8 @@ class DEMTracker {
     /// Get the angular velocity of all objects tracked by this tracker, in global coordinate system.
     std::vector<float3> AngularVelocitiesGlobal();
     std::vector<std::vector<float>> GetAngularVelocitiesGlobal();
+    /// Fill CUDA-accessible memory with all tracked global-frame angular velocities.
+    void AngularVelocitiesGlobalToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// Get the velocity of this tracked object in global frame.
     float3 Vel(size_t offset = 0);
@@ -150,6 +156,8 @@ class DEMTracker {
     /// Get the velocities of all objects tracked by this tracker, in global frame.
     std::vector<float3> Velocities();
     std::vector<std::vector<float>> GetVelocities();
+    /// Fill CUDA-accessible memory with all tracked global-frame velocities.
+    void VelocitiesToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// Get the quaternion that represents the orientation of this tracked object's own coordinate system.
     float4 OriQ(size_t offset = 0);
@@ -163,6 +171,8 @@ class DEMTracker {
     /// @return A vector of 4-float vectors. The order is (x, y, z, w). If compared against Chrono naming convention,
     /// then it is saying our ordering here is (e1, e2, e3, e0).
     std::vector<std::vector<float>> GetOrientationQuaternions();
+    /// Fill CUDA-accessible memory with all tracked public-order (x, y, z, w) quaternions.
+    void OrientationQuaternionsToDevice(float4* destination, size_t capacity, int destination_device);
 
     /// @brief Get the family number of the tracked object.
     /// @param offset The offset of the entites to get family number out of.
@@ -171,6 +181,8 @@ class DEMTracker {
     /// @brief Get the family numbers of all the tracked object.
     /// @return The family numbers as a vector.
     std::vector<unsigned int> GetFamilies();
+    /// Fill CUDA-accessible memory with all tracked family numbers as unsigned integers.
+    void FamiliesToDevice(unsigned int* destination, size_t capacity, int destination_device);
 
     /// @brief Get the clumps that are in contact with this tracked owner as a vector.
     /// @details No bulk version that gets the contacting clumps for all the entities tracked by this tracker. This is
@@ -191,6 +203,8 @@ class DEMTracker {
     /// @details In most cases, this means the acceleration excluding the gravitational acceleration.
     std::vector<float3> ContactAccelerations();
     std::vector<std::vector<float>> GetContactAccelerations();
+    /// Fill CUDA-accessible memory with all tracked global-frame contact accelerations.
+    void ContactAccelerationsToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// @brief Get the a portion of the angular acceleration of this tracked object, that is the result of its contact
     /// with other simulation entities. The acceleration is in this object's local frame.
@@ -202,6 +216,8 @@ class DEMTracker {
     /// @details In most cases, this means the angular acceleration excluding the gravitational acceleration.
     std::vector<float3> ContactAngularAccelerationsLocal();
     std::vector<std::vector<float>> GetContactAngularAccelerationsLocal();
+    /// Fill CUDA-accessible memory with all tracked local-frame contact angular accelerations.
+    void ContactAngularAccelerationsLocalToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// @brief Get the a portion of the angular acceleration of this tracked object, that is the result of its contact
     /// with other simulation entities. The acceleration is in this object's global frame.
@@ -213,6 +229,8 @@ class DEMTracker {
     /// @details In most cases, this means the angular acceleration excluding the gravitational acceleration.
     std::vector<float3> ContactAngularAccelerationsGlobal();
     std::vector<std::vector<float>> GetContactAngularAccelerationsGlobal();
+    /// Fill CUDA-accessible memory with all tracked global-frame contact angular accelerations.
+    void ContactAngularAccelerationsGlobalToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// @brief Get the mass of the tracked object.
     /// @param offset The offset to this entites. If first entites, input 0.
@@ -221,6 +239,8 @@ class DEMTracker {
     /// @brief Get the masses of all the tracked objects.
     /// @return Masses as a vector.
     std::vector<float> Masses();
+    /// Fill CUDA-accessible memory with all tracked masses.
+    void MassesToDevice(float* destination, size_t capacity, int destination_device);
     /// @brief Get the moment of inertia (in principal axis frame) of the tracked object.
     /// @param offset The offset to this entites. If first entites, input 0.
     /// @return The moment of inertia (in principal axis frame).
@@ -230,6 +250,8 @@ class DEMTracker {
     /// @return The moment of inertia (in principal axis frame) of each element as a vector.
     std::vector<float3> MOIs();
     std::vector<std::vector<float>> GetMOIs();
+    /// Fill CUDA-accessible memory with all tracked principal moments of inertia.
+    void MOIsToDevice(float3* destination, size_t capacity, int destination_device);
 
     /// Get the owner's wildcard value.
     float GetOwnerWildcardValue(const std::string& name, size_t offset = 0);
@@ -237,6 +259,11 @@ class DEMTracker {
     /// @param name Name of the wildcard.
     /// @return All the values.
     std::vector<float> GetOwnerWildcardValues(const std::string& name);
+    /// Fill CUDA-accessible memory with one wildcard value for every tracked owner.
+    void OwnerWildcardValuesToDevice(const std::string& name,
+                                     float* destination,
+                                     size_t capacity,
+                                     int destination_device);
 
     /// @brief Set the position of this tracked object.
     void SetPos(float3 pos, size_t offset = 0);
@@ -326,6 +353,12 @@ class DEMTracker {
     /// @param offset The offset to this owner (where to start querying). If first entity, input 0.
     /// @return Number of force pairs.
     size_t GetContactForces(std::vector<float3>& points, std::vector<float3>& forces, size_t offset = 0);
+    /// Fill CUDA memory with contact points/forces for one tracked owner. Capacity must cover the total contact count.
+    size_t GetContactForcesToDevice(float3* points,
+                                    float3* forces,
+                                    size_t capacity,
+                                    int destination_device,
+                                    size_t offset = 0);
 
     /// @brief Get all contact forces that concern all objects tracked by this tracker, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
@@ -335,6 +368,8 @@ class DEMTracker {
     /// @param forces The force in XYZ as float3 vector. The force in global frame.
     /// @return Number of force pairs.
     size_t GetContactForcesForAll(std::vector<float3>& points, std::vector<float3>& forces);
+    /// Fill CUDA memory with contact points/forces concerning all tracked owners.
+    size_t GetContactForcesForAllToDevice(float3* points, float3* forces, size_t capacity, int destination_device);
 
     /// @brief Get all contact forces and global torques that concern this track object, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
@@ -352,6 +387,13 @@ class DEMTracker {
                                            std::vector<float3>& forces,
                                            std::vector<float3>& torques,
                                            size_t offset = 0);
+    /// Fill CUDA memory with contact points, forces, and global extra torques for one tracked owner.
+    size_t GetContactForcesAndGlobalTorqueToDevice(float3* points,
+                                                   float3* forces,
+                                                   float3* torques,
+                                                   size_t capacity,
+                                                   int destination_device,
+                                                   size_t offset = 0);
 
     /// @brief Get all contact forces and global torques that concern all objects tracked by this tracker, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
@@ -369,6 +411,12 @@ class DEMTracker {
     size_t GetContactForcesAndGlobalTorqueForAll(std::vector<float3>& points,
                                                  std::vector<float3>& forces,
                                                  std::vector<float3>& torques);
+    /// Fill CUDA memory with contact points, forces, and global extra torques for all tracked owners.
+    size_t GetContactForcesAndGlobalTorqueForAllToDevice(float3* points,
+                                                         float3* forces,
+                                                         float3* torques,
+                                                         size_t capacity,
+                                                         int destination_device);
 
     /// @brief Get all contact forces and local torques that concern this track object, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
@@ -386,6 +434,13 @@ class DEMTracker {
                                           std::vector<float3>& forces,
                                           std::vector<float3>& torques,
                                           size_t offset = 0);
+    /// Fill CUDA memory with contact points, forces, and local extra torques for one tracked owner.
+    size_t GetContactForcesAndLocalTorqueToDevice(float3* points,
+                                                  float3* forces,
+                                                  float3* torques,
+                                                  size_t capacity,
+                                                  int destination_device,
+                                                  size_t offset = 0);
 
     /// @brief Get all contact forces and local torques that concern all objects tracked by this tracker, as a vector.
     /// @details Every force pair will be queried using this function, instead of a reduced total force that this object
@@ -403,6 +458,12 @@ class DEMTracker {
     size_t GetContactForcesAndLocalTorqueForAll(std::vector<float3>& points,
                                                 std::vector<float3>& forces,
                                                 std::vector<float3>& torques);
+    /// Fill CUDA memory with contact points, forces, and local extra torques for all tracked owners.
+    size_t GetContactForcesAndLocalTorqueForAllToDevice(float3* points,
+                                                        float3* forces,
+                                                        float3* torques,
+                                                        size_t capacity,
+                                                        int destination_device);
 };
 
 class DEMForceModel {

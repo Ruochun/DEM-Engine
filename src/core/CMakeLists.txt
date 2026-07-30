@@ -62,6 +62,7 @@ set(core_headers
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/csv.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/Timer.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/DataMigrationHelper.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/utils/DeviceDataTransfer.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/DEMEPaths.h
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/RuntimeData.h
 )
@@ -69,6 +70,7 @@ set(core_headers
 set(core_sources
 	${CMAKE_CURRENT_SOURCE_DIR}/DebugInfo.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/GpuManager.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/utils/DeviceDataTransfer.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/JitHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/utils/DEMEPaths.cpp
 )

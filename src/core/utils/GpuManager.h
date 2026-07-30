@@ -11,6 +11,9 @@ namespace deme {
 class GpuManager {
   public:
     GpuManager(unsigned int total_streams = 1);
+    /// Create one stream record for each explicitly selected CUDA device.
+    /// Repeated device IDs are allowed so multiple workers can share one GPU.
+    explicit GpuManager(const std::vector<int>& stream_devices);
     ~GpuManager();
 
     struct StreamInfo {
