@@ -4,16 +4,20 @@ PYTHON ?= python3
 SOURCEDIR = .
 BUILDDIR = _build
 
-.PHONY: help examples doxygen html clean
+.PHONY: help examples python-reference doxygen html clean
 
 help:
 	@echo "make html     Build Doxygen XML and the Sphinx HTML site"
 	@echo "make examples Check Python documentation example syntax"
+	@echo "make python-reference  Regenerate API RST from an installed deme module"
 	@echo "make doxygen  Build only the Doxygen XML"
 	@echo "make clean    Remove generated documentation"
 
 examples:
 	$(PYTHON) -m compileall -q python/examples
+
+python-reference:
+	$(PYTHON) generate_python_reference.py
 
 doxygen:
 	@mkdir -p $(BUILDDIR)/doxygen

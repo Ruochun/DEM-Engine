@@ -4,7 +4,7 @@
 # through Breathe and presents it alongside the user and Python guides.
 
 PROJECT_NAME           = "DEM-Engine"
-PROJECT_NUMBER         = "3.0.0"
+PROJECT_NUMBER         = "3"
 PROJECT_BRIEF          = "GPU-accelerated discrete element method solver"
 
 OUTPUT_DIRECTORY       = _build/doxygen

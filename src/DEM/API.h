@@ -682,8 +682,8 @@ class DEMSolver {
     void AddOwnerNextStepAcc(bodyID_t ownerID, const std::vector<float3>& acc);
     /// @brief Add an extra angular accelerations to consecutive owners for the next time step.
     /// @param ownerID The number of the starting owner.
-    /// @param angAcc The extra angular acceleration to add. N (the size of this vector) elements will be modified based on
-    /// its values.
+    /// @param angAcc The extra angular acceleration to add. N (the size of this vector) elements will be modified based
+    /// on its values.
     void AddOwnerNextStepAngAcc(bodyID_t ownerID, const std::vector<float3>& angAcc);
 
     /// @brief Rewrite the relative positions of the flattened triangle soup.
@@ -1116,8 +1116,8 @@ class DEMSolver {
                                    const std::string& velZ,
                                    bool dictate = true,
                                    const std::string& pre = "none");
-    /// Let the angular velocities of all entites in this family always remain "as is" and not be influenced by the force
-    /// exerted from other simulation entites.
+    /// Let the angular velocities of all entites in this family always remain "as is" and not be influenced by the
+    /// force exerted from other simulation entites.
     void SetFamilyPrescribedAngVel(unsigned int ID);
     /// Let the X component of the angular velocities of all entites in this family always remain "as is" and not be
     /// influenced by the force exerted from other simulation entites.

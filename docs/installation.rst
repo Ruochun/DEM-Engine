@@ -14,7 +14,7 @@ DEME requires:
   source.
 
 The exact Python, CUDA, compiler, driver, and GPU architecture matrix is being
-validated for the 3.0.0 release. A wheel should not be assumed portable across
+validated for DEM-Engine 3. A wheel should not be assumed portable across
 CUDA major versions until that matrix is published.
 
 Python package

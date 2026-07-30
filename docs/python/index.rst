@@ -13,6 +13,7 @@ for device placement and result retrieval.
    device-selection
    data-access
    api-overview
+   reference
 
 Import and compatibility
 ------------------------

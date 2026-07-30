@@ -15,7 +15,7 @@ Runtime JIT compilation cannot find headers
 DEME compiles kernels at runtime. Confirm that the CUDA Toolkit headers and the
 ``share/DEME/kernel`` and ``include`` resources installed with DEME are
 available. Wheel portability across CUDA installation layouts is an active
-3.0.0 packaging task.
+DEM-Engine 3 packaging task.
 
 Import works but initialization fails
 -------------------------------------

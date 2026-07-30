@@ -132,21 +132,26 @@ PYBIND11_MODULE(_deme, obj) {
             "then return the result.");
     obj.def("FrameTransformLocalToGlobal", &deme::FrameTransformLocalToGlobal,
             "Apply a local rotation then a translation, then return the result.");
-    obj.def("GetDEMEDataFile", &deme::GetDEMEDataFile);
+    obj.def("GetDEMEDataFile", &deme::GetDEMEDataFile, "Resolve a path relative to DEME's installed data directory.",
+            py::arg("relative_path"));
     obj.def(
         "DEMBoxGridSampler",
         static_cast<std::vector<float3> (*)(const std::vector<float>&, const std::vector<float>&, float, float, float)>(
             &deme::DEMBoxGridSampler),
         py::arg("BoxCenter"), py::arg("HalfDims"), py::arg("GridSizeX"), py::arg("GridSizeY") = -1.0,
-        py::arg("GridSizeZ") = -1.0);
+        py::arg("GridSizeZ") = -1.0,
+        "Return regularly spaced points inside a box. Negative Y or Z spacing reuses the X spacing.");
     obj.def("DEMBoxHCPSampler",
             static_cast<std::vector<float3> (*)(const std::vector<float>&, const std::vector<float>&, float)>(
-                &deme::DEMBoxHCPSampler));
+                &deme::DEMBoxHCPSampler),
+            "Return hexagonally close-packed points inside a box.", py::arg("BoxCenter"), py::arg("HalfDims"),
+            py::arg("separation"));
     obj.def("DEMCylSurfSampler",
             static_cast<std::vector<std::vector<float>> (*)(const std::vector<float>&, const std::vector<float>&, float,
                                                             float, float, float)>(&deme::DEMCylSurfSampler),
             py::arg("CylCenter"), py::arg("CylAxis"), py::arg("CylRad"), py::arg("CylHeight"), py::arg("ParticleRad"),
-            py::arg("spacing") = 1.2);
+            py::arg("spacing") = 1.2,
+            "Return points on a cylindrical surface. ``spacing`` scales the nominal particle-diameter separation.");
 
     obj.attr("PI") = py::float_(M_PI);
 
@@ -154,94 +159,126 @@ PYBIND11_MODULE(_deme, obj) {
         .def(py::init<>())
         .def_static("SetPathPrefix", &DEMERuntimeDataHelper::SetPathPrefix);
 
-    py::class_<deme::PDSampler>(obj, "PDSampler")
-        .def(py::init<float>())
-        .def("SetSeparation", &deme::PDSampler::SetSeparation)
-        .def("SetRandomEngineSeed", &deme::PDSampler::SetRandomEngineSeed)
+    py::class_<deme::PDSampler>(obj, "PDSampler",
+                                "Poisson-disk volumetric sampler enforcing a minimum point separation.")
+        .def(py::init<float>(), py::arg("separation"), "Create a sampler with the requested minimum separation.")
+        .def("SetSeparation", &deme::PDSampler::SetSeparation, "Set the minimum separation used by subsequent samples.",
+             py::arg("separation"))
+        .def("SetRandomEngineSeed", &deme::PDSampler::SetRandomEngineSeed,
+             "Seed the random engine so Poisson-disk samples can be reproduced.", py::arg("seed"))
         .def("SampleBox",
              static_cast<std::vector<std::vector<float>> (deme::PDSampler::*)(
                  const std::vector<float>& center, const std::vector<float>& halfDim)>(&deme::PDSampler::SampleBox),
-             "Generates a sample box")
+             "Return points sampled from the specified box volume.", py::arg("center"), py::arg("halfDim"))
 
         .def("SampleSphere",
              static_cast<std::vector<std::vector<float>> (deme::PDSampler::*)(const std::vector<float>&, float)>(
-                 &deme::PDSampler::SampleSphere))
+                 &deme::PDSampler::SampleSphere),
+             "Return points sampled from the specified spherical volume.", py::arg("center"), py::arg("radius"))
 
         .def("SampleCylinderX",
              static_cast<std::vector<std::vector<float>> (deme::PDSampler::*)(const std::vector<float>&, float, float)>(
-                 &deme::PDSampler::SampleCylinderX))
+                 &deme::PDSampler::SampleCylinderX),
+             "Return points sampled from an X-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+             py::arg("halfHeight"))
 
         .def("SampleCylinderY",
              static_cast<std::vector<std::vector<float>> (deme::PDSampler::*)(const std::vector<float>&, float, float)>(
-                 &deme::PDSampler::SampleCylinderY))
+                 &deme::PDSampler::SampleCylinderY),
+             "Return points sampled from a Y-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+             py::arg("halfHeight"))
 
         .def("SampleCylinderZ",
              static_cast<std::vector<std::vector<float>> (deme::PDSampler::*)(const std::vector<float>&, float, float)>(
-                 &deme::PDSampler::SampleCylinderZ))
+                 &deme::PDSampler::SampleCylinderZ),
+             "Return points sampled from a Z-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+             py::arg("halfHeight"))
 
-        .def("GetSeparation", &deme::Sampler::GetSeparation);
+        .def("GetSeparation", &deme::Sampler::GetSeparation, "Return the current minimum separation.");
 
-    py::class_<deme::GridSampler>(obj, "GridSampler")
-        .def(py::init<float>())
-        .def("SetSeparation", &deme::GridSampler::SetSeparation)
+    py::class_<deme::GridSampler>(obj, "GridSampler", "Regular-grid volumetric point sampler.")
+        .def(py::init<float>(), py::arg("separation"), "Create a regular-grid sampler with uniform point spacing.")
+        .def("SetSeparation", &deme::GridSampler::SetSeparation, "Set the point spacing used by subsequent samples.",
+             py::arg("separation"))
         .def("SampleBox",
              static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
                  const std::vector<float>& center, const std::vector<float>& halfDim)>(&deme::GridSampler::SampleBox),
-             "Generates a sample box")
+             "Return points sampled from the specified box volume.", py::arg("center"), py::arg("halfDim"))
 
         .def("SampleSphere",
              static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(const std::vector<float>&, float)>(
-                 &deme::GridSampler::SampleSphere))
+                 &deme::GridSampler::SampleSphere),
+             "Return points sampled from the specified spherical volume.", py::arg("center"), py::arg("radius"))
 
-        .def("SampleCylinderX", static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
-                                    const std::vector<float>&, float, float)>(&deme::GridSampler::SampleCylinderX))
+        .def("SampleCylinderX",
+             static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
+                 const std::vector<float>&, float, float)>(&deme::GridSampler::SampleCylinderX),
+             "Return points sampled from an X-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+             py::arg("halfHeight"))
 
-        .def("SampleCylinderY", static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
-                                    const std::vector<float>&, float, float)>(&deme::GridSampler::SampleCylinderY))
+        .def("SampleCylinderY",
+             static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
+                 const std::vector<float>&, float, float)>(&deme::GridSampler::SampleCylinderY),
+             "Return points sampled from a Y-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+             py::arg("halfHeight"))
 
-        .def("SampleCylinderZ", static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
-                                    const std::vector<float>&, float, float)>(&deme::GridSampler::SampleCylinderZ))
+        .def("SampleCylinderZ",
+             static_cast<std::vector<std::vector<float>> (deme::GridSampler::*)(
+                 const std::vector<float>&, float, float)>(&deme::GridSampler::SampleCylinderZ),
+             "Return points sampled from a Z-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+             py::arg("halfHeight"))
 
-        .def("GetSeparation", &deme::Sampler::GetSeparation);
+        .def("GetSeparation", &deme::Sampler::GetSeparation, "Return the current grid spacing.");
 
-    py::class_<deme::HCPSampler>(obj, "HCPSampler")
-        .def(py::init<float>())
+    py::class_<deme::HCPSampler>(obj, "HCPSampler", "Hexagonally close-packed volumetric point sampler.")
+        .def(py::init<float>(), py::arg("separation"), "Create an HCP sampler with the requested point separation.")
         .def("SampleBox",
              static_cast<std::vector<std::vector<float>> (deme::HCPSampler::*)(
                  const std::vector<float>& center, const std::vector<float>& halfDim)>(&deme::HCPSampler::SampleBox),
-             "Generates a sample box")
+             "Return points sampled from the specified box volume.", py::arg("center"), py::arg("halfDim"))
 
-        .def("SetSeparation", &deme::HCPSampler::SetSeparation)
+        .def("SetSeparation", &deme::HCPSampler::SetSeparation, "Set the point separation used by subsequent samples.",
+             py::arg("separation"))
         .def("SampleSphere",
              static_cast<std::vector<std::vector<float>> (deme::HCPSampler::*)(const std::vector<float>&, float)>(
-                 &deme::HCPSampler::SampleSphere))
+                 &deme::HCPSampler::SampleSphere),
+             "Return points sampled from the specified spherical volume.", py::arg("center"), py::arg("radius"))
 
         .def(
             "SampleCylinderX",
             static_cast<std::vector<std::vector<float>> (deme::HCPSampler::*)(const std::vector<float>&, float, float)>(
-                &deme::HCPSampler::SampleCylinderX))
+                &deme::HCPSampler::SampleCylinderX),
+            "Return points sampled from an X-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+            py::arg("halfHeight"))
 
         .def(
             "SampleCylinderY",
             static_cast<std::vector<std::vector<float>> (deme::HCPSampler::*)(const std::vector<float>&, float, float)>(
-                &deme::HCPSampler::SampleCylinderY))
+                &deme::HCPSampler::SampleCylinderY),
+            "Return points sampled from a Y-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+            py::arg("halfHeight"))
 
         .def(
             "SampleCylinderZ",
             static_cast<std::vector<std::vector<float>> (deme::HCPSampler::*)(const std::vector<float>&, float, float)>(
-                &deme::HCPSampler::SampleCylinderZ))
+                &deme::HCPSampler::SampleCylinderZ),
+            "Return points sampled from a Z-aligned cylindrical volume.", py::arg("center"), py::arg("radius"),
+            py::arg("halfHeight"))
 
-        .def("GetSeparation", &deme::HCPSampler::GetSeparation);
+        .def("GetSeparation", &deme::HCPSampler::GetSeparation, "Return the current point separation.");
 
     // Have to forward declare this templated method so pybind can see it
     std::vector<float>& (deme::DataContainer::*get_float_dc)(const std::string&) = &deme::DataContainer::Get<float>;
-    py::class_<deme::DataContainer, std::shared_ptr<deme::DataContainer>>(obj, "DataContainer")
-        .def(py::init<>())
+    py::class_<deme::DataContainer, std::shared_ptr<deme::DataContainer>>(
+        obj, "DataContainer", "String-keyed container used to return named arrays from DEME.")
+        .def(py::init<>(), "Create an empty data container.")
         .def("Get", get_float_dc, py::return_value_policy::reference_internal,
-             "Get a float value from the container by name. Should be used for getting wildcard by name.");
+             "Return the stored float array named ``key`` by reference. This is primarily used for wildcard output.",
+             py::arg("key"));
 
     py::class_<deme::ContactInfoContainer, deme::DataContainer, std::shared_ptr<deme::ContactInfoContainer>>(
-        obj, "ContactInfoContainer")
+        obj, "ContactInfoContainer",
+        "Named arrays describing contacts selected by ``DEMSolver.SetContactOutputContent``.")
         .def(py::init<unsigned int&, const std::vector<std::pair<std::string, std::string>>&>())
         .def("GetContactType", &deme::ContactInfoContainer::GetContactType,
              "Get contact type as strings from the container.")
@@ -258,50 +295,64 @@ PYBIND11_MODULE(_deme, obj) {
         .def("GetTorque", &deme::ContactInfoContainer::GetTorque, "Get torque as vectors from the container.")
         .def("GetNormal", &deme::ContactInfoContainer::GetNormal, "Get contact normal as vectors from the container.");
 
-    py::class_<deme::DEMInspector, std::shared_ptr<deme::DEMInspector>>(obj, "DEMInspector")
+    py::class_<deme::DEMInspector, std::shared_ptr<deme::DEMInspector>>(
+        obj, "DEMInspector", "Evaluate a configured aggregate or spatial quantity from initialized simulation state.")
         .def(py::init<deme::DEMSolver*, deme::DEMDynamicThread*, const std::string&>())
-        .def("GetValue", &deme::DEMInspector::GetValue);
+        .def("GetValue", &deme::DEMInspector::GetValue,
+             "Synchronize as needed and return the inspector's current scalar value.");
 
     py::class_<deme::DEMInitializer, std::shared_ptr<deme::DEMInitializer>>(obj, "DEMInitializer").def(py::init<>());
 
     py::class_<deme::DEMTrackedObj, deme::DEMInitializer, std::shared_ptr<deme::DEMTrackedObj>>(obj, "DEMTrackedObj")
         .def(py::init<deme::DEMTrackedObj>());
 
-    py::class_<deme::DEMTracker, std::shared_ptr<deme::DEMTracker>>(obj, "Tracker")
-        .def(py::init<deme::DEMSolver*>())
-        .def("GetOwnerID", &deme::DEMTracker::GetOwnerID, "Get the owner ID of the tracked obj.", py::arg("offset") = 0)
-        .def("GetOwnerIDs", &deme::DEMTracker::GetOwnerIDs, "Get the owner IDs of all the tracked objects.")
+    py::class_<deme::DEMTracker, std::shared_ptr<deme::DEMTracker>>(obj, "Tracker",
+                                                                    R"doc(
+Access and modify owners associated with a tracked batch or object.
 
-        .def("Pos", &deme::DEMTracker::GetPos, "Get the position of this tracked object.", py::arg("offset") = 0)
-        .def("Positions", &deme::DEMTracker::GetPositions, "Get the positions of all tracked objects.")
+Create trackers with ``DEMSolver.Track`` during setup. Most state queries and
+updates require the solver to be initialized and synchronized. ``offset``
+selects an owner within the tracked collection, starting at zero. Keep the
+parent solver alive while using a tracker.
+)doc")
+        .def(py::init<deme::DEMSolver*>(), py::arg("solver"),
+             "Create a tracker associated with ``solver``. Prefer ``DEMSolver.Track`` so the tracked owner range is "
+             "configured correctly.")
+        .def("GetOwnerID", &deme::DEMTracker::GetOwnerID,
+             "Return the simulation-wide owner ID at ``offset`` within this tracker.", py::arg("offset") = 0)
+        .def("GetOwnerIDs", &deme::DEMTracker::GetOwnerIDs,
+             "Return simulation-wide owner IDs for every owner covered by this tracker.")
+
+        .def("Pos", &deme::DEMTracker::GetPos,
+             "Return the global-frame center-of-mass position of the tracked owner at ``offset``.",
+             py::arg("offset") = 0)
+        .def("Positions", &deme::DEMTracker::GetPositions,
+             "Return global-frame center-of-mass positions for all owners covered by this tracker.")
 
         .def("AngVelLocal", &deme::DEMTracker::GetAngVelLocal,
-             "Get the angular velocity of this tracked object in its own local coordinate system. Applying OriQ to it "
-             "would give you the ang vel in global frame.",
+             "Return the angular velocity of the owner at ``offset`` in its local principal-axis frame. Rotate it by "
+             "``OriQ(offset)`` to obtain the global-frame value.",
              py::arg("offset") = 0)
         .def("AngularVelocitiesLocal", &deme::DEMTracker::GetAngularVelocitiesLocal,
-             "Get the angular velocity of all tracked objects in their own local coordinate system. Applying OriQ to "
-             "it would give you the ang vel in global frame.")
+             "Return local principal-axis-frame angular velocities for all tracked owners.")
 
         .def("AngVelGlobal", &deme::DEMTracker::GetAngVelGlobal,
-             "Get the angular velocity of this tracked object in global coordinate system.", py::arg("offset") = 0)
+             "Return the global-frame angular velocity of the owner at ``offset``.", py::arg("offset") = 0)
         .def("AngularVelocitiesGlobal", &deme::DEMTracker::GetAngularVelocitiesGlobal,
-             "Get the angular velocity of all objects tracked by this tracker, in global coordinate system.")
+             "Return global-frame angular velocities for all tracked owners.")
 
-        .def("Vel", &deme::DEMTracker::GetVel, "Get the velocity of this tracked object in global frame.",
+        .def("Vel", &deme::DEMTracker::GetVel, "Return the global-frame linear velocity of the owner at ``offset``.",
              py::arg("offset") = 0)
         .def("Velocities", &deme::DEMTracker::GetVelocities,
-             "Get the velocities of all objects tracked by this tracker, in global frame.")
+             "Return global-frame linear velocities for all tracked owners.")
 
         .def("OriQ", &deme::DEMTracker::GetOriQ,
-             "Get the quaternion that represents the orientation of this tracked object's own coordinate system. "
-             "Returns a vector of 4 floats. The order is (x, y, z, w). If compared against Chrono naming convention, "
-             "then it is saying our ordering here is (e1, e2, e3, e0).",
+             "Return the quaternion rotating the owner-local frame to the global frame. Python ordering is "
+             "``(x, y, z, w)`` (Chrono ``(e1, e2, e3, e0)``).",
              py::arg("offset") = 0)
         .def("OrientationQuaternions", &deme::DEMTracker::GetOrientationQuaternions,
-             "Get all quaternions that represent the orientation of all the tracked objects' own coordinate systems. "
-             "Returns a vector of 4-float vectors. The order is (x, y, z, w). If compared against Chrono naming "
-             "convention, then it is saying our ordering here is (e1, e2, e3, e0).")
+             "Return local-to-global orientation quaternions for all tracked owners. Each quaternion uses Python "
+             "ordering ``(x, y, z, w)``.")
 
         .def("GetFamily", &deme::DEMTracker::GetFamily, "Get the family number of the tracked object.",
              py::arg("offset") = 0)
@@ -357,77 +408,94 @@ PYBIND11_MODULE(_deme, obj) {
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.PositionsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked positions.", py::arg("pointer"), py::arg("capacity"),
-            py::arg("device"))
+            R"doc(
+Synchronously copy all tracked global positions to caller-owned CUDA memory.
+
+``pointer`` is an integer address to writable, CUDA-accessible ``float3``
+storage on logical CUDA ``device``. ``capacity`` is measured in ``float3``
+elements and must cover every owner in this tracker. The caller owns the
+allocation and must keep it alive through the call.
+)doc",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "VelocitiesToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.VelocitiesToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked velocities.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked global linear velocities to caller-owned CUDA ``float3`` storage. "
+            "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "AngularVelocitiesLocalToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.AngularVelocitiesLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked local angular velocities.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked local-frame angular velocities to caller-owned CUDA ``float3`` storage. "
+            "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "AngularVelocitiesGlobalToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.AngularVelocitiesGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked global angular velocities.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked global-frame angular velocities to caller-owned CUDA ``float3`` storage. "
+            "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "OrientationQuaternionsToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.OrientationQuaternionsToDevice(reinterpret_cast<float4*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked (x, y, z, w) quaternions.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked local-to-global quaternions to caller-owned CUDA ``float4`` storage in "
+            "``(x, y, z, w)`` order. ``capacity`` is in elements.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "FamiliesToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.FamiliesToDevice(reinterpret_cast<unsigned int*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked family numbers.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked family numbers to caller-owned CUDA ``uint32`` storage. ``capacity`` is "
+            "in elements; ``device`` is the allocation's logical CUDA device.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "MassesToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.MassesToDevice(reinterpret_cast<float*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked masses.", py::arg("pointer"), py::arg("capacity"),
-            py::arg("device"))
+            "Synchronously copy all tracked masses to caller-owned CUDA ``float32`` storage. ``capacity`` is in "
+            "elements; ``device`` is the allocation's logical CUDA device.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "MOIsToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.MOIsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked moments of inertia.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked principal moments of inertia to caller-owned CUDA ``float3`` storage. "
+            "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "ContactAccelerationsToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.ContactAccelerationsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked contact accelerations.", py::arg("pointer"),
-            py::arg("capacity"), py::arg("device"))
+            "Synchronously copy all tracked global-frame contact accelerations to caller-owned CUDA ``float3`` "
+            "storage. Gravity and other non-contact acceleration are excluded.",
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "ContactAngularAccelerationsLocalToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.ContactAngularAccelerationsLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked local contact angular accelerations.",
+            "Synchronously copy all tracked local-frame contact angular accelerations to caller-owned CUDA "
+            "``float3`` storage.",
             py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "ContactAngularAccelerationsGlobalToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
                 tracker.ContactAngularAccelerationsGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with tracked global contact angular accelerations.",
+            "Synchronously copy all tracked global-frame contact angular accelerations to caller-owned CUDA "
+            "``float3`` storage.",
             py::arg("pointer"), py::arg("capacity"), py::arg("device"))
         .def(
             "OwnerWildcardValuesToDevice",
@@ -435,8 +503,9 @@ PYBIND11_MODULE(_deme, obj) {
                int device) {
                 tracker.OwnerWildcardValuesToDevice(name, reinterpret_cast<float*>(pointer), capacity, device);
             },
-            "Synchronously fill a CUDA device pointer with one tracked owner wildcard.", py::arg("name"),
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            "Synchronously copy the named ``float32`` owner wildcard for every tracked owner to caller-owned CUDA "
+            "storage. ``capacity`` is in owner elements.",
+            py::arg("name"), py::arg("pointer"), py::arg("capacity"), py::arg("device"))
 
         .def("SetPos", static_cast<void (deme::DEMTracker::*)(float3, size_t)>(&deme::DEMTracker::SetPos),
              "Set the position of this tracked object.", py::arg("pos"), py::arg("offset") = 0)
@@ -553,8 +622,15 @@ PYBIND11_MODULE(_deme, obj) {
                 return tracker.GetContactForcesForAllToDevice(reinterpret_cast<float3*>(points),
                                                               reinterpret_cast<float3*>(forces), capacity, device);
             },
-            "Synchronously compact contact points and forces into CUDA device pointers.", py::arg("points"),
-            py::arg("forces"), py::arg("capacity"), py::arg("device"))
+            R"doc(
+Synchronously compact contact points and forces for all tracked owners into CUDA ``float3`` arrays.
+
+Each pointer must address ``capacity`` elements on logical CUDA ``device``.
+Capacity must cover the simulation's total recorded-contact count. The return
+value is the number of valid compacted rows. Contact force recording must be
+enabled.
+)doc",
+            py::arg("points"), py::arg("forces"), py::arg("capacity"), py::arg("device"))
         .def(
             "GetContactForcesAndLocalTorqueForAllToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t points, std::uintptr_t forces, std::uintptr_t torques,
@@ -563,7 +639,9 @@ PYBIND11_MODULE(_deme, obj) {
                     reinterpret_cast<float3*>(points), reinterpret_cast<float3*>(forces),
                     reinterpret_cast<float3*>(torques), capacity, device);
             },
-            "Synchronously compact contact points, forces, and local torques into CUDA device pointers.",
+            "Synchronously compact contact points, forces, and owner-local extra torques into caller-owned CUDA "
+            "``float3`` arrays. Capacity must cover the total recorded-contact count; the return value is the number "
+            "of valid rows.",
             py::arg("points"), py::arg("forces"), py::arg("torques"), py::arg("capacity"), py::arg("device"))
         .def(
             "GetContactForcesAndGlobalTorqueForAllToDevice",
@@ -573,11 +651,14 @@ PYBIND11_MODULE(_deme, obj) {
                     reinterpret_cast<float3*>(points), reinterpret_cast<float3*>(forces),
                     reinterpret_cast<float3*>(torques), capacity, device);
             },
-            "Synchronously compact contact points, forces, and global torques into CUDA device pointers.",
+            "Synchronously compact contact points, forces, and global-frame extra torques into caller-owned CUDA "
+            "``float3`` arrays. Capacity must cover the total recorded-contact count; the return value is the number "
+            "of valid rows.",
             py::arg("points"), py::arg("forces"), py::arg("torques"), py::arg("capacity"), py::arg("device"));
 
     py::class_<deme::DEMForceModel, std::shared_ptr<deme::DEMForceModel>>(obj, "DEMForceModel")
-        .def(py::init<deme::FORCE_MODEL>())
+        .def(py::init<deme::FORCE_MODEL>(), py::arg("model"),
+             "Create a force-model definition of the selected built-in type.")
         .def("SetForceModelType", &deme::DEMForceModel::SetForceModelType, "Set the contact force model type")
 
         .def("DefineCustomModel", &deme::DEMForceModel::DefineCustomModel,
@@ -604,11 +685,36 @@ PYBIND11_MODULE(_deme, obj) {
              " Set the names for the extra quantities that will be associated with each owner. For example, you can "
              "use this to associate a cohesion parameter to each particle. Only float is supported.");
 
-    py::class_<deme::DEMSolver>(obj, "DEMSolver")
-        .def(py::init<unsigned int>(), py::arg("nGPUs") = 2)
-        .def(py::init<const std::vector<int>&>(), py::arg("device_ids"))
+    py::class_<deme::DEMSolver>(
+        obj, "DEMSolver",
+        R"doc(
+Own a DEM simulation and its dynamic and kinematic CUDA workers.
+
+Configure materials, geometry, particles, solver options, and trackers before
+calling ``Initialize``. Device placement is fixed at construction. Keep this
+object alive while using any solver-owned material, template, tracker, or
+inspector handle.
+)doc")
+        .def(py::init<unsigned int>(), py::arg("nGPUs") = 2,
+             R"doc(
+Construct a solver using one or two logical CUDA devices.
+
+With one GPU, both workers use device 0. With two requested GPUs and at least
+two visible devices, the dynamic worker uses device 0 and the kinematic worker
+uses device 1. If only one device is visible, both workers use device 0 and a
+warning is emitted. Only 1 and 2 are valid values.
+)doc")
+        .def(py::init<const std::vector<int>&>(), py::arg("device_ids"),
+             R"doc(
+Construct a solver on explicit logical CUDA device IDs.
+
+One ID places both workers on that device. For two IDs, the first selects the
+dynamic worker and the second selects the kinematic worker. Repeated IDs are
+valid. IDs use the numbering visible to this process, including the effects of
+``CUDA_VISIBLE_DEVICES``.
+)doc")
         .def("GetGPUDeviceIDs", &deme::DEMSolver::GetGPUDeviceIDs,
-             "Return the logical CUDA devices assigned to the dynamic and kinematic workers.")
+             "Return ``[dynamic_worker_device, kinematic_worker_device]`` using process-visible logical CUDA IDs.")
         .def("UpdateStepSize", &deme::DEMSolver::UpdateStepSize,
              "Update the time step size. Used after system initialization.", py::arg("ts") = -1.0)
         .def("SetNoForceRecord", &deme::DEMSolver::SetNoForceRecord,
@@ -617,10 +723,14 @@ PYBIND11_MODULE(_deme, obj) {
              py::arg("flag") = true)
         .def("LoadSphereType",
              static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
-                 float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType))
+                 float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType),
+             "Load a reusable one-sphere clump template, deriving its spherical moment of inertia.", py::arg("mass"),
+             py::arg("radius"), py::arg("material"))
         .def("LoadSphereType",
              static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
-                 float, float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType))
+                 float, float, float, const std::shared_ptr<deme::DEMMaterial>&)>(&deme::DEMSolver::LoadSphereType),
+             "Load a reusable one-sphere clump template with an explicitly supplied scalar moment of inertia.",
+             py::arg("mass"), py::arg("moi"), py::arg("radius"), py::arg("material"))
         .def("LoadCombinedClumpType",
              static_cast<std::shared_ptr<deme::DEMCombinedTemplate> (deme::DEMSolver::*)(
                  const std::vector<std::shared_ptr<deme::DEMClumpTemplate>>&, const std::vector<float3>&,
@@ -849,7 +959,10 @@ PYBIND11_MODULE(_deme, obj) {
              "Set the number of steps dT configures its max drift more than average drift steps.")
         .def("SetCDNumStepsMaxDriftMultipleOfAvg", &deme::DEMSolver::SetCDNumStepsMaxDriftMultipleOfAvg,
              "Set the multiplier which dT configures its max drift to be w.r.t. the average drift steps.")
-        .def("SetCDNumStepsMaxDriftHistorySize", &deme::DEMSolver::SetCDNumStepsMaxDriftHistorySize)
+        .def("SetCDNumStepsMaxDriftHistorySize", &deme::DEMSolver::SetCDNumStepsMaxDriftHistorySize,
+             "Set how many past kinematic-worker updates calibrate the maximum future drift limit. The default is "
+             "recommended for normal use.",
+             py::arg("n"))
         .def("GetUpdateFreq", &deme::DEMSolver::GetUpdateFreq, "Get the current update frequency used by the solver.")
         .def("SetForceCalcThreadsPerBlock", &deme::DEMSolver::SetForceCalcThreadsPerBlock,
              "Set the number of threads per block in force calculation (default 256).")
@@ -1378,12 +1491,14 @@ PYBIND11_MODULE(_deme, obj) {
                  const std::string&, const std::string&)>(&deme::DEMSolver::CreateInspector),
              "Create a inspector object that can help query some statistical info of the clumps in the simulation.")
         .def("SetInitTimeStep", &deme::DEMSolver::SetInitTimeStep,
-             "Set the initial time step size. If using constant step size, then this will be used throughout; "
-             "otherwise, the actual step size depends on the variable step strategy.")
+             "Set the initial timestep in seconds before ``Initialize``. A constant-step simulation uses it "
+             "throughout; an adaptive strategy may update it later.",
+             py::arg("ts"))
         .def("SetGravitationalAcceleration",
              static_cast<void (deme::DEMSolver::*)(const std::vector<float>&)>(
                  &deme::DEMSolver::SetGravitationalAcceleration),
-             "Set gravitational pull")
+             "Set the global gravitational acceleration as ``[x, y, z]`` in length/time^2 units.",
+             py::arg("acc"))
         .def("SetMaxVelocity", &deme::DEMSolver::SetMaxVelocity,
              "Set the maximum expected particle velocity. The solver will not use a velocity larger than this for "
              "determining the margin thickness, and velocity larger than this will be considered a system anomaly.")
@@ -1393,7 +1508,11 @@ PYBIND11_MODULE(_deme, obj) {
         .def("SetExpandSafetyMultiplier", &deme::DEMSolver::SetExpandSafetyMultiplier,
              "Assign a multiplier to our estimated maximum system velocity, when deriving the thinckness of the "
              "contact `safety' margin.")
-        .def("Initialize", &deme::DEMSolver::Initialize, "Initializes the system.", py::arg("dry_run") = false)
+        .def("Initialize", &deme::DEMSolver::Initialize,
+             "Finalize cached setup data, allocate runtime state, and prepare JIT CUDA kernels. Call once after "
+             "materials, geometry, particles, and solver options have been configured. ``dry_run=True`` performs "
+             "initialization without starting normal dynamics.",
+             py::arg("dry_run") = false)
         .def("WriteSphereFile",
              static_cast<void (deme::DEMSolver::*)(const std::string&) const>(&deme::DEMSolver::WriteSphereFile),
              "Writes the current status of clumps (but decomposed as spheres) file.")
@@ -1420,13 +1539,16 @@ PYBIND11_MODULE(_deme, obj) {
 
         // Maybe add checkpoint-reading methods here...
         .def("DoDynamics", &deme::DEMSolver::DoDynamics,
-             "Advance simulation by this amount of time (but does not attempt to sync kT and dT). This can work with "
-             "both long and short call durations and allows interplay with co-simulation APIs.")
+             "Advance by ``duration`` seconds without forcing the dynamic and kinematic workers to synchronize at "
+             "the call boundary. This supports short calls and co-simulation; synchronize before immediately reading "
+             "state.",
+             py::arg("duration"))
         .def("DoStepDynamics", &deme::DEMSolver::DoStepDynamics,
-             "Equivalent to calling DoDynamics with the time step size as the argument.")
+             "Advance one current timestep without forcing a final dynamic/kinematic worker synchronization.")
         .def("DoDynamicsThenSync", &deme::DEMSolver::DoDynamicsThenSync,
-             "Advance simulation by this amount of time, and at the end of this call, synchronize kT and dT. This is "
-             "suitable for a longer call duration and without co-simulation.")
+             "Advance by ``duration`` seconds, then synchronize the dynamic and kinematic workers. Use this before "
+             "immediately querying or modifying runtime state.",
+             py::arg("duration"))
         .def("UpdateSimParams", &deme::DEMSolver::UpdateSimParams,
              "Transfer the cached sim params to the workers. Used for sim environment modification after system "
              "initialization.")
@@ -1464,8 +1586,10 @@ PYBIND11_MODULE(_deme, obj) {
              "you can go ahead and destroy DEMSolver.")
         .def("ClearTimingStats", &deme::DEMSolver::ClearTimingStats,
              "Reset the recordings of the wall time and percentages of wall time spend on various solver tasks.")
-        .def("PurgeFamily", &deme::DEMSolver::PurgeFamily)
-        .def("ReleaseFlattenedArrays", &deme::DEMSolver::ReleaseFlattenedArrays)
+        .def("PurgeFamily", &deme::DEMSolver::PurgeFamily,
+             "Remove all entities in a family from runtime arrays to reclaim memory.", py::arg("family_num"))
+        .def("ReleaseFlattenedArrays", &deme::DEMSolver::ReleaseFlattenedArrays,
+             "Release setup-time flattened arrays used for preprocessing and worker transfer.")
         .def("GetWhetherForceCollectInKernel", &deme::DEMSolver::GetWhetherForceCollectInKernel,
              "Return whether the solver is currently reducing force in the force calculation kernel.")
         .def("AddOwnerNextStepAcc", &deme::DEMSolver::AddOwnerNextStepAcc,
@@ -1481,42 +1605,60 @@ PYBIND11_MODULE(_deme, obj) {
         .def("DisableFamilyOutput", &deme::DEMSolver::DisableFamilyOutput,
              "Prevent entites associated with this family to be outputted to files.");
 
-    py::class_<deme::DEMMaterial, std::shared_ptr<deme::DEMMaterial>>(obj, "DEMMaterial")
-        .def(py::init<const std::unordered_map<std::string, float>&>())
+    py::class_<deme::DEMMaterial, std::shared_ptr<deme::DEMMaterial>>(
+        obj, "DEMMaterial", "Material property name/value pairs used by a contact force model.")
+        .def(py::init<const std::unordered_map<std::string, float>&>(), py::arg("properties"),
+             "Create material properties. Normally use ``DEMSolver.LoadMaterial`` so the material is registered.")
         .def_readwrite("mat_prop", &deme::DEMMaterial::mat_prop)
         .def_readwrite("load_order", &deme::DEMMaterial::load_order);
 
-    py::class_<deme::DEMClumpTemplate, std::shared_ptr<deme::DEMClumpTemplate>>(obj, "DEMClumpTemplate")
-        .def(py::init<>())
-        .def("Mass", &deme::DEMClumpTemplate::GetMass)
-        .def("MOI", &deme::DEMClumpTemplate::GetMOI)
-        .def("SetMass", &deme::DEMClumpTemplate::SetMass)
+    py::class_<deme::DEMClumpTemplate, std::shared_ptr<deme::DEMClumpTemplate>>(
+        obj, "DEMClumpTemplate", "Reusable rigid clump topology composed of one or more sphere components.")
+        .def(py::init<>(), "Create an empty clump template.")
+        .def("Mass", &deme::DEMClumpTemplate::GetMass, "Return the clump mass.")
+        .def("MOI", &deme::DEMClumpTemplate::GetMOI,
+             "Return principal moments of inertia in the clump-local principal frame.")
+        .def("SetMass", &deme::DEMClumpTemplate::SetMass, "Set the clump mass.", py::arg("mass"))
         .def("SetMOI",
-             static_cast<void (deme::DEMClumpTemplate::*)(const std::vector<float>&)>(&deme::DEMClumpTemplate::SetMOI))
+             static_cast<void (deme::DEMClumpTemplate::*)(const std::vector<float>&)>(&deme::DEMClumpTemplate::SetMOI),
+             "Set the three principal moments of inertia in the clump-local frame.", py::arg("MOI"))
         .def("SetMaterial",
              static_cast<void (deme::DEMClumpTemplate::*)(const std::vector<std::shared_ptr<deme::DEMMaterial>>&)>(
-                 &deme::DEMClumpTemplate::SetMaterial))
+                 &deme::DEMClumpTemplate::SetMaterial),
+             "Assign one material per sphere component. The sequence length must equal the component count.",
+             py::arg("materials"))
         .def("SetMaterial",
              static_cast<void (deme::DEMClumpTemplate::*)(const std::shared_ptr<deme::DEMMaterial>& input)>(
-                 &deme::DEMClumpTemplate::SetMaterial))
-        .def("SetVolume", &deme::DEMClumpTemplate::SetVolume)
+                 &deme::DEMClumpTemplate::SetMaterial),
+             "Assign the same material to every sphere component.", py::arg("material"))
+        .def("SetVolume", &deme::DEMClumpTemplate::SetVolume,
+             "Set the clump volume, which is required for void-ratio queries.", py::arg("volume"))
         .def("ReadComponentFromFile", &deme::DEMClumpTemplate::ReadComponentFromFile,
-             "Retrieve clump's sphere component information from a file", py::arg("filename"), py::arg("x_id") = "x",
-             py::arg("y_id") = "y", py::arg("z_id") = "z", py::arg("r_id") = "r")
+             "Load sphere-component positions and radii from a delimited file.", py::arg("filename"),
+             py::arg("x_id") = "x", py::arg("y_id") = "y", py::arg("z_id") = "z", py::arg("r_id") = "r")
         .def("InformCentroidPrincipal",
              static_cast<void (deme::DEMClumpTemplate::*)(const std::vector<float>&, const std::vector<float>&)>(
-                 &deme::DEMClumpTemplate::InformCentroidPrincipal))
+                 &deme::DEMClumpTemplate::InformCentroidPrincipal),
+             "Re-express component positions about the supplied center of mass and principal orientation.",
+             py::arg("center"), py::arg("orientation"))
         .def("Move",
              static_cast<void (deme::DEMClumpTemplate::*)(const std::vector<float>&, const std::vector<float>&)>(
-                 &deme::DEMClumpTemplate::Move))
-        .def("Scale", &deme::DEMClumpTemplate::Scale)
-        .def("AssignName", &deme::DEMClumpTemplate::AssignName);
+                 &deme::DEMClumpTemplate::Move),
+             "Apply a translation and quaternion rotation to the component coordinates.", py::arg("translation"),
+             py::arg("quaternion"))
+        .def("Scale", &deme::DEMClumpTemplate::Scale, "Uniformly scale component radii and relative positions.",
+             py::arg("factor"))
+        .def("AssignName", &deme::DEMClumpTemplate::AssignName, "Assign the clump type name written to output files.",
+             py::arg("name"));
 
-    py::class_<deme::DEMCombinedTemplate, std::shared_ptr<deme::DEMCombinedTemplate>>(obj, "DEMCombinedTemplate")
-        .def(py::init<>());
+    py::class_<deme::DEMCombinedTemplate, std::shared_ptr<deme::DEMCombinedTemplate>>(
+        obj, "DEMCombinedTemplate",
+        "Reusable rigid grouping of clump or mesh templates with fixed member-relative transforms.")
+        .def(py::init<>(), "Create an empty combined-owner template.");
 
-    py::class_<deme::DEMCombinedInstances, std::shared_ptr<deme::DEMCombinedInstances>>(obj, "DEMCombinedInstances")
-        .def(py::init<>())
+    py::class_<deme::DEMCombinedInstances, std::shared_ptr<deme::DEMCombinedInstances>>(
+        obj, "DEMCombinedInstances", "A batch of instantiated combined owners and their member-owner metadata.")
+        .def(py::init<>(), "Create an empty combined-instance batch.")
         .def("GetNumOwners", &deme::DEMCombinedInstances::GetNumOwners,
              "Get total number of member owners in this combined batch.")
         .def("AddOwnerWildcard",
@@ -1528,70 +1670,99 @@ PYBIND11_MODULE(_deme, obj) {
                  &deme::DEMCombinedInstances::AddOwnerWildcard),
              "Add an owner wildcard to all member owners with a uniform value.", py::arg("name"), py::arg("val"));
 
-    py::class_<deme::DEMClumpBatch, deme::DEMInitializer, std::shared_ptr<deme::DEMClumpBatch>>(obj, "DEMClumpBatch")
-        .def(py::init<size_t&>())
-        .def("GetNumClumps", &deme::DEMClumpBatch::GetNumClumps)
-        .def("GetNumSpheres", &deme::DEMClumpBatch::GetNumSpheres)
+    py::class_<deme::DEMClumpBatch, deme::DEMInitializer, std::shared_ptr<deme::DEMClumpBatch>>(
+        obj, "DEMClumpBatch", "Cached setup data for a batch of clump instances.")
+        .def(py::init<size_t&>(), py::arg("count"), "Create setup storage for ``count`` clumps.")
+        .def("GetNumClumps", &deme::DEMClumpBatch::GetNumClumps, "Return the number of clumps in this batch.")
+        .def("GetNumSpheres", &deme::DEMClumpBatch::GetNumSpheres,
+             "Return the total number of component spheres represented by this batch.")
         .def("SetTypes",
              static_cast<void (deme::DEMClumpBatch::*)(const std::vector<std::shared_ptr<deme::DEMClumpTemplate>>&)>(
-                 &deme::DEMClumpBatch::SetTypes))
-        .def("SetTypes", static_cast<void (deme::DEMClumpBatch::*)(const std::shared_ptr<deme::DEMClumpTemplate>&)>(
-                             &deme::DEMClumpBatch::SetTypes))
-        .def("SetType", &deme::DEMClumpBatch::SetType)
-        .def("SetVel", static_cast<void (deme::DEMClumpBatch::*)(const std::vector<std::vector<float>>&)>(
-                           &deme::DEMClumpBatch::SetVel))
+                 &deme::DEMClumpBatch::SetTypes),
+             "Assign one clump template per instance. The sequence length must equal the batch size.", py::arg("types"))
+        .def("SetTypes",
+             static_cast<void (deme::DEMClumpBatch::*)(const std::shared_ptr<deme::DEMClumpTemplate>&)>(
+                 &deme::DEMClumpBatch::SetTypes),
+             "Assign the same clump template to every instance.", py::arg("type"))
+        .def("SetType", &deme::DEMClumpBatch::SetType, "Assign the same clump template to every instance.",
+             py::arg("type"))
         .def("SetVel",
-             static_cast<void (deme::DEMClumpBatch::*)(const std::vector<float>&)>(&deme::DEMClumpBatch::SetVel))
+             static_cast<void (deme::DEMClumpBatch::*)(const std::vector<std::vector<float>>&)>(
+                 &deme::DEMClumpBatch::SetVel),
+             "Set one global initial linear velocity vector per clump.", py::arg("velocities"))
+        .def("SetVel",
+             static_cast<void (deme::DEMClumpBatch::*)(const std::vector<float>&)>(&deme::DEMClumpBatch::SetVel),
+             "Set the same global initial linear velocity for every clump.", py::arg("velocity"))
         //    .def("SetAngVel",
         //         static_cast<void (deme::DEMClumpBatch::*)(const
         //         std::vector<float3>&)>(&deme::DEMClumpBatch::SetAngVel))
-        .def("SetFamilies", static_cast<void (deme::DEMClumpBatch::*)(const std::vector<unsigned int>&)>(
-                                &deme::DEMClumpBatch::SetFamilies))
-        .def("SetFamilies", static_cast<void (deme::DEMClumpBatch::*)(unsigned int)>(&deme::DEMClumpBatch::SetFamilies))
-        .def("SetFamily", &deme::DEMClumpBatch::SetFamily)
-        .def("SetExistingContacts", &deme::DEMClumpBatch::SetExistingContacts)
-        .def("SetExistingContactWildcards", &deme::DEMClumpBatch::SetExistingContactWildcards)
-        .def("AddExistingContactWildcard", &deme::DEMClumpBatch::AddExistingContactWildcard)
-        .def("SetOwnerWildcards", &deme::DEMClumpBatch::SetOwnerWildcards)
+        .def("SetFamilies",
+             static_cast<void (deme::DEMClumpBatch::*)(const std::vector<unsigned int>&)>(
+                 &deme::DEMClumpBatch::SetFamilies),
+             "Set one family number per clump. Family behavior is configured on the solver.", py::arg("families"))
+        .def("SetFamilies", static_cast<void (deme::DEMClumpBatch::*)(unsigned int)>(&deme::DEMClumpBatch::SetFamilies),
+             "Set the same family number for every clump.", py::arg("family"))
+        .def("SetFamily", &deme::DEMClumpBatch::SetFamily, "Set the same family number for every clump.",
+             py::arg("family"))
+        .def("SetExistingContacts", &deme::DEMClumpBatch::SetExistingContacts,
+             "Supply sphere-sphere contact owner-ID pairs relative to this batch when restoring a simulation.",
+             py::arg("pairs"))
+        .def("SetExistingContactWildcards", &deme::DEMClumpBatch::SetExistingContactWildcards,
+             "Supply named restart wildcard arrays after ``SetExistingContacts``. Every array must match the "
+             "pre-existing contact count.",
+             py::arg("wildcards"))
+        .def("AddExistingContactWildcard", &deme::DEMClumpBatch::AddExistingContactWildcard,
+             "Add one named restart contact-wildcard array after ``SetExistingContacts``.", py::arg("name"),
+             py::arg("values"))
+        .def("SetOwnerWildcards", &deme::DEMClumpBatch::SetOwnerWildcards,
+             "Set named initial owner-wildcard arrays. Every array must match the clump count.", py::arg("wildcards"))
         .def("AddOwnerWildcard",
              static_cast<void (deme::DEMClumpBatch::*)(const std::string&, const std::vector<float>&)>(
-                 &deme::DEMClumpBatch::AddOwnerWildcard))
-        .def("AddOwnerWildcard", static_cast<void (deme::DEMClumpBatch::*)(const std::string&, float)>(
-                                     &deme::DEMClumpBatch::AddOwnerWildcard))
-        .def("GetNumContacts", &deme::DEMClumpBatch::GetNumContacts);
+                 &deme::DEMClumpBatch::AddOwnerWildcard),
+             "Add one initial owner wildcard with one value per clump.", py::arg("name"), py::arg("values"))
+        .def("AddOwnerWildcard",
+             static_cast<void (deme::DEMClumpBatch::*)(const std::string&, float)>(
+                 &deme::DEMClumpBatch::AddOwnerWildcard),
+             "Add one initial owner wildcard with the same value for every clump.", py::arg("name"), py::arg("value"))
+        .def("GetNumContacts", &deme::DEMClumpBatch::GetNumContacts,
+             "Return the number of pre-existing contacts supplied for restart initialization.");
 
-    py::class_<deme::DEMExternObj, deme::DEMInitializer, std::shared_ptr<deme::DEMExternObj>>(obj, "DEMExternObj")
-        .def(py::init<>())
-        .def("Mass", &deme::DEMExternObj::GetMass)
-        .def("MOI", &deme::DEMExternObj::GetMOI)
-        .def("SetFamily", &deme::DEMExternObj::SetFamily, "Defines an object contact family number")
-        .def("SetMass", &deme::DEMExternObj::SetMass, "Sets the mass of this object")
+    py::class_<deme::DEMExternObj, deme::DEMInitializer, std::shared_ptr<deme::DEMExternObj>>(
+        obj, "DEMExternObj", "Analytical external owner composed of planes, cylinders, and related primitives.")
+        .def(py::init<>(), "Create an empty analytical external object.")
+        .def("Mass", &deme::DEMExternObj::GetMass, "Return the object's mass.")
+        .def("MOI", &deme::DEMExternObj::GetMOI, "Return principal moments of inertia in the object-local frame.")
+        .def("SetFamily", &deme::DEMExternObj::SetFamily, "Set the contact family number before initialization.",
+             py::arg("family"))
+        .def("SetMass", &deme::DEMExternObj::SetMass, "Set the object mass.", py::arg("mass"))
         .def("SetMOI",
              static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&)>(&deme::DEMExternObj::SetMOI),
-             "Sets the MOI (in the principal frame)")
+             "Set the three principal moments of inertia in the object-local frame.", py::arg("MOI"))
         .def("SetInitQuat",
              static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&)>(&deme::DEMExternObj::SetInitQuat),
-             "Set the initial quaternion for this object (before simulation initializes).")
+             "Set the initial local-to-global orientation quaternion ``(x, y, z, w)`` before initialization.",
+             py::arg("quaternion"))
         .def("SetInitPos",
              static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&)>(&deme::DEMExternObj::SetInitPos),
-             "Set the initial position for this object (before simulation initializes).")
+             "Set the initial global center-of-mass position before initialization.", py::arg("position"))
         .def("AddPlane",
              static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&, const std::vector<float>&,
                                                       const std::shared_ptr<deme::DEMMaterial>&)>(
                  &deme::DEMExternObj::AddPlane),
-             "Add a plane with infinite size.")
+             "Add an infinite plane specified by a point and normal in the object's local frame.", py::arg("point"),
+             py::arg("normal"), py::arg("material"))
         //.def("AddPlate", static_cast<void (&deme::DEMExternObj::AddPlate, "Add a plate with finite size.")
         .def("AddZCylinder",
              static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&, const float,
                                                       const std::shared_ptr<deme::DEMMaterial>&,
                                                       const deme::objNormal_t)>(&deme::DEMExternObj::AddZCylinder),
-             "Add a z-axis-aligned cylinder of infinite length", py::arg("pos"), py::arg("rad"), py::arg("material"),
-             py::arg("normal") = deme::ENTITY_NORMAL_INWARD)
+             "Add an infinite cylinder aligned with the object-local Z axis.", py::arg("pos"), py::arg("rad"),
+             py::arg("material"), py::arg("normal") = deme::ENTITY_NORMAL_INWARD)
         .def("AddCylinder",
              static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&, const std::vector<float>&, const float,
                                                       const std::shared_ptr<deme::DEMMaterial>&,
                                                       const deme::objNormal_t)>(&deme::DEMExternObj::AddCylinder),
-             "Add a cylinder of infinite length, which is along a user-specific axis", py::arg("pos"), py::arg("axis"),
+             "Add an infinite cylinder along a user-specified object-local axis.", py::arg("pos"), py::arg("axis"),
              py::arg("rad"), py::arg("material"), py::arg("normal") = deme::ENTITY_NORMAL_INWARD)
         .def_readwrite("types", &deme::DEMExternObj::types)
         .def_readwrite("materials", &deme::DEMExternObj::materials)
@@ -1603,18 +1774,20 @@ PYBIND11_MODULE(_deme, obj) {
         .def_readwrite("load_order", &deme::DEMExternObj::load_order)
         .def_readwrite("entity_params", &deme::DEMExternObj::entity_params);
 
-    py::class_<deme::DEMMeshConnected, deme::DEMInitializer, std::shared_ptr<deme::DEMMeshConnected>>(obj, "DEMMesh")
-        .def(py::init<>())
-        .def(py::init<std::string&>())
-        .def(py::init<std::string, const std::shared_ptr<deme::DEMMaterial>&>())
-        .def("Mass", &deme::DEMMeshConnected::GetMass)
-        .def("MOI", &deme::DEMMeshConnected::GetMOI)
-        .def("Clear", &deme::DEMMeshConnected::Clear, "Clears everything from memory")
+    py::class_<deme::DEMMeshConnected, deme::DEMInitializer, std::shared_ptr<deme::DEMMeshConnected>>(
+        obj, "DEMMesh", "Connected triangle-mesh template or external mesh owner.")
+        .def(py::init<>(), "Create an empty mesh.")
+        .def(py::init<std::string&>(), py::arg("filename"), "Load a mesh from a Wavefront OBJ file.")
+        .def(py::init<std::string, const std::shared_ptr<deme::DEMMaterial>&>(), py::arg("filename"),
+             py::arg("material"), "Load a Wavefront OBJ mesh and assign one material to every triangle.")
+        .def("Mass", &deme::DEMMeshConnected::GetMass, "Return the mesh owner's mass.")
+        .def("MOI", &deme::DEMMeshConnected::GetMOI, "Return principal moments of inertia in the mesh-local frame.")
+        .def("Clear", &deme::DEMMeshConnected::Clear, "Remove all mesh geometry and cached attributes.")
         .def("LoadWavefrontMesh", &deme::DEMMeshConnected::LoadWavefrontMesh,
              "Load a triangle mesh saved as a Wavefront .obj file", py::arg("input_file"),
              py::arg("load_normals") = true, py::arg("load_uv") = false)
         .def("WriteWavefront", &deme::DEMMeshConnected::WriteWavefront,
-             "Write the specified meshes in a Wavefront .obj file")
+             "Write the mesh geometry to a Wavefront OBJ file.", py::arg("output_file"))
         .def("GetNumTriangles", &deme::DEMMeshConnected::GetNumTriangles,
              "Get the number of triangles already added to this mesh")
         .def("GetNumNodes", &deme::DEMMeshConnected::GetNumNodes, "Get the number of nodes in the mesh")
@@ -1638,36 +1811,55 @@ PYBIND11_MODULE(_deme, obj) {
              static_cast<unsigned int (deme::DEMMeshConnected::*)(float)>(
                  &deme::DEMMeshConnected::SplitIntoConvexPatches),
              "Split the mesh into connected angle-threshold patches.", py::arg("hard_angle_deg") = 30.0f)
-        .def("SetMass", &deme::DEMMeshConnected::SetMass)
+        .def("SetMass", &deme::DEMMeshConnected::SetMass, "Set the mesh owner's mass.", py::arg("mass"))
         .def("SetMOI",
-             static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(&deme::DEMMeshConnected::SetMOI))
-        .def("SetFamily", &deme::DEMMeshConnected::SetFamily)
-        .def("SetMaterial", static_cast<void (deme::DEMMeshConnected::*)(const std::shared_ptr<deme::DEMMaterial>&)>(
-                                &deme::DEMMeshConnected::SetMaterial))
+             static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(&deme::DEMMeshConnected::SetMOI),
+             "Set the three principal moments of inertia in the mesh-local frame.", py::arg("MOI"))
+        .def("SetFamily", &deme::DEMMeshConnected::SetFamily, "Set the contact family number before initialization.",
+             py::arg("family"))
+        .def("SetMaterial",
+             static_cast<void (deme::DEMMeshConnected::*)(const std::shared_ptr<deme::DEMMaterial>&)>(
+                 &deme::DEMMeshConnected::SetMaterial),
+             "Assign the same material to every mesh triangle.", py::arg("material"))
         .def("SetMaterial",
              static_cast<void (deme::DEMMeshConnected::*)(const std::vector<std::shared_ptr<deme::DEMMaterial>>&)>(
-                 &deme::DEMMeshConnected::SetMaterial))
-        .def("SetInitQuat", static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(
-                                &deme::DEMMeshConnected::SetInitQuat))
-        .def("SetInitPos", static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(
-                               &deme::DEMMeshConnected::SetInitPos))
+                 &deme::DEMMeshConnected::SetMaterial),
+             "Assign one material per triangle. The sequence length must equal the triangle count.",
+             py::arg("materials"))
+        .def("SetInitQuat",
+             static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(
+                 &deme::DEMMeshConnected::SetInitQuat),
+             "Set the initial local-to-global orientation quaternion ``(x, y, z, w)``.", py::arg("quaternion"))
+        .def("SetInitPos",
+             static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(
+                 &deme::DEMMeshConnected::SetInitPos),
+             "Set the initial global center-of-mass position.", py::arg("position"))
         .def("InformCentroidPrincipal",
              static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&, const std::vector<float>&)>(
-                 &deme::DEMMeshConnected::InformCentroidPrincipal))
+                 &deme::DEMMeshConnected::InformCentroidPrincipal),
+             "Re-express mesh vertices about the supplied center of mass and principal orientation.", py::arg("center"),
+             py::arg("orientation"))
         .def("Move",
              static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&, const std::vector<float>&)>(
-                 &deme::DEMMeshConnected::Move))
+                 &deme::DEMMeshConnected::Move),
+             "Apply a translation and quaternion rotation to mesh vertices.", py::arg("translation"),
+             py::arg("quaternion"))
         .def("Mirror",
              static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&, const std::vector<float>&)>(
-                 &deme::DEMMeshConnected::Mirror))
-        .def("Scale", static_cast<void (deme::DEMMeshConnected::*)(float)>(&deme::DEMMeshConnected::Scale))
+                 &deme::DEMMeshConnected::Mirror),
+             "Mirror vertices about a plane specified by a point and normal.", py::arg("point"), py::arg("normal"))
+        .def("Scale", static_cast<void (deme::DEMMeshConnected::*)(float)>(&deme::DEMMeshConnected::Scale),
+             "Uniformly scale mesh vertices.", py::arg("factor"))
         .def("Scale",
-             static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(&deme::DEMMeshConnected::Scale))
-        .def("ClearWildcards", &deme::DEMMeshConnected::ClearWildcards)
-        .def("GetCoordsVertices", &deme::DEMMeshConnected::GetCoordsVerticesAsVectorOfVectors)
+             static_cast<void (deme::DEMMeshConnected::*)(const std::vector<float>&)>(&deme::DEMMeshConnected::Scale),
+             "Scale mesh vertices independently along X, Y, and Z.", py::arg("factors"))
+        .def("ClearWildcards", &deme::DEMMeshConnected::ClearWildcards, "Remove cached triangle wildcard values.")
+        .def("GetCoordsVertices", &deme::DEMMeshConnected::GetCoordsVerticesAsVectorOfVectors,
+             "Return mesh vertex coordinates as ``[[x, y, z], ...]``.")
         //.def("GetCoordsUV", &deme::DEMMeshConnected::GetCoordsUVPython)
         //.def("GetCoordsColors", &deme::DEMMeshConnected::GetCoordsColorsPython)
-        .def("GetIndicesVertexes", &deme::DEMMeshConnected::GetIndicesVertexesAsVectorOfVectors);
+        .def("GetIndicesVertexes", &deme::DEMMeshConnected::GetIndicesVertexesAsVectorOfVectors,
+             "Return triangle vertex-index triplets.");
     //    .def("GetIndicesNormals", &deme::DEMMeshConnected::GetIndicesNormalsPython)
     //    .def("GetIndicesUV", &deme::DEMMeshConnected::GetIndicesUVPython)
     //    .def("GetIndicesColors", &deme::DEMMeshConnected::GetIndicesColorsPython);

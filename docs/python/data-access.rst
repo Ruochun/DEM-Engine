@@ -46,6 +46,32 @@ Supplying the wrong pointer, device, dtype, layout, or capacity can cause a
 native CUDA error or memory corruption. Prefer host access unless eliminating
 the host transfer materially helps the application.
 
+Why the pointer argument is an integer
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Python bindings represent a native CUDA address with C++
+``std::uintptr_t``. Pybind11 accepts an ordinary Python ``int`` for that
+argument, so callers pass the numeric address exported by their array library:
+
+.. code-block:: python
+
+   tracker.PositionsToDevice(
+       int(cuda_array_pointer),
+       owner_count,
+       cuda_device_id,
+   )
+
+The integer is only an address; passing it does not transfer ownership, retain
+the allocation, infer its size or dtype, or validate which CUDA device owns
+it. The Python array that owns the address must remain alive through the call.
+A Python object such as a NumPy array, Warp array, CuPy array, or PyTorch tensor
+must not itself be supplied where the integer pointer is expected.
+
+Common pointer accessors are ``warp_array.ptr``, ``cupy_array.data.ptr``, and
+``torch_tensor.data_ptr()``. Only CUDA-accessible allocations are valid for the
+device-retrieval methods; an integer derived from ordinary NumPy host storage
+is not valid.
+
 Tracked-owner methods
 ---------------------
 
@@ -124,3 +150,22 @@ it does not have to be inferred from the pointer. With CuPy, enter
 and keep the array in scope through the call. DEME handles retrieval when the
 destination differs from a worker device, subject to the CUDA capabilities of
 the system.
+
+NVIDIA Warp
+-----------
+
+A Warp CUDA array exposes its base allocation address through the integer
+``array.ptr`` property. Use packed Warp dtypes that match the native CUDA
+element type: ``wp.vec3`` for ``float3``, ``wp.vec4`` for ``float4``,
+``wp.float32`` for ``float``, and ``wp.uint32`` for ``unsigned int``.
+
+.. literalinclude:: examples/warp_device_retrieval.py
+   :language: python
+   :linenos:
+
+Pass the CUDA logical ordinal used in the Warp device string as the DEME
+``device`` argument. The array must be contiguous and must remain alive until
+the synchronous DEME call returns. Synchronizing the Warp device immediately
+after allocation is the conservative interoperability choice because Warp may
+allocate from a stream-ordered CUDA memory pool while DEME performs the copy on
+its own stream.

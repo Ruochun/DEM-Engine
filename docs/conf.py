@@ -8,8 +8,8 @@ DOCS_DIR = Path(__file__).resolve().parent
 project = "DEM-Engine"
 author = "DEM-Engine contributors"
 copyright = "2021–2026, DEM-Engine contributors"
-version = "3.0"
-release = "3.0.0"
+version = "3"
+release = "3"
 
 extensions = [
     "breathe",

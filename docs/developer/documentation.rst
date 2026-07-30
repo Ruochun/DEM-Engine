@@ -1,6 +1,9 @@
 Building the documentation
 ==========================
 
+The concise build, Python-reference regeneration, and local/remote preview
+commands are collected in :download:`docs/README.md <../README.md>`.
+
 Prerequisites
 -------------
 
@@ -21,6 +24,23 @@ Standalone build
    make -C docs html
 
 Open ``docs/_build/html/index.html`` in a browser.
+
+Regenerating the Python API reference
+-------------------------------------
+
+After building and installing the current ``deme`` extension into the active
+Python environment, regenerate the static reference from pybind11 signatures
+and docstrings:
+
+.. code-block:: console
+
+   make -C docs python-reference
+   make -C docs html
+
+The generated ``docs/python/reference.rst`` is committed so normal
+documentation builds do not import the native extension or require a GPU.
+Improve descriptions in ``src/DEM/python/bindings.cpp`` and regenerate rather
+than editing the reference page directly.
 
 CMake target
 ------------
