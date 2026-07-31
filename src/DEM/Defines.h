@@ -114,6 +114,9 @@ inline __device__ __host__ constexpr ReturnType decodeTypeB(InputType id) {
 constexpr contact_t NOT_A_CONTACT = 0;
 constexpr contact_t SPHERE_SPHERE_CONTACT = encodeType(GEO_T_SPHERE, GEO_T_SPHERE);
 constexpr contact_t SPHERE_TRIANGLE_CONTACT = encodeType(GEO_T_SPHERE, GEO_T_TRIANGLE);
+// Preserve the legacy public name. A DEM mesh is represented by triangles, so this is intentionally the exact same
+// contact identifier rather than an additional supported contact type.
+constexpr contact_t SPHERE_MESH_CONTACT = SPHERE_TRIANGLE_CONTACT;
 constexpr contact_t SPHERE_ANALYTICAL_CONTACT = encodeType(GEO_T_SPHERE, GEO_T_ANALYTICAL);
 constexpr contact_t TRIANGLE_TRIANGLE_CONTACT = encodeType(GEO_T_TRIANGLE, GEO_T_TRIANGLE);
 constexpr contact_t TRIANGLE_ANALYTICAL_CONTACT = encodeType(GEO_T_TRIANGLE, GEO_T_ANALYTICAL);

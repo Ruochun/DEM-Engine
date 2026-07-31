@@ -14,18 +14,18 @@ authors = [
     { name = "Ruochun Zhang", email = "ruochunz@gmail.com" },
 ]
 license = { text = "BSD-3-Clause" }
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: C++",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
@@ -51,3 +51,5 @@ build-dir = "build/{wheel_tag}"
 
 [tool.scikit-build.cmake.define]
 DEME_BUILD_PYTHON = "ON"
+# Demos and modular tests are useful in developer builds but are not wheel content.
+DEME_BUILD_DEMOS = "OFF"

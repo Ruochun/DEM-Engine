@@ -154,6 +154,9 @@ PYBIND11_MODULE(_deme, obj) {
             "Return points on a cylindrical surface. ``spacing`` scales the nominal particle-diameter separation.");
 
     obj.attr("PI") = py::float_(M_PI);
+    // Export both the precise name and its legacy mesh-oriented spelling. They deliberately carry the same value.
+    obj.attr("SPHERE_TRIANGLE_CONTACT") = py::int_(static_cast<unsigned int>(deme::SPHERE_TRIANGLE_CONTACT));
+    obj.attr("SPHERE_MESH_CONTACT") = py::int_(static_cast<unsigned int>(deme::SPHERE_MESH_CONTACT));
 
     py::class_<DEMERuntimeDataHelper>(obj, "DEMERuntimeDataHelper")
         .def(py::init<>())

@@ -44,6 +44,7 @@ find_package(CUDAToolkit REQUIRED)
 
 # Option to build Python bindings
 option(DEME_BUILD_PYTHON "Build Python bindings for DEME" OFF)
+option(DEME_BUILD_DEMOS "Build DEME demos and modular tests" ON)
 option(DEME_BUILD_DOCS "Add the Doxygen and Sphinx documentation target" OFF)
 
 # Find Python and pybind11 if building Python bindings
@@ -296,7 +297,9 @@ install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/src/kernel/ DESTINATION ${CMAKE_INST
 # ---------------------------------------------------------------------------- #
 # Build embedded demos
 # ---------------------------------------------------------------------------- #
-add_subdirectory(src/demo)
+if(DEME_BUILD_DEMOS)
+	add_subdirectory(src/demo)
+endif()
 
 if(DEME_BUILD_DOCS)
 	add_subdirectory(docs)

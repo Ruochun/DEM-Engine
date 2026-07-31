@@ -58,9 +58,9 @@ Initialize the bundled Git dependencies:
 
    git submodule update --init --recursive
 
-Run the following commands from the repository root. Start with an empty
-``dist/`` directory, or move artifacts from earlier builds elsewhere, so that
-validation and installation cannot accidentally select an older wheel.
+Run the environment-creation commands from the repository root. Start with an
+empty ``dist/`` directory, or move artifacts from earlier builds elsewhere, so
+that validation and installation cannot accidentally select an older wheel.
 
 Create and validate the wheel
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -75,8 +75,16 @@ Use a dedicated virtual environment for packaging:
    python -m pip install --upgrade pip
    python -m pip install build twine
 
-   python -m build --wheel
+   cd ..
+   python -m build --wheel --outdir DEM-Engine/dist DEM-Engine
+   cd DEM-Engine
    python -m twine check dist/*
+
+The build command deliberately runs from the checkout's parent directory. A
+pre-existing local ``build/`` directory in the repository root can otherwise
+shadow the PyPA package named ``build`` and cause
+``No module named build.__main__``. Replace ``DEM-Engine`` with the checkout
+directory name if it differs.
 
 ``python -m build --wheel`` invokes the ``scikit-build-core`` backend from
 ``pyproject.toml``. That backend configures CMake with
@@ -94,6 +102,60 @@ name resembles:
 This is not a pure-Python or universal wheel. Its filename tags determine which
 Python interpreter and operating-system ABI pip will accept, while CUDA and
 driver compatibility must also be validated separately.
+
+Build the complete supported Python matrix
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+One native wheel must be built by each targeted CPython interpreter. Building
+with Python 3.13, for example, creates only the ``cp313`` wheel; it does not
+also create wheels for the other supported Python versions. DEM-Engine 3
+currently targets CPython 3.10 through 3.14.
+
+The following reproducible Conda workflow creates a separate build environment
+for every target. Run the environment-creation commands from the repository
+root:
+
+.. code-block:: console
+
+   conda create --yes --name deme-wheel-py310 python=3.10 pip
+   conda create --yes --name deme-wheel-py311 python=3.11 pip
+   conda create --yes --name deme-wheel-py312 python=3.12 pip
+   conda create --yes --name deme-wheel-py313 python=3.13 pip
+   conda create --yes --name deme-wheel-py314 python=3.14 pip
+
+   for env in deme-wheel-py310 deme-wheel-py311 deme-wheel-py312 deme-wheel-py313 deme-wheel-py314; do
+       conda run --name "$env" python -m pip install --upgrade pip build twine auditwheel
+   done
+
+Build once with each interpreter. As in the single-version workflow, run the
+builder from the checkout's parent directory to prevent the local ``build/``
+directory from shadowing the PyPA ``build`` package:
+
+.. code-block:: console
+
+   cd ..
+   for env in deme-wheel-py310 deme-wheel-py311 deme-wheel-py312 deme-wheel-py313 deme-wheel-py314; do
+       conda run --name "$env" python -m build --wheel --outdir DEM-Engine/dist DEM-Engine
+   done
+   cd DEM-Engine
+
+   conda run --name deme-wheel-py313 python -m twine check dist/*.whl
+
+The resulting directory should contain five distinct wheels with ``cp310``,
+``cp311``, ``cp312``, ``cp313``, and ``cp314`` tags. Confirm that explicitly:
+
+.. code-block:: console
+
+   ls -1 dist/deme-3.0.0-cp3*-linux_*.whl
+   for wheel in dist/*.whl; do
+       conda run --name deme-wheel-py313 python -m auditwheel show "$wheel"
+   done
+
+Generating all five files is only the build step. Each wheel must still be
+installed and exercised with its matching Python version before that version
+is considered validated. CUDA, Linux ABI, and GPU compatibility also require
+separate testing; ``auditwheel show`` reports the native shared-library and
+``glibc`` requirements but does not prove runtime compatibility.
 
 Test the wheel in a clean environment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
