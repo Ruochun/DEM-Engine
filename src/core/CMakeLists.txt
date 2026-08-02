@@ -211,6 +211,9 @@ add_dependencies(DEMERuntimeDataHelper_install DEMERuntimeDataHelper)
 # Python version (for Python bindings)
 if(DEME_BUILD_PYTHON)
 	add_library(DEMERuntimeDataHelper_python STATIC)
+	# The Python module calls SetPathPrefix during import, but retain an install-layout fallback if that discovery fails.
+	set(DEME_RUNTIME_DATA_DIRECTORY "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/DEME")
+	set(DEME_RUNTIME_INCLUDE_DIRECTORY "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}")
 	configure_file(utils/RuntimeData.cpp.in utils/RuntimeDataPython.cpp)
 
 	target_sources(DEMERuntimeDataHelper_python

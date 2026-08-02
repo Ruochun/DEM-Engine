@@ -654,7 +654,11 @@ void DEMSolver::decideCDMarginStrat() {
 }
 
 void DEMSolver::reportInitStats() const {
-    DEME_INFO("Number of total active devices: %d", dTkT_GpuManager->getNumDevices());
+    DEME_INFO("\n");
+
+    DEME_INFO("Number of logical CUDA devices visible to DEME: %d", dTkT_GpuManager->getNumVisibleDevices());
+    DEME_INFO("Number of active devices used by DEME: %d", dTkT_GpuManager->getNumDevices());
+    DEME_INFO("Worker device assignments (dT, kT): %d, %d", m_gpu_device_ids[0], m_gpu_device_ids[1]);
 
     DEME_INFO("User-specified X-dimension range: [%.7g, %.7g]", m_user_box_min.x, m_user_box_max.x);
     DEME_INFO("User-specified Y-dimension range: [%.7g, %.7g]", m_user_box_min.y, m_user_box_max.y);
@@ -1532,11 +1536,11 @@ void DEMSolver::packDataPointers() {
     // are called, so each thread has its own pointers packed.
     {
         ScopedCudaDevice device_scope(dT->streamInfo.device);
-        dT->packTransferPointers(kT);
+        dT->packTransferPointers(kT.get());
     }
     {
         ScopedCudaDevice device_scope(kT->streamInfo.device);
-        kT->packTransferPointers(dT);
+        kT->packTransferPointers(dT.get());
     }
     // Finally, the API needs to map all mesh to their owners
     for (const auto& mmesh : m_meshes) {
@@ -1587,7 +1591,7 @@ void DEMSolver::validateUserInputs() {
     // }
 
     // If not 2 GPUs detected, output warnings as needed
-    int ndevices = dTkT_GpuManager->getNumDevices();
+    int ndevices = dTkT_GpuManager->getNumVisibleDevices();
     if (ndevices == 0) {
         DEME_ERROR(std::string(
             "No GPU device is detected. Try lspci and see what you get.\nIf you indeed have GPU devices, maybe you "

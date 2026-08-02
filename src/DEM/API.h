@@ -10,6 +10,7 @@
 #include <set>
 #include <cfloat>
 #include <functional>
+#include <memory>
 #include <thread>
 
 #include "kT.h"
@@ -2305,14 +2306,14 @@ class DEMSolver {
     // DEM system's workers, helpers, friends
     ////////////////////////////////////////////////////////////////////////////////
 
-    WorkerReportChannel* kTMain_InteractionManager;
-    WorkerReportChannel* dTMain_InteractionManager;
-    GpuManager* dTkT_GpuManager;
+    std::unique_ptr<GpuManager> dTkT_GpuManager;
+    std::unique_ptr<ThreadManager> dTkT_InteractionManager;
+    std::unique_ptr<WorkerReportChannel> dTMain_InteractionManager;
+    std::unique_ptr<WorkerReportChannel> kTMain_InteractionManager;
+    std::unique_ptr<DEMDynamicThread> dT;
+    std::unique_ptr<DEMKinematicThread> kT;
     // Logical CUDA device IDs assigned to the dynamic and kinematic workers, respectively.
     std::vector<int> m_gpu_device_ids;
-    ThreadManager* dTkT_InteractionManager;
-    DEMKinematicThread* kT;
-    DEMDynamicThread* dT;
 
     ////////////////////////////////////////////////////////////////////////////////
     // DEM system's private methods

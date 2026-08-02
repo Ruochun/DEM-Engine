@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 #include <iostream>
 
@@ -9,7 +10,8 @@
 namespace deme {
 
 GpuManager::GpuManager(unsigned int total_streams) {
-    ndevices = scanNumDevices();
+    nvisible_devices = scanNumDevices();
+    nactive_devices = std::min(static_cast<int>(total_streams), nvisible_devices);
 
     // if (ndevices == 0) {
     //     std::cerr << "No GPU device is detected. Try lspci and see what you get.\nIf you indeed have GPU "
@@ -20,10 +22,10 @@ GpuManager::GpuManager(unsigned int total_streams) {
     //                  "GPU.\nTry allocating 2 GPU devices if possible.\n\n";
     // }
 
-    this->streams.resize(ndevices);
+    this->streams.resize(nvisible_devices);
 
     for (unsigned int current_device = 0; total_streams > 0; total_streams--, current_device++) {
-        if (current_device >= ndevices) {
+        if (current_device >= static_cast<unsigned int>(nvisible_devices)) {
             current_device = 0;
         }
 
@@ -35,22 +37,25 @@ GpuManager::GpuManager(unsigned int total_streams) {
 }
 
 GpuManager::GpuManager(const std::vector<int>& stream_devices) {
-    ndevices = scanNumDevices();
+    nvisible_devices = scanNumDevices();
     if (stream_devices.empty()) {
         DEME_ERROR("GpuManager requires at least one CUDA device assignment.");
     }
 
-    this->streams.resize(ndevices);
+    this->streams.resize(nvisible_devices);
+    std::set<int> active_devices;
     for (int device : stream_devices) {
-        if (device < 0 || device >= ndevices) {
-            DEME_ERROR("CUDA device ID %d is out of range. %d CUDA device(s) are visible.", device, ndevices);
+        if (device < 0 || device >= nvisible_devices) {
+            DEME_ERROR("CUDA device ID %d is out of range. %d CUDA device(s) are visible.", device, nvisible_devices);
         }
 
         cudaStream_t new_stream = nullptr;
         // Worker streams currently use CUDA's default stream. Keep a separate record per worker even when both workers
         // share a device so stream assignment remains deterministic and can adopt non-default streams independently.
         this->streams[device].push_back(StreamInfo{device, new_stream, false});
+        active_devices.insert(device);
     }
+    nactive_devices = static_cast<int>(active_devices.size());
 }
 
 // TODO: add CUDA error checking

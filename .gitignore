@@ -51,7 +51,7 @@ DEMdemo_output_*.csv
 DEMdemo_forces_*.csv
 
 # CodeQL and other scanner scratch files
-_codeql_detected_source_root
+_codeql*
 
 # Editor, OS, and temporary local files
 .vscode/

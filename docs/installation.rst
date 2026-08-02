@@ -30,7 +30,7 @@ Install a released wheel with:
 
 .. code-block:: console
 
-   python -m pip install deme3
+   python -m pip install deme
 
 The canonical import is:
 
@@ -39,9 +39,8 @@ The canonical import is:
    import deme
 
 The historical ``import DEME`` spelling remains available as a compatibility
-alias. ``deme3`` is the temporary PyPI distribution name for DEM-Engine 3 test
-releases; it does not change either Python import name. The intended production
-distribution name remains ``deme``.
+alias. New code should use the canonical lowercase ``deme`` distribution and
+import name.
 
 Build a wheel from a checkout
 -----------------------------
@@ -105,7 +104,7 @@ name resembles:
 
 .. code-block:: text
 
-   dist/deme3-3.0.0-<python-tag>-<abi-tag>-linux_<architecture>.whl
+   dist/deme-3.0.0-<python-tag>-<abi-tag>-linux_<architecture>.whl
 
 This is not a pure-Python or universal wheel. Its filename tags determine which
 Python interpreter and operating-system ABI pip will accept, while CUDA and
@@ -156,7 +155,7 @@ Confirm that explicitly:
 
 .. code-block:: console
 
-   ls -1 dist/deme3-3.0.0-cp3*-linux_*.whl
+   ls -1 dist/deme-3.0.0-cp3*-linux_*.whl
    for wheel in dist/*.whl; do
        conda run --name deme-wheel-py313 python -m auditwheel show "$wheel"
    done
@@ -238,7 +237,7 @@ install the wheel there:
    source /tmp/deme-wheel-test/bin/activate
 
    python -m pip install --upgrade pip
-   python -m pip install dist/deme3-3.0.0-*.whl
+   python -m pip install dist/deme-3.0.0-*.whl
    python -m pip check
 
 Run import checks from outside the source tree. Otherwise, files in the
@@ -271,8 +270,8 @@ Return to the checkout when testing is complete:
    deactivate
    cd /path/to/DEM-Engine
 
-Publish the temporary deme3 distribution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Publish the deme distribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Publishing changes external package state and is only for authorized
 maintainers. ``python-wheels.yml`` uses PyPI Trusted Publishing, so it does not
@@ -283,15 +282,15 @@ Before the first upload, create a GitHub environment named ``pypi`` under
 publication job always pauses for approval. Then sign in to PyPI, open the
 account-level ``Publishing`` page, and add a pending GitHub publisher with:
 
-* PyPI project name: ``deme3``;
+* PyPI project name: ``deme``;
 * GitHub owner: ``Ruochun``;
 * repository: ``DEM-Engine``;
 * workflow filename: ``python-wheels.yml``; and
 * environment: ``pypi``.
 
-The pending publisher creates ``deme3`` on the first successful upload. It
+The pending publisher creates ``deme`` on the first successful upload. It
 does not reserve the name before that upload. The project name must exactly
-match ``name = "deme3"`` in ``pyproject.toml``.
+match ``name = "deme"`` in ``pyproject.toml``.
 
 To build without publishing, open the repository's ``Actions`` tab, select
 ``Build Python wheels``, choose ``Run workflow``, leave
@@ -300,13 +299,13 @@ Download and test all six artifacts after the jobs succeed.
 
 To publish the already-reviewed source commit, dispatch the same workflow
 again with ``publish_to_pypi`` enabled. The six build jobs run again; only if
-all succeed does the ``Publish deme3 wheels to PyPI`` job enter the protected
+all succeed does the ``Publish deme wheels to PyPI`` job enter the protected
 ``pypi`` environment. Approve that deployment after checking the commit and
 wheel jobs. The publishing job downloads the six artifacts and uploads them
 with a short-lived PyPI OIDC credential.
 
 PyPI does not allow replacing a file or reusing an existing release version.
-If any ``deme3`` version ``3.0.0`` file has already been uploaded, increment the
+If any ``deme`` version ``3.0.0`` file has already been uploaded, increment the
 project version and rebuild the complete wheel set rather than retrying with
 different bytes under the same version.
 

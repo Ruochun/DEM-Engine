@@ -104,14 +104,14 @@ void DEMKinematicThread::calibrateParams() {
                 simParams->dyn.binSize /= (1. - stateParams.binCurrentChangeRate);
             }
             simParams->dyn.inv_binSize = 1. / simParams->dyn.binSize;
-            // Register the new bin size
-            stateParams.numBins =
-                hostCalcBinNum(simParams->nbX, simParams->nbY, simParams->nbZ, simParams->voxelSize,
-                               simParams->dyn.binSize, simParams->nvXp2, simParams->nvYp2, simParams->nvZp2);
-
-            DEME_DEBUG_PRINTF("Bin size is now: %.7g", simParams->dyn.binSize);
-            DEME_DEBUG_PRINTF("Total num of bins is now: %zu", stateParams.numBins);
         }
+        // Register the new bin size
+        stateParams.numBins =
+            hostCalcBinNum(simParams->nbX, simParams->nbY, simParams->nbZ, simParams->voxelSize, simParams->dyn.binSize,
+                           simParams->nvXp2, simParams->nvYp2, simParams->nvZp2);
+
+        DEME_DEBUG_PRINTF("Bin size is now: %.7g", simParams->dyn.binSize);
+        DEME_DEBUG_PRINTF("Total num of bins is now: %zu", stateParams.numBins);
         DEME_DEBUG_PRINTF("kT runtime per step: %.7gs", CDAccumTimer.GetPrevTime());
     }
     // binSize is now calculated; queue the device refresh on kT's stream so the next kernel sees it without forcing a
@@ -592,7 +592,7 @@ void DEMKinematicThread::migrateDeviceModifiableInfoToHost() {
     migrateFamilyToHost();
 }
 
-void DEMKinematicThread::packTransferPointers(DEMDynamicThread*& dT) {
+void DEMKinematicThread::packTransferPointers(DEMDynamicThread* dT) {
     // Set the pointers to dT owned buffers
     granData->pDTOwnedBuffer_nPrimitiveContacts = &(dT->nPrimitiveContactPairs_buffer);
     granData->pDTOwnedBuffer_nPatchContacts = &(dT->nPatchContactPairs_buffer);

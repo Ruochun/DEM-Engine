@@ -71,12 +71,12 @@ void DEMSolver::constructWorkers(const std::vector<int>& device_ids) {
     const int kT_device = device_ids.size() == 1 ? device_ids[0] : device_ids[1];
     m_gpu_device_ids = {dT_device, kT_device};
 
-    dTkT_InteractionManager = new ThreadManager();
-    kTMain_InteractionManager = new WorkerReportChannel();
-    dTMain_InteractionManager = new WorkerReportChannel();
+    dTkT_InteractionManager = std::make_unique<ThreadManager>();
+    kTMain_InteractionManager = std::make_unique<WorkerReportChannel>();
+    dTMain_InteractionManager = std::make_unique<WorkerReportChannel>();
 
     // There is one stream record per worker. Repeated IDs intentionally place both workers on the same GPU.
-    dTkT_GpuManager = new GpuManager(m_gpu_device_ids);
+    dTkT_GpuManager = std::make_unique<GpuManager>(m_gpu_device_ids);
 
     // Set default solver params
     setDefaultSolverParams();
@@ -85,33 +85,35 @@ void DEMSolver::constructWorkers(const std::vector<int>& device_ids) {
     std::thread dT_construct([&]() {
         const GpuManager::StreamInfo dT_stream_info = dTkT_GpuManager->getAvailableStreamFromDevice(dT_device);
         DEME_GPU_CALL(cudaSetDevice(dT_stream_info.device));
-        dT = new DEMDynamicThread(dTMain_InteractionManager, dTkT_InteractionManager, dT_stream_info);
+        dT = std::make_unique<DEMDynamicThread>(dTMain_InteractionManager.get(), dTkT_InteractionManager.get(),
+                                                dT_stream_info);
     });
 
     std::thread kT_construct([&]() {
         const GpuManager::StreamInfo kT_stream_info = dTkT_GpuManager->getAvailableStreamFromDevice(kT_device);
         DEME_GPU_CALL(cudaSetDevice(kT_stream_info.device));
-        kT = new DEMKinematicThread(kTMain_InteractionManager, dTkT_InteractionManager, kT_stream_info);
+        kT = std::make_unique<DEMKinematicThread>(kTMain_InteractionManager.get(), dTkT_InteractionManager.get(),
+                                                  kT_stream_info);
     });
 
     dT_construct.join();
     kT_construct.join();
 
     // Make friends
-    dT->kT = kT;
-    kT->dT = dT;
+    dT->kT = kT.get();
+    kT->dT = dT.get();
 }
 
 DEMSolver::~DEMSolver() {
     WaitForPendingOutput();
     if (sys_initialized)
         DoDynamicsThenSync(0.0);
-    delete kT;
-    delete dT;
-    delete kTMain_InteractionManager;
-    delete dTMain_InteractionManager;
-    delete dTkT_InteractionManager;
-    delete dTkT_GpuManager;
+    kT.reset();
+    dT.reset();
+    kTMain_InteractionManager.reset();
+    dTMain_InteractionManager.reset();
+    dTkT_InteractionManager.reset();
+    dTkT_GpuManager.reset();
 }
 
 void DEMSolver::SetVerbosity(verbosity_t verbose) {
@@ -2771,12 +2773,12 @@ bool DEMSolver::GetCombinedInstanceInfo(size_t combined_instance_id,
 }
 
 std::shared_ptr<DEMInspector> DEMSolver::CreateInspector(const std::string& quantity) {
-    m_inspectors.push_back(std::make_shared<DEMInspector>(this, this->dT, quantity));
+    m_inspectors.push_back(std::make_shared<DEMInspector>(this, dT.get(), quantity));
     return m_inspectors.back();
 }
 
 std::shared_ptr<DEMInspector> DEMSolver::CreateInspector(const std::string& quantity, const std::string& region) {
-    m_inspectors.push_back(std::make_shared<DEMInspector>(this, this->dT, quantity, region));
+    m_inspectors.push_back(std::make_shared<DEMInspector>(this, dT.get(), quantity, region));
     return m_inspectors.back();
 }
 

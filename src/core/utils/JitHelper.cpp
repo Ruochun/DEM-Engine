@@ -15,6 +15,17 @@
 #include <utility>
 #include <mutex>
 #include <memory>
+#include <vector>
+#include <stdexcept>
+
+#include <cuda_runtime_api.h>
+
+// Compile-time default CUDA architecture fallback.
+// Can be overridden at build time via -DDEME_DEFAULT_CUDA_ARCH_STR="compute_XY".
+// At runtime, the environment variable DEME_DEFAULT_CUDA_ARCH takes precedence.
+#ifndef DEME_DEFAULT_CUDA_ARCH_STR
+    #define DEME_DEFAULT_CUDA_ARCH_STR "compute_75"
+#endif
 
 #include <core/ApiVersion.h>
 #include "RuntimeData.h"
@@ -42,6 +53,12 @@ std::string sanitizeFilename(const std::string& name) {
         }
     }
     return sanitized;
+}
+
+bool isArchitectureError(const std::exception& error) {
+    const std::string message = error.what();
+    return message.find("arch") != std::string::npos || message.find("compute_") != std::string::npos ||
+           message.find("sm_") != std::string::npos;
 }
 
 }  // namespace
@@ -93,6 +110,13 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
             }
         }
         auto add_inc = [&](const std::filesystem::path& p) {
+            if (p.empty()) {
+                return;
+            }
+            std::error_code ec;
+            if (!std::filesystem::exists(p, ec)) {
+                return;
+            }
             std::string inc_flag = "-I" + p.string();
             if (std::find(flags.begin(), flags.end(), inc_flag) == flags.end()) {
                 flags.push_back(inc_flag);
@@ -100,21 +124,33 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
         };
         for (auto& p : include_paths) {
             add_inc(p);
-            auto cccl = p / "cccl";
-            add_inc(cccl);
+            add_inc(p / "cccl");
         }
+        add_inc(KERNEL_INCLUDE_DIR);
+        if (const char* cuda_home = std::getenv("CUDA_HOME")) {
+            add_inc(std::filesystem::path(cuda_home) / "include");
+            add_inc(std::filesystem::path(cuda_home) / "include" / "cccl");
+        }
+        add_inc("/usr/local/cuda/include");
+        add_inc("/usr/local/cuda/include/cccl");
     }
 
     int device = 0;
     cudaDeviceProp prop{};
-    if (cudaGetDevice(&device) != cudaSuccess) {
+    bool architecture_detected = cudaGetDevice(&device) == cudaSuccess &&
+                                 cudaGetDeviceProperties(&prop, device) == cudaSuccess && prop.major > 0;
+    if (!architecture_detected) {
         device = 0;
-    }
-    if (cudaGetDeviceProperties(&prop, device) != cudaSuccess) {
         prop.major = 0;
         prop.minor = 0;
     }
-    const std::string arch_tag = "sm_" + std::to_string(prop.major) + std::to_string(prop.minor);
+    const std::string arch_tag =
+        architecture_detected ? "compute_" + std::to_string(prop.major) + std::to_string(prop.minor) : "auto";
+    // Prefer the active device's exact compute capability. If CUDA device discovery is unavailable, leave the flag
+    // unset so Jitify can perform its own architecture detection during compilation.
+    if (architecture_detected) {
+        flags.push_back("-arch=" + arch_tag);
+    }
 
     std::vector<std::string> flags_sorted = flags;
     std::sort(flags_sorted.begin(), flags_sorted.end());
@@ -189,11 +225,14 @@ std::shared_ptr<jitify::experimental::KernelInstantiation> JitHelper::CachedProg
     std::sort(options_sorted.begin(), options_sorted.end());
     const std::string options_sig = jitify::reflection::reflect_list(options_sorted);
 
-    const std::string key_material = m_storage->programHash + "|" + m_name + "|" + template_suffix + "|" + options_sig +
-                                     "|cuda:" + std::to_string(getCudaVersion()) +
-                                     "|api:" + std::to_string(DEME_API_VERSION) + "|" + m_storage->archTag;
-    const std::string key = JitHelper::hashString(key_material);
-    const std::filesystem::path cache_file = m_storage->cacheDir / (sanitizeFilename(m_name) + "_" + key + ".jit");
+    auto make_key = [&]() {
+        const std::string key_material = m_storage->programHash + "|" + m_name + "|" + template_suffix + "|" +
+                                         options_sig + "|cuda:" + std::to_string(getCudaVersion()) +
+                                         "|api:" + std::to_string(DEME_API_VERSION) + "|" + m_storage->archTag;
+        return JitHelper::hashString(key_material);
+    };
+    std::string key = make_key();
+    std::filesystem::path cache_file = m_storage->cacheDir / (sanitizeFilename(m_name) + "_" + key + ".jit");
     std::lock_guard<std::mutex> storage_lock(m_storage->mutex);
     if (auto it = m_storage->kernelCache.find(key); it != m_storage->kernelCache.end()) {
         return it->second;
@@ -216,8 +255,41 @@ std::shared_ptr<jitify::experimental::KernelInstantiation> JitHelper::CachedProg
     if (!inst) {  // Compile if changed and not already there and make user aware
         DEME_INFO("jit-compiling for %s ...", m_name.c_str());
         if (!m_storage->program) {
-            m_storage->program = std::make_unique<jitify::experimental::Program>(
-                m_storage->code, std::vector<std::string>(), m_storage->flags);
+            try {
+                // With an unresolved architecture, first allow Jitify to auto-detect it.
+                m_storage->program = std::make_unique<jitify::experimental::Program>(
+                    m_storage->code, std::vector<std::string>(), m_storage->flags);
+            } catch (const std::exception& error) {
+                if (m_storage->archTag != "auto" || !isArchitectureError(error)) {
+                    throw;
+                }
+
+                const char* configured_arch = std::getenv("DEME_DEFAULT_CUDA_ARCH");
+                const std::string fallback_arch = configured_arch && configured_arch[0] != '\0'
+                                                      ? std::string(configured_arch)
+                                                      : DEME_DEFAULT_CUDA_ARCH_STR;
+                m_storage->flags.push_back("-arch=" + fallback_arch);
+                m_storage->archTag = fallback_arch;
+                // The resolved fallback architecture must participate in both the program directory and kernel key;
+                // otherwise binaries for different GPU targets could collide on disk.
+                m_storage->programHash = JitHelper::hashString(m_storage->programHash + "|arch:" + fallback_arch);
+                m_storage->cacheDir = JitHelper::CACHE_DIR / m_storage->programHash;
+                key = make_key();
+                cache_file = m_storage->cacheDir / (sanitizeFilename(m_name) + "_" + key + ".jit");
+                std::error_code cache_error;
+                std::filesystem::create_directories(m_storage->cacheDir, cache_error);
+                std::ofstream fingerprint_out(m_storage->cacheDir / "fingerprint.txt", std::ios::trunc);
+                if (fingerprint_out) {
+                    fingerprint_out << m_storage->programHash << "\narch:" << fallback_arch;
+                }
+                try {
+                    m_storage->program = std::make_unique<jitify::experimental::Program>(
+                        m_storage->code, std::vector<std::string>(), m_storage->flags);
+                } catch (const std::exception& fallback_error) {
+                    throw std::runtime_error("Jitify compilation failed with fallback architecture '" + fallback_arch +
+                                             "': " + fallback_error.what());
+                }
+            }
         }
         auto kernel = m_storage->program->kernel(m_name, m_options);
         inst = std::make_shared<jitify::experimental::KernelInstantiation>(kernel, template_args);

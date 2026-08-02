@@ -123,7 +123,9 @@ __host__ __device__ deme::contact_t checkSphereEntityOverlap(const T1& A,
         case (deme::ANAL_OBJ_TYPE_CYL_INF): {
             T1 cyl2sph = cylRadialDistanceVec<T1>(A, B, dirB);
             const T3 dist_delta_r = length(cyl2sph);
-            overlapDepth = radA - abs(size1B - dist_delta_r - beta4Entity);
+            // The margin expands an exterior cylinder and shrinks an interior one in the direction of its normal.
+            const float cyl_rad = size1B - normal_sign * beta4Entity;
+            overlapDepth = radA - normal_sign * (cyl_rad - dist_delta_r);
             if (overlapDepth <= DEME_TINY_FLOAT) {
                 contactTypePrimitive = deme::NOT_A_CONTACT;
                 overlapArea = 0.0;
@@ -135,8 +137,15 @@ __host__ __device__ deme::contact_t checkSphereEntityOverlap(const T1& A,
                 overlapArea = deme::PI * (2.0 * radA * overlapDepth - overlapDepth * overlapDepth);
             }
             // Inward normal is 1, outward is -1, so flip normal_sign for B2A vector
-            cntNormal = to_real3<T1, float3>(-normal_sign / dist_delta_r * cyl2sph);
-            CP = A - to_real3<float3, T1>(cntNormal * (radA - overlapDepth / 2.0));
+            // A sphere exactly on the cylinder axis has no radial direction. Use the cylinder axis as a deterministic
+            // finite fallback instead of dividing by zero.
+            if (dist_delta_r >= (T3)DEME_TINY_FLOAT) {
+                cntNormal = to_real3<T1, float3>(-normal_sign / dist_delta_r * cyl2sph);
+                CP = A - to_real3<float3, T1>(cntNormal * (radA - overlapDepth / 2.0));
+            } else {
+                cntNormal = dirB;
+                CP = A;
+            }
             return contactTypePrimitive;
         }
         default:

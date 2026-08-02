@@ -61,9 +61,9 @@ _DEME_ is now available as a Python package, _pyDEME_. It is quick to install an
 
 To install _pyDEME_, use a Linux machine, install CUDA if you do not already have it. Useful installation instructions may be found [here](https://developer.nvidia.com/cuda-downloads). 
 
-Some additional troubleshooting tips for getting CUDA ready:
-
-- I recommend getting the newest CUDA. But note that the recent releases CUDA 12.1, 12.2 and 12.3 appear to cause troubles with jitify and you should not use them with DEME.
+- CUDA 12.8 is recommended. Versions older than 12.8 generally work, but note there are scattered bugged versions such as 11.3, 12.1, 12.2, 12.3 etc.
+  - Avoid CUDA 13.0+. Currently version 13.0+ results in extremely slow just-in-time compilation. This may be fixed in future versions of DEME.
+  - On Linux, do not go above GCC 15+ because its glibc might bring math function conflicts with CUDA. In general, GCC 11 is recommended and if you use Ubuntu, simply go version 22.04 and do not try 26.04.
 
 Once CUDA is ready, you can `pip` install _pyDEME_. In your conda environement, do
 ```
@@ -92,7 +92,7 @@ compatibility, but new code should use `import deme`.
 
 ~~`conda install -c projectchrono pydeme`~~
 
-`pyDEME` can be replaced with an environement name of your choice. Other Python versions other than 3.11 should work as well.
+`pyDEME` can be replaced with an environment name of your choice. Supported Python versions other than 3.11 work as well.
 
 Then [Python scripts](https://github.com/projectchrono/DEM-Engine/tree/pyDEME_demo/src/demo) can be executed in this environment. To understand the content of each Python demo, refer to the explanations of the C++ demos with the same names in <a href="#examples">Numerical examples</a> section.
 
@@ -199,6 +199,7 @@ CMake target and documentation conventions.
 
 Some additional troubleshooting tips for running the demos:
 
+- If the program silently exits while creating the `DEMSolver` object, check if your NVIDIA driver supports your current CUDA version (`nvidia-smi`).
 - If errors similar to `CUDA_ERROR_UNSUPPORTED_PTX_VERSION` are encountered while you run the demos, or (rarely) the simulations proceed without detecting any contacts, then please make sure the CUDA installation is the same version as when the code is compiled.
 - Another cause for the simulations proceeding without detecting any contacts, could be the force kernel silently failed. This could also lead to a **too-many-geometries-in-bin** crash. The cause is usually that the force kernel was launched with too many threads per block, therefore not enough registers can be leveraged. This can be avoided by calling `SetForceCalcThreadsPerBlock` prior to the start of simulation with the argument being smaller choices like 128. **Note that you should only try this if you are using a custom force model**.
 - Used your own force model but got runtime compilation error like `expression must have pointer-to-object type but it has type "float"`, or `unknown variable "delta_time"`? Check out what we did in demo `DEMdemo_Electrostatic`. You may need to manually specify what material properties are pairwise and what contact wildcards you have using `SetMustPairwiseMatProp` and `SetPerContactWildcards`.

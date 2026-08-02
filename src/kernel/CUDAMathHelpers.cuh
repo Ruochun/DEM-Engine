@@ -1369,7 +1369,6 @@ inline __host__ __device__ void operator/=(double3& a, double b) {
 inline __host__ __device__ float4 operator/(float4 a, double b) {
     return make_float4(a.x / b, a.y / b, a.z / b, a.w / b);
 }
-
 #if defined(CUDART_VERSION) && CUDART_VERSION >= 13000
 inline __host__ __device__ double4_vec operator/(double4_vec a, float b) {
     return make_double4_16a(a.x / b, a.y / b, a.z / b, a.w / b);

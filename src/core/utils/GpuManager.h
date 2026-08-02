@@ -29,7 +29,7 @@ class GpuManager {
     // Returns the HIGHEST number of streams per device.
     unsigned int getMaxStreamsPerDevice();
 
-    int scanNumDevices();
+    static int scanNumDevices();
 
     // DO NOT USE UNLESS YOU INTEND TO MANUALLY HANDLE YOUR STREAMS.
     const std::vector<StreamInfo>& getStreamsFromDevice(int index);
@@ -44,11 +44,14 @@ class GpuManager {
     // Mark a stream as unused.
     void setStreamAvailable(const StreamInfo&);
 
-    // Return the number of devices detected.
-    int getNumDevices() { return ndevices; }
+    // Return the number of distinct devices assigned to workers.
+    int getNumDevices() const { return nactive_devices; }
+    // Return the number of logical CUDA devices visible to this process.
+    int getNumVisibleDevices() const { return nvisible_devices; }
 
   private:
-    int ndevices;
+    int nvisible_devices;
+    int nactive_devices;
     std::vector<std::vector<StreamInfo>> streams;
     std::mutex stream_manipulation_mutex;
 };

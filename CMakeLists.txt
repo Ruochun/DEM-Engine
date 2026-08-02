@@ -141,19 +141,13 @@ target_include_directories(simulator_multi_gpu
 	PUBLIC ${CORE_INTERFACE}
 )
 
-# Determine which runtime data helper to use
-if(DEME_BUILD_PYTHON)
-	set(RUNTIME_DATA_HELPER DEMERuntimeDataHelper_python)
-else()
-	set(RUNTIME_DATA_HELPER DEMERuntimeDataHelper)
-endif()
-
-# Set up common link libraries
+# Native targets run against the synchronized data and kernels in the build tree, even when the Python extension is
+# enabled in the same configuration. The extension links its Python-specific helper directly in src/DEM/CMakeLists.txt.
 set(DEME_LINK_LIBS
 	CUDA::cudart
 	CUDA::nvrtc
 	CUDA::cuda_driver
-	${RUNTIME_DATA_HELPER}
+	DEMERuntimeDataHelper
 )
 
 target_link_libraries(simulator_multi_gpu
@@ -179,33 +173,22 @@ set_target_properties(simulator_multi_gpu
 set(config_directory ${CMAKE_INSTALL_LIBDIR}/cmake/DEME)
 
 # Install the library, creating an export target for it as well 
-if(DEME_BUILD_PYTHON)
-	install(
-		TARGETS simulator_multi_gpu DEMERuntimeDataHelper_python
-		EXPORT DEMETargets
-		LIBRARY
-			DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	)
-else()
-	install(
-		TARGETS simulator_multi_gpu DEMERuntimeDataHelper
-		EXPORT DEMETargets
-		LIBRARY
-			DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	)
-endif()
+install(
+	TARGETS simulator_multi_gpu DEMERuntimeDataHelper
+	EXPORT DEMETargets
+	LIBRARY
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
 
 install(CODE "message(\"Removing build-tree libraries from installation target...\")")
-if(NOT DEME_BUILD_PYTHON)
-	install(CODE "file(REMOVE \"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libDEMERuntimeDataHelper.so\")")
+install(CODE "file(REMOVE \"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libDEMERuntimeDataHelper.so\")")
 
-	install(
-		TARGETS DEMERuntimeDataHelper_install
-		EXPORT DEMETargets
-		LIBRARY
-			DESTINATION ${CMAKE_INSTALL_LIBDIR}
-	)
-endif()
+install(
+	TARGETS DEMERuntimeDataHelper_install
+	EXPORT DEMETargets
+	LIBRARY
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
 
 # Export the generated library target
 export(EXPORT DEMETargets
@@ -293,6 +276,11 @@ add_custom_target(sync_kernels ALL
             ${CMAKE_BINARY_DIR}/DEM/VariableTypes.h
     COMMENT "Syncing kernel sources into build tree")
 install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/src/kernel/ DESTINATION ${CMAKE_INSTALL_DATADIR}/DEME/kernel/)
+install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/src/kernel/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/kernel/
+    FILES_MATCHING
+        PATTERN "*.cuh"
+        PATTERN "*.h"
+)
 
 # ---------------------------------------------------------------------------- #
 # Build embedded demos
