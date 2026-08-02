@@ -9,16 +9,23 @@
 
 cmake_minimum_required(VERSION 3.18)
 
-# Version information
-set(DEME_VERSION_MAJOR   3)
-set(DEME_VERSION_MINOR   0)
-set(DEME_VERSION_PATCH   1)
+# VERSION is the authoritative release version for CMake and Python packaging.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" DEME_VERSION LIMIT_COUNT 1)
+string(STRIP "${DEME_VERSION}" DEME_VERSION)
+if(NOT DEME_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+	message(FATAL_ERROR "VERSION must contain a three-component semantic version; found '${DEME_VERSION}'")
+endif()
 
 project(
 	Chrono-DEM-Engine
-	VERSION ${DEME_VERSION_MAJOR}.${DEME_VERSION_MINOR}.${DEME_VERSION_PATCH}
+	VERSION ${DEME_VERSION}
 	LANGUAGES CXX CUDA
 )
+
+# Preserve the established names consumed by generated API-version headers.
+set(DEME_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(DEME_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(DEME_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   message(STATUS "Setting CMAKE_BUILD_TYPE to 'Release' (default)")

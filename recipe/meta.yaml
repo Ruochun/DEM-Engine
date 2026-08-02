@@ -1,6 +1,9 @@
+{% set version_match = load_file_regex(load_file="VERSION", regex_pattern='^(\\d+\\.\\d+\\.\\d+)\\s*$') %}
+{% set deme_version = version_match[1] %}
+
 package:
   name: deme
-  version: 3.0.1
+  version: {{ deme_version }}
 
 source:
   path: ..
@@ -41,7 +44,7 @@ test:
     - deme
     - DEME
   commands:
-    - python -c "import deme, DEME; assert deme.__version__ == DEME.__version__ == '3.0.1'"
+    - python -c "import deme, DEME; assert deme.__version__ == DEME.__version__ == '{{ deme_version }}'"
 
 about:
   home: https://github.com/projectchrono/DEM-Engine

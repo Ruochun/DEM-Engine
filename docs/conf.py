@@ -4,12 +4,14 @@ from pathlib import Path
 
 
 DOCS_DIR = Path(__file__).resolve().parent
+REPOSITORY_DIR = DOCS_DIR.parent
+DEME_RELEASE = (REPOSITORY_DIR / "VERSION").read_text(encoding="utf-8").strip()
 
 project = "DEM-Engine"
 author = "DEM-Engine contributors"
 copyright = "2021–2026, DEM-Engine contributors"
-version = "3"
-release = "3"
+version = DEME_RELEASE.split(".", maxsplit=1)[0]
+release = DEME_RELEASE
 
 extensions = [
     "breathe",
@@ -31,4 +33,4 @@ nitpicky = False
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 html_theme = "furo"
-html_title = f"DEM-Engine {release}"
+html_title = f"DEM-Engine {version}"

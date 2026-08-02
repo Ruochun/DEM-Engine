@@ -98,13 +98,18 @@ directory name if it differs.
 ``DEME_BUILD_PYTHON=ON``, compiles the native ``deme._deme`` extension in
 Release mode, and places the resulting wheel under ``dist/``.
 
+The repository-root ``VERSION`` file is the authoritative DEM-Engine release
+version. Update only that file when preparing a release; CMake, Python package
+metadata, the Conda recipe, runtime ``__version__``, and these rendered
+documentation examples derive their versions from it.
+
 ``twine check`` validates the wheel metadata and the rendering of its package
 description. A successful build should produce a platform-specific file whose
 name resembles:
 
-.. code-block:: text
+.. parsed-literal::
 
-   dist/deme-3.0.1-<python-tag>-<abi-tag>-linux_<architecture>.whl
+   dist/deme-|release|-<python-tag>-<abi-tag>-linux_<architecture>.whl
 
 This is not a pure-Python or universal wheel. Its filename tags determine which
 Python interpreter and operating-system ABI pip will accept, while CUDA and
@@ -153,9 +158,9 @@ The resulting directory should contain six distinct wheels with ``cp39``,
 ``cp310``, ``cp311``, ``cp312``, ``cp313``, and ``cp314`` tags.
 Confirm that explicitly:
 
-.. code-block:: console
+.. parsed-literal::
 
-   ls -1 dist/deme-3.0.1-cp3*-linux_*.whl
+   ls -1 dist/deme-|release|-cp3*-linux_*.whl
    for wheel in dist/*.whl; do
        conda run --name deme-wheel-py313 python -m auditwheel show "$wheel"
    done
@@ -178,7 +183,7 @@ Linux ABI of the maintainer's workstation. The configuration is stored in
 With Docker available, build the same complete matrix locally from the parent
 of the checkout:
 
-.. code-block:: console
+.. parsed-literal::
 
    python3 -m venv .venv-cibuildwheel
    source .venv-cibuildwheel/bin/activate
@@ -229,7 +234,7 @@ Test the wheel in a clean environment
 Leave the packaging environment, create a separate test environment, and
 install the wheel there:
 
-.. code-block:: console
+.. parsed-literal::
 
    deactivate
 
@@ -237,7 +242,7 @@ install the wheel there:
    source /tmp/deme-wheel-test/bin/activate
 
    python -m pip install --upgrade pip
-   python -m pip install dist/deme-3.0.1-*.whl
+   python -m pip install dist/deme-|release|-*.whl
    python -m pip check
 
 Run import checks from outside the source tree. Otherwise, files in the
@@ -249,7 +254,7 @@ checkout could hide missing wheel contents:
    python -c "import deme; print(deme.__version__, deme.__file__)"
    python -c "import DEME; print(DEME.__version__)"
 
-The first command should report version ``3.0.1`` and a module path inside
+The first command should report version |release| and a module path inside
 ``/tmp/deme-wheel-test``. The second verifies the compatibility import; new
 applications should continue to use lowercase ``import deme``.
 
@@ -305,7 +310,7 @@ wheel jobs. The publishing job downloads the six artifacts and uploads them
 with a short-lived PyPI OIDC credential.
 
 PyPI does not allow replacing a file or reusing an existing release version.
-If any ``deme`` version ``3.0.1`` file has already been uploaded, increment the
+If any ``deme`` version |release| file has already been uploaded, increment the
 project version and rebuild the complete wheel set rather than retrying with
 different bytes under the same version.
 

@@ -32,9 +32,9 @@ Version
 
 The runtime version is available as:
 
-.. code-block:: python
+.. parsed-literal::
 
-   assert deme.__version__ == "3.0.1"
+   assert deme.__version__ == "|release|"
 
 API conventions
 ---------------
