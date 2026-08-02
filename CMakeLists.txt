@@ -42,6 +42,32 @@ fix_ninja_colors()
 
 find_package(CUDAToolkit REQUIRED)
 
+# Some CUDA manylinux images expose the versioned NVRTC shared object without the unversioned development symlink.
+# FindCUDAToolkit then reports the toolkit as found but omits CUDA::nvrtc. Recover the standard target from the
+# versioned library so source and wheel builds use the same link interface.
+if(NOT TARGET CUDA::nvrtc)
+	find_file(
+		DEME_NVRTC_LIBRARY
+		NAMES libnvrtc.so libnvrtc.so.${CUDAToolkit_VERSION_MAJOR}
+		HINTS
+			${CUDAToolkit_LIBRARY_DIR}
+			${CUDAToolkit_TARGET_DIR}/lib
+			${CUDAToolkit_TARGET_DIR}/lib64
+	)
+	if(NOT DEME_NVRTC_LIBRARY)
+		message(FATAL_ERROR
+			"CUDA Toolkit ${CUDAToolkit_VERSION} was found at ${CUDAToolkit_TARGET_DIR}, but its NVRTC shared "
+			"library was not found. Install the CUDA NVRTC runtime and development packages."
+		)
+	endif()
+	add_library(CUDA::nvrtc SHARED IMPORTED)
+	set_target_properties(CUDA::nvrtc PROPERTIES
+		IMPORTED_LOCATION "${DEME_NVRTC_LIBRARY}"
+		INTERFACE_INCLUDE_DIRECTORIES "${CUDAToolkit_INCLUDE_DIRS}"
+	)
+	message(STATUS "Recovered CUDA::nvrtc from ${DEME_NVRTC_LIBRARY}")
+endif()
+
 # Option to build Python bindings
 option(DEME_BUILD_PYTHON "Build Python bindings for DEME" OFF)
 option(DEME_BUILD_DEMOS "Build DEME demos and modular tests" ON)
