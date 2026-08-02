@@ -104,7 +104,7 @@ name resembles:
 
 .. code-block:: text
 
-   dist/deme-3.0.0-<python-tag>-<abi-tag>-linux_<architecture>.whl
+   dist/deme-3.0.1-<python-tag>-<abi-tag>-linux_<architecture>.whl
 
 This is not a pure-Python or universal wheel. Its filename tags determine which
 Python interpreter and operating-system ABI pip will accept, while CUDA and
@@ -155,7 +155,7 @@ Confirm that explicitly:
 
 .. code-block:: console
 
-   ls -1 dist/deme-3.0.0-cp3*-linux_*.whl
+   ls -1 dist/deme-3.0.1-cp3*-linux_*.whl
    for wheel in dist/*.whl; do
        conda run --name deme-wheel-py313 python -m auditwheel show "$wheel"
    done
@@ -237,7 +237,7 @@ install the wheel there:
    source /tmp/deme-wheel-test/bin/activate
 
    python -m pip install --upgrade pip
-   python -m pip install dist/deme-3.0.0-*.whl
+   python -m pip install dist/deme-3.0.1-*.whl
    python -m pip check
 
 Run import checks from outside the source tree. Otherwise, files in the
@@ -249,7 +249,7 @@ checkout could hide missing wheel contents:
    python -c "import deme; print(deme.__version__, deme.__file__)"
    python -c "import DEME; print(DEME.__version__)"
 
-The first command should report version ``3.0.0`` and a module path inside
+The first command should report version ``3.0.1`` and a module path inside
 ``/tmp/deme-wheel-test``. The second verifies the compatibility import; new
 applications should continue to use lowercase ``import deme``.
 
@@ -305,7 +305,7 @@ wheel jobs. The publishing job downloads the six artifacts and uploads them
 with a short-lived PyPI OIDC credential.
 
 PyPI does not allow replacing a file or reusing an existing release version.
-If any ``deme`` version ``3.0.0`` file has already been uploaded, increment the
+If any ``deme`` version ``3.0.1`` file has already been uploaded, increment the
 project version and rebuild the complete wheel set rather than retrying with
 different bytes under the same version.
 

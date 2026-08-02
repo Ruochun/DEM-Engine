@@ -34,7 +34,7 @@ The runtime version is available as:
 
 .. code-block:: python
 
-   assert deme.__version__ == "3.0.0"
+   assert deme.__version__ == "3.0.1"
 
 API conventions
 ---------------
