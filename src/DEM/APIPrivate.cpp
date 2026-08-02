@@ -2359,7 +2359,6 @@ inline void DEMSolver::equipKernelIncludes(std::unordered_map<std::string, std::
 void DEMSolver::setDefaultSolverParams() {
     m_jitify_options = {"-I" + (JitHelper::KERNEL_INCLUDE_DIR).string(),
                         "-I" + (JitHelper::KERNEL_DIR).string(),
-                        "-I" + std::string(DEME_CUDA_TOOLKIT_HEADERS),
                         "-diag-suppress=177",
                         "-diag-suppress=549",
                         "-diag-suppress=550",

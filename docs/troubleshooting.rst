@@ -14,8 +14,18 @@ Runtime JIT compilation cannot find headers
 
 DEME compiles kernels at runtime. Confirm that the CUDA Toolkit headers and the
 ``share/DEME/kernel`` and ``include`` resources installed with DEME are
-available. Wheel portability across CUDA installation layouts is an active
-DEM-Engine 3 packaging task.
+available. The CUDA header major and minor version must match the loaded NVRTC
+library. If several CUDA Toolkits are installed, set ``CUDA_HOME`` to the one
+providing that NVRTC version, for example:
+
+.. code-block:: console
+
+   export CUDA_HOME=/usr/local/cuda-12.8
+
+Errors in CUDA or CURAND headers involving undefined internal identifiers often
+mean that an unversioned ``/usr/local/cuda`` link selected headers from a newer
+Toolkit than the loaded ``libnvrtc``. Current DEME releases reject that mismatch
+and report both the required NVRTC version and how to select matching headers.
 
 Import works but initialization fails
 -------------------------------------

@@ -19,6 +19,7 @@
 #include <stdexcept>
 
 #include <cuda_runtime_api.h>
+#include <nvrtc.h>
 
 // Compile-time default CUDA architecture fallback.
 // Can be overridden at build time via -DDEME_DEFAULT_CUDA_ARCH_STR="compute_XY".
@@ -43,6 +44,35 @@ constexpr int getCudaVersion() {
 #else
     return CUDART_VERSION;
 #endif
+}
+
+std::pair<int, int> getNvrtcVersion() {
+    int major = 0;
+    int minor = 0;
+    if (nvrtcVersion(&major, &minor) != NVRTC_SUCCESS) {
+        return {0, 0};
+    }
+    return {major, minor};
+}
+
+bool cudaHeadersMatch(const std::filesystem::path& include_dir, int nvrtc_major, int nvrtc_minor) {
+    std::ifstream cuda_header(include_dir / "cuda.h");
+    if (!cuda_header) {
+        return false;
+    }
+
+    std::string line;
+    const std::regex version_pattern(R"(^\s*#\s*define\s+CUDA_VERSION\s+([0-9]+))");
+    std::smatch match;
+    while (std::getline(cuda_header, line)) {
+        if (std::regex_search(line, match, version_pattern)) {
+            const int encoded_version = std::stoi(match[1].str());
+            const int header_major = encoded_version / 1000;
+            const int header_minor = (encoded_version % 1000) / 10;
+            return header_major == nvrtc_major && header_minor == nvrtc_minor;
+        }
+    }
+    return false;
 }
 
 std::string sanitizeFilename(const std::string& name) {
@@ -97,7 +127,10 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
         code = std::regex_replace(code, std::regex(subst.first), subst.second);
     }
     {
-        // Collect CUDA include paths from CMake and common fallbacks
+        // Select CUDA headers matching the NVRTC library loaded on the deployment host. A wheel's build-time CUDA
+        // path can exist on the host while pointing at another toolkit version, which makes CUDA's internal headers
+        // fail with misleading undefined-intrinsic errors during JIT compilation.
+        const auto [nvrtc_major, nvrtc_minor] = getNvrtcVersion();
         std::vector<std::filesystem::path> include_paths;
         {
             std::string dirs = DEME_CUDA_TOOLKIT_INCLUDE_DIRS;  // "dir1;dir2;dir3"
@@ -122,17 +155,33 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
                 flags.push_back(inc_flag);
             }
         };
-        for (auto& p : include_paths) {
+        bool found_matching_cuda_headers = false;
+        auto add_cuda_inc = [&](const std::filesystem::path& p) {
+            if (nvrtc_major == 0 || !cudaHeadersMatch(p, nvrtc_major, nvrtc_minor)) {
+                return;
+            }
             add_inc(p);
             add_inc(p / "cccl");
+            found_matching_cuda_headers = true;
+        };
+        for (auto& p : include_paths) {
+            add_cuda_inc(p);
         }
         add_inc(KERNEL_INCLUDE_DIR);
         if (const char* cuda_home = std::getenv("CUDA_HOME")) {
-            add_inc(std::filesystem::path(cuda_home) / "include");
-            add_inc(std::filesystem::path(cuda_home) / "include" / "cccl");
+            add_cuda_inc(std::filesystem::path(cuda_home) / "include");
         }
-        add_inc("/usr/local/cuda/include");
-        add_inc("/usr/local/cuda/include/cccl");
+        if (nvrtc_major > 0) {
+            add_cuda_inc("/usr/local/cuda-" + std::to_string(nvrtc_major) + "." + std::to_string(nvrtc_minor) +
+                         "/include");
+        }
+        add_cuda_inc("/usr/local/cuda/include");
+        if (!found_matching_cuda_headers) {
+            DEME_ERROR(
+                "NVRTC %d.%d is loaded, but matching CUDA headers were not found. Install that CUDA Toolkit or set "
+                "CUDA_HOME to its root directory.",
+                nvrtc_major, nvrtc_minor);
+        }
     }
 
     int device = 0;
@@ -155,8 +204,11 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
     std::vector<std::string> flags_sorted = flags;
     std::sort(flags_sorted.begin(), flags_sorted.end());
     const std::string flags_sig = jitify::reflection::reflect_list(flags_sorted);
+    const auto [nvrtc_major, nvrtc_minor] = getNvrtcVersion();
+    const std::string nvrtc_tag = std::to_string(nvrtc_major) + "." + std::to_string(nvrtc_minor);
     const std::string fingerprint = code + "|flags:" + flags_sig + "|api:" + std::to_string(DEME_API_VERSION) +
-                                    "|cuda:" + std::to_string(getCudaVersion()) + "|arch:" + arch_tag;
+                                    "|cuda:" + std::to_string(getCudaVersion()) + "|nvrtc:" + nvrtc_tag +
+                                    "|arch:" + arch_tag;
     std::string program_hash = hashString(fingerprint);
 
     static std::once_flag cache_dir_init_flag;
@@ -226,8 +278,10 @@ std::shared_ptr<jitify::experimental::KernelInstantiation> JitHelper::CachedProg
     const std::string options_sig = jitify::reflection::reflect_list(options_sorted);
 
     auto make_key = [&]() {
+        const auto [nvrtc_major, nvrtc_minor] = getNvrtcVersion();
         const std::string key_material = m_storage->programHash + "|" + m_name + "|" + template_suffix + "|" +
                                          options_sig + "|cuda:" + std::to_string(getCudaVersion()) +
+                                         "|nvrtc:" + std::to_string(nvrtc_major) + "." + std::to_string(nvrtc_minor) +
                                          "|api:" + std::to_string(DEME_API_VERSION) + "|" + m_storage->archTag;
         return JitHelper::hashString(key_material);
     };
