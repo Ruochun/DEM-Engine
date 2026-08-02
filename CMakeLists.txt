@@ -49,7 +49,9 @@ option(DEME_BUILD_DOCS "Add the Doxygen and Sphinx documentation target" OFF)
 
 # Find Python and pybind11 if building Python bindings
 if(DEME_BUILD_PYTHON)
-	find_package(Python COMPONENTS Interpreter Development REQUIRED)
+	# Extension modules need the target interpreter and its module headers, but not the embedding library. Manylinux
+	# deliberately omits Development.Embed, so requesting the aggregate Development component breaks wheel builds.
+	find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
 	add_subdirectory(thirdparty/pybind11)
 	message(STATUS "Python bindings enabled")
 	message(STATUS "Python version: ${Python_VERSION}")
