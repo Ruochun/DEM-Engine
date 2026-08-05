@@ -96,6 +96,9 @@ if(DEME_BUILD_PYTHON)
 		${DEM_sources}
 		${CMAKE_CURRENT_SOURCE_DIR}/python/bindings.cpp
 	)
+	if(DEME_BUILD_VISUALIZER)
+		target_sources(_deme PRIVATE $<TARGET_OBJECTS:visualization>)
+	endif()
 	
 	set_target_properties(_deme PROPERTIES
 		LINKER_LANGUAGE CXX
@@ -118,6 +121,10 @@ if(DEME_BUILD_PYTHON)
 		PUBLIC algorithms
 		PUBLIC pybind11::headers
 	)
+	if(DEME_BUILD_VISUALIZER)
+		target_link_libraries(_deme PUBLIC raylib)
+		target_compile_definitions(_deme PRIVATE DEME_HAS_VISUALIZER=1)
+	endif()
 	
 	# Install the Python module
 	install(TARGETS _deme

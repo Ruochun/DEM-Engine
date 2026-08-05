@@ -13,6 +13,11 @@ DEME requires:
 * CMake 3.18 or newer and a CUDA-compatible C++ compiler when building from
   source.
 
+The default source build also includes the interactive visualizer. On Linux,
+install the X11 and OpenGL development headers listed in
+:doc:`visualization`. Set ``DEME_BUILD_VISUALIZER=OFF`` only for an explicitly
+headless build; published Python wheels build the visualizer by default.
+
 The exact Python, CUDA, compiler, driver, and GPU architecture matrix is being
 validated for DEM-Engine 3. A wheel should not be assumed portable across
 CUDA major versions until that matrix is published.

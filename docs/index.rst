@@ -15,6 +15,7 @@ kernels.
    installation
    quickstart
    concepts
+   visualization
    troubleshooting
 
 .. toctree::

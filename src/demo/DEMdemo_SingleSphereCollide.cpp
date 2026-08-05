@@ -11,6 +11,9 @@
 #include <core/utils/ThreadManager.h>
 #include <DEM/API.h>
 #include <DEM/utils/Samplers.hpp>
+#ifdef DEME_HAS_VISUALIZER
+    #include <DEM/utils/DEMVisualizer.h>
+#endif
 
 #include <filesystem>
 #include <cstdio>
@@ -138,6 +141,14 @@ int main() {
     auto tracker2 = DEMSim.Track(particles2);
     DEMSim.Update();
 
+#ifdef DEME_HAS_VISUALIZER
+    // Rendering is deliberately frame-driven: the visualizer observes the solver but never advances it.
+    DEMVisualizer visualizer(DEMSim);
+    visualizer.SetCameraPosition(make_float3(5.f, 5.f, 3.f));
+    visualizer.SetCameraTarget(make_float3(0.f, 0.f, -0.5f));
+    visualizer.Initialize();
+#endif
+
     // Ready simulation
     path out_dir = current_path();
     out_dir /= "DemoOutput_SingleSphereCollide";
@@ -173,6 +184,12 @@ int main() {
         DEMSim.MarkPersistentContact();
 
         DEMSim.DoDynamicsThenSync(frame_time);
+#ifdef DEME_HAS_VISUALIZER
+        // Closing the window disables subsequent frames without stopping the simulation demo.
+        if (visualizer.Run()) {
+            visualizer.Render();
+        }
+#endif
         max_z = max_z_finder->GetValue();
         max_v = max_v_finder->GetValue();
         KE = KE_finder->GetValue();

@@ -88,6 +88,12 @@ FOREACH(PROGRAM ${DEMOS})
 			PUBLIC ${LIBRARIES}
 			PUBLIC ${EXTERNAL_LIBRARIES}
 		)
+		if(DEME_BUILD_VISUALIZER AND
+		   (PROGRAM STREQUAL "DEMdemo_SingleSphereCollide" OR PROGRAM STREQUAL "DEMdemo_MeshCollide" OR
+		    PROGRAM STREQUAL "DEMdemo_MeshFalling"))
+			target_link_libraries(${PROGRAM} PUBLIC DEMEVisualizer)
+			target_compile_definitions(${PROGRAM} PRIVATE DEME_HAS_VISUALIZER=1)
+		endif()
 		
 		add_dependencies(${PROGRAM} ${LIBRARIES})
 		add_dependencies(${PROGRAM} sync_kernels)

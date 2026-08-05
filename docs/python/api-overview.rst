@@ -34,6 +34,10 @@ Core objects
    Selects or customizes the contact force calculation and its material or
    wildcard requirements.
 
+``DEMVisualizer``
+   Displays the current solver state on each explicit ``Render`` call without
+   advancing the simulation. See :doc:`../visualization`.
+
 Common task map
 ---------------
 
@@ -65,6 +69,9 @@ Common task map
    * - Write output
      - ``WriteSphereFile``, mesh/contact output methods,
        ``WaitForPendingOutput``
+   * - Render interactively
+     - ``DEMVisualizer``, ``Render``, ``SetRenderSpheres``,
+       ``SetRenderTriangles``
 
 Discovering installed signatures
 --------------------------------

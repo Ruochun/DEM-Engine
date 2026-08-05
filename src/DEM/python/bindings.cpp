@@ -23,6 +23,9 @@
 #include "DEM/API.h"
 #include "DEM/AuxClasses.h"
 #include "DEM/VariableTypes.h"
+#ifdef DEME_HAS_VISUALIZER
+    #include "DEM/utils/DEMVisualizer.h"
+#endif
 
 namespace py = pybind11;
 
@@ -1607,6 +1610,40 @@ valid. IDs use the numbering visible to this process, including the effects of
              "Re-enable contact between 2 families after the system is initialized.")
         .def("DisableFamilyOutput", &deme::DEMSolver::DisableFamilyOutput,
              "Prevent entites associated with this family to be outputted to files.");
+
+#ifdef DEME_HAS_VISUALIZER
+    py::class_<deme::DEMVisualizerColor>(obj, "VisualizerColor", "RGBA color used by DEMVisualizer.")
+        .def(py::init<std::uint8_t, std::uint8_t, std::uint8_t, std::uint8_t>(), py::arg("r") = 255, py::arg("g") = 255,
+             py::arg("b") = 255, py::arg("a") = 255)
+        .def_readwrite("r", &deme::DEMVisualizerColor::r)
+        .def_readwrite("g", &deme::DEMVisualizerColor::g)
+        .def_readwrite("b", &deme::DEMVisualizerColor::b)
+        .def_readwrite("a", &deme::DEMVisualizerColor::a);
+
+    py::class_<deme::DEMVisualizer>(
+        obj, "DEMVisualizer",
+        "Step-wise interactive viewer. Render() draws the current solver state without advancing the simulation.")
+        .def(py::init<deme::DEMSolver&>(), py::arg("solver"), py::keep_alive<1, 2>(),
+             "Create a visualizer and keep its solver alive for the lifetime of the viewer.")
+        .def("Initialize", &deme::DEMVisualizer::Initialize, "Create the visualization window and graphics resources.")
+        .def("Run", &deme::DEMVisualizer::Run, "Return true while the initialized window remains open.")
+        .def("Render", &deme::DEMVisualizer::Render,
+             "Synchronously capture the current solver state and draw one frame without advancing the solver.")
+        .def("Close", &deme::DEMVisualizer::Close, "Close the visualization window.")
+        .def("SetWindowSize", &deme::DEMVisualizer::SetWindowSize, py::arg("width"), py::arg("height"))
+        .def("SetWindowTitle", &deme::DEMVisualizer::SetWindowTitle, py::arg("title"))
+        .def("SetTargetFPS", &deme::DEMVisualizer::SetTargetFPS, py::arg("fps"))
+        .def("SetCameraPosition", &deme::DEMVisualizer::SetCameraPosition, py::arg("position"))
+        .def("SetCameraTarget", &deme::DEMVisualizer::SetCameraTarget, py::arg("target"))
+        .def("SetBackgroundColor", &deme::DEMVisualizer::SetBackgroundColor, py::arg("color"))
+        .def("SetFamilyColor", &deme::DEMVisualizer::SetFamilyColor, py::arg("family"), py::arg("color"))
+        .def("SetRenderSpheres", &deme::DEMVisualizer::SetRenderSpheres, py::arg("render") = true,
+             "Enable or disable component-sphere rendering; enabled by default.")
+        .def("SetRenderTriangles", &deme::DEMVisualizer::SetRenderTriangles, py::arg("render") = true,
+             "Enable or disable triangle rendering; enabled by default.")
+        .def("IsRenderingSpheres", &deme::DEMVisualizer::IsRenderingSpheres)
+        .def("IsRenderingTriangles", &deme::DEMVisualizer::IsRenderingTriangles);
+#endif
 
     py::class_<deme::DEMMaterial, std::shared_ptr<deme::DEMMaterial>>(
         obj, "DEMMaterial", "Material property name/value pairs used by a contact force model.")

@@ -58,6 +58,7 @@ regex = '''^(?P<value>\d+\.\d+\.\d+)\s*$'''
 
 [tool.scikit-build.cmake.define]
 DEME_BUILD_PYTHON = "ON"
+DEME_BUILD_VISUALIZER = "ON"
 # Demos and modular tests are useful in developer builds but are not wheel content.
 DEME_BUILD_DEMOS = "OFF"
 
@@ -73,5 +74,5 @@ build-verbosity = 1
 manylinux-x86_64-image = "quay.io/manylinux_cuda/manylinux_2_28_x86_64_cuda12_9:latest"
 # The current CUDA 12.9 image can omit NVRTC despite providing nvcc and cudart. DEME links NVRTC for runtime kernel
 # compilation, so install both the shared library and its development symlink before any interpreter build starts.
-before-all = "dnf install -y cuda-nvrtc-12-9 cuda-nvrtc-devel-12-9 && dnf clean all"
+before-all = "dnf install -y cuda-nvrtc-12-9 cuda-nvrtc-devel-12-9 libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel mesa-libGL-devel && dnf clean all"
 repair-wheel-command = "auditwheel repair --plat manylinux_2_28_x86_64 --exclude libcuda.so.1 --exclude libcudart.so.12 --exclude libnvrtc.so.12 -w {dest_dir} {wheel}"

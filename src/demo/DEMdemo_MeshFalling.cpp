@@ -13,6 +13,9 @@
 #include <core/utils/ThreadManager.h>
 #include <DEM/API.h>
 #include <DEM/utils/Samplers.hpp>
+#ifdef DEME_HAS_VISUALIZER
+    #include <DEM/utils/DEMVisualizer.h>
+#endif
 
 #include <filesystem>
 #include <cstdio>
@@ -40,8 +43,8 @@ int main() {
     DEMSim.SetMeshUniversalContact(true);
 
     // Define material properties
-    auto mat_box = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.4}, {"Crr", 0.1}});
-    auto mat_plane = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.1}});
+    auto mat_box = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.4}, {"Crr", 0.1}});
+    auto mat_plane = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.1}});
 
     // Add a bottom plane at z = 0
     DEMSim.AddBCPlane(make_float3(0, 0, 0), make_float3(0, 0, 1), mat_plane);
@@ -144,11 +147,19 @@ int main() {
         }
     }
 
-    float step_time = 5e-6;
+    float step_time = 2e-4;
     DEMSim.SetInitTimeStep(step_time);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     DEMSim.Initialize();
+
+#ifdef DEME_HAS_VISUALIZER
+    // Rendering is deliberately frame-driven: the visualizer observes the solver but never advances it.
+    DEMVisualizer visualizer(DEMSim);
+    visualizer.SetCameraPosition(make_float3(12.f, 12.f, 10.f));
+    visualizer.SetCameraTarget(make_float3(0.f, 0.f, 3.f));
+    visualizer.Initialize();
+#endif
 
     // Setup output directory
     path out_dir = current_path();
@@ -198,6 +209,13 @@ int main() {
 
             DEMSim.ShowMemStats();
             std::cout << "----------------------------------------" << std::endl;
+
+#ifdef DEME_HAS_VISUALIZER
+            // Closing the window disables subsequent frames without stopping the simulation demo.
+            if (visualizer.Run()) {
+                visualizer.Render();
+            }
+#endif
         }
 
         DEMSim.DoDynamics(step_time);

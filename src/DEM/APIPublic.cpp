@@ -1165,6 +1165,67 @@ void DEMSolver::SetSimTime(double time) {
     dT->setSimTime(time);
 }
 
+DEMVisualizationSnapshot DEMSolver::GetVisualizationSnapshot(bool include_spheres, bool include_triangles) const {
+    if (!sys_initialized) {
+        DEME_ERROR("DEMSolver's method GetVisualizationSnapshot can only be called after calling Initialize()");
+    }
+
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->migrateFamilyToHost();
+    dT->migrateClumpPosInfoToHost();
+
+    DEMVisualizationSnapshot snapshot;
+    snapshot.simulation_time = GetSimTime();
+
+    // Convert DEME's voxel/sub-voxel owner representation once per requested geometry. The visualization boundary is
+    // deliberately host-side so renderers never depend on dT storage or worker synchronization details.
+    auto owner_pos = [this](bodyID_t owner) {
+        float3 position;
+        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(
+            position.x, position.y, position.z, dT->voxelID[owner], dT->locX[owner], dT->locY[owner], dT->locZ[owner],
+            dT->simParams->nvXp2, dT->simParams->nvYp2, dT->simParams->voxelSize, dT->simParams->l);
+        position.x += dT->simParams->LBFX;
+        position.y += dT->simParams->LBFY;
+        position.z += dT->simParams->LBFZ;
+        return position;
+    };
+    auto owner_ori = [this](bodyID_t owner) {
+        return make_float4(dT->oriQx[owner], dT->oriQy[owner], dT->oriQz[owner], dT->oriQw[owner]);
+    };
+
+    if (include_spheres) {
+        snapshot.spheres.reserve(dT->simParams->nSpheresGM);
+        for (size_t sphere_id = 0; sphere_id < dT->simParams->nSpheresGM; ++sphere_id) {
+            const bodyID_t owner = dT->ownerClumpBody[sphere_id];
+            const size_t component =
+                dT->solverFlags.useClumpJitify ? dT->clumpComponentOffsetExt[sphere_id] : sphere_id;
+            float3 position =
+                make_float3(dT->relPosSphereX[component], dT->relPosSphereY[component], dT->relPosSphereZ[component]);
+            applyFrameTransformLocalToGlobal(position, owner_pos(owner), owner_ori(owner));
+            snapshot.spheres.push_back(
+                DEMVisualizationSphere{position, dT->radiiSphere[component], dT->familyID[owner], owner});
+        }
+    }
+
+    if (include_triangles) {
+        snapshot.triangles.reserve(dT->simParams->nTriGM);
+        for (size_t triangle_id = 0; triangle_id < dT->simParams->nTriGM; ++triangle_id) {
+            const bodyID_t owner = dT->ownerTriMesh[triangle_id];
+            const float3 position = owner_pos(owner);
+            const float4 orientation = owner_ori(owner);
+            float3 a = dT->relPosNode1[triangle_id];
+            float3 b = dT->relPosNode2[triangle_id];
+            float3 c = dT->relPosNode3[triangle_id];
+            applyFrameTransformLocalToGlobal(a, position, orientation);
+            applyFrameTransformLocalToGlobal(b, position, orientation);
+            applyFrameTransformLocalToGlobal(c, position, orientation);
+            snapshot.triangles.push_back(DEMVisualizationTriangle{a, b, c, dT->familyID[owner], owner});
+        }
+    }
+
+    return snapshot;
+}
+
 float DEMSolver::GetUpdateFreq() const {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     return dT->getUpdateFreq();

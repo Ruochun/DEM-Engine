@@ -113,7 +113,7 @@ def generate(module: ModuleType, output: Path) -> None:
 
     if classes:
         # Put the main user entry points before supporting types and enums.
-        class_priority = {"DEMSolver": 0, "Tracker": 1}
+        class_priority = {"DEMSolver": 0, "DEMVisualizer": 1, "Tracker": 2}
         classes.sort(key=lambda item: (class_priority.get(item[0], 2), item[0].lower()))
         lines.extend(["Classes", "-------", ""])
         for name, value in classes:

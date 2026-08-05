@@ -25,6 +25,7 @@
 #include "BdrsAndObjs.h"
 #include "Models.h"
 #include "AuxClasses.h"
+#include "utils/VisualizationData.h"
 
 /// Main namespace for the DEM-Engine package.
 namespace deme {
@@ -118,6 +119,12 @@ class DEMSolver {
     double GetSimTime() const;
     /// Set the simulation time manually.
     void SetSimTime(double time);
+
+    /// Capture renderable sphere and triangle geometry at the current solver state.
+    /// @details This call synchronously transfers the required owner state to the host. It does not advance the
+    /// simulation and should not be called concurrently with DoDynamics(). Disabled geometry categories are not
+    /// transferred into the returned snapshot.
+    DEMVisualizationSnapshot GetVisualizationSnapshot(bool include_spheres = true, bool include_triangles = true) const;
     /// @brief Set the strategy for auto-adapting time step size.
     /// @param type "none", "hertz_const", "max_vel" or "int_diff". Currently, only "hertz_const" has behavior; it
     /// computes a fixed setup-time timestep from Hertzian material stiffness, minimum clump mass, and minimum radius.

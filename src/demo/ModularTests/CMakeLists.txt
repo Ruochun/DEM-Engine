@@ -27,6 +27,7 @@ SET(MODULAR_TESTS
 		DEMTest_SpherePlanePeneArea
 		DEMTest_SphereSphereArea
 		DEMTest_TrianglePVTracking
+		DEMTest_VisualizationSnapshot
 )
 
 # ------------------------------------------------------------------------------

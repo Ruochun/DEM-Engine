@@ -11,6 +11,9 @@
 #include <core/utils/ThreadManager.h>
 #include <DEM/API.h>
 #include <DEM/utils/Samplers.hpp>
+#ifdef DEME_HAS_VISUALIZER
+    #include <DEM/utils/DEMVisualizer.h>
+#endif
 
 #include <filesystem>
 #include <cstdio>
@@ -35,8 +38,8 @@ int main() {
     // DEMSim.SetSimplePatchCombination(true);
 
     // Special material: has a cohesion param
-    auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.3}, {"Crr", 0.0}});
-    auto mat_type_2 = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.4}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.0}});
+    auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.3}, {"Crr", 0.0}});
+    auto mat_type_2 = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.4}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.0}});
     // If you don't have this line, then CoR between thw 2 materials will take average when they are in contact
     DEMSim.SetMaterialPropertyPair("CoR", mat_type_1, mat_type_2, 0.6);
 
@@ -57,13 +60,21 @@ int main() {
     particle2->SetMOI(make_float3(2000., 2000., 2000.));
     auto tracker2 = DEMSim.Track(particle2);
 
-    float step_time = 1e-5;
+    float step_time = 1e-3;
     DEMSim.SetInitTimeStep(step_time);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     // DEMSim.DisableAdaptiveBinSize();
     // DEMSim.SetInitBinSize(10);
     DEMSim.Initialize();
+
+#ifdef DEME_HAS_VISUALIZER
+    // Rendering is deliberately frame-driven: the visualizer observes the solver but never advances it.
+    DEMVisualizer visualizer(DEMSim);
+    visualizer.SetCameraPosition(make_float3(5.f, 5.f, 3.f));
+    visualizer.SetCameraTarget(make_float3(0.f, 0.f, -0.5f));
+    visualizer.Initialize();
+#endif
 
     // Ready simulation
     path out_dir = current_path();
@@ -118,6 +129,13 @@ int main() {
             }
             DEMSim.ShowMemStats();
             std::cout << "----------------------------------------" << std::endl;
+
+#ifdef DEME_HAS_VISUALIZER
+            // Closing the window disables subsequent frames without stopping the simulation demo.
+            if (visualizer.Run()) {
+                visualizer.Render();
+            }
+#endif
         }
 
         DEMSim.DoDynamics(step_time);

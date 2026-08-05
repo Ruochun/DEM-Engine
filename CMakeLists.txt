@@ -79,6 +79,7 @@ endif()
 option(DEME_BUILD_PYTHON "Build Python bindings for DEME" OFF)
 option(DEME_BUILD_DEMOS "Build DEME demos and modular tests" ON)
 option(DEME_BUILD_DOCS "Add the Doxygen and Sphinx documentation target" OFF)
+option(DEME_BUILD_VISUALIZER "Build the interactive raylib visualizer" ON)
 
 # Find Python and pybind11 if building Python bindings
 if(DEME_BUILD_PYTHON)
@@ -151,8 +152,19 @@ set(DEME_INSTALL_DEMO "bin")
 # ---------------------------------------------------------------------------- #
 
 add_subdirectory(src/core)
-add_subdirectory(src/DEM)
 add_subdirectory(src/algorithms)
+if(DEME_BUILD_VISUALIZER)
+	# Build only raylib's static graphics library. Audio and upstream examples are unrelated to DEME visualization.
+	set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+	set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+	set(CUSTOMIZE_BUILD ON CACHE BOOL "" FORCE)
+	set(USE_AUDIO OFF CACHE BOOL "" FORCE)
+	set(SUPPORT_MODULE_RAUDIO OFF CACHE BOOL "" FORCE)
+	set(WITH_PIC ON CACHE BOOL "" FORCE)
+	add_subdirectory(thirdparty/raylib EXCLUDE_FROM_ALL)
+	add_subdirectory(src/visualization)
+endif()
+add_subdirectory(src/DEM)
 
 # ---------------------------------------------------------------------------- #
 # Final Library Generation
@@ -188,7 +200,6 @@ set(DEME_LINK_LIBS
 target_link_libraries(simulator_multi_gpu
 	PUBLIC ${DEME_LINK_LIBS}
 )
-
 # Specific to Windows...
 if(WIN32)
 	target_link_libraries(simulator_multi_gpu 
@@ -200,6 +211,19 @@ set_target_properties(simulator_multi_gpu
 	PROPERTIES
 	LINKER_LANGUAGE CUDA
 )
+
+if(DEME_BUILD_VISUALIZER)
+	# Keep graphics dependencies out of the solver library. The shared facade resolves raylib internally while the
+	# Python extension embeds the same visualization object code directly.
+	add_library(DEMEVisualizer SHARED $<TARGET_OBJECTS:visualization>)
+	target_link_libraries(DEMEVisualizer PRIVATE simulator_multi_gpu raylib)
+	target_include_directories(DEMEVisualizer PUBLIC
+		$<BUILD_INTERFACE:${ProjectIncludeSource}>
+		$<BUILD_INTERFACE:${ProjectIncludeGenerated}>
+		$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+	)
+	set_target_properties(DEMEVisualizer PROPERTIES CXX_STANDARD ${CXXSTD_SUPPORTED})
+endif()
 
 # ---------------------------------------------------------------------------- #
 # Export and Install The Generated Targets 
@@ -214,6 +238,14 @@ install(
 	LIBRARY
 		DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+
+if(DEME_BUILD_VISUALIZER)
+	install(
+		TARGETS DEMEVisualizer
+		EXPORT DEMETargets
+		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	)
+endif()
 
 install(CODE "message(\"Removing build-tree libraries from installation target...\")")
 install(CODE "file(REMOVE \"$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libDEMERuntimeDataHelper.so\")")
