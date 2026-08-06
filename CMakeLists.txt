@@ -239,7 +239,15 @@ install(
 		DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
-if(DEME_BUILD_VISUALIZER)
+# Python wheels embed the visualizer object code in ``_deme`` and must not also install the standalone C++ facade.
+# That facade links the source/install runtime helper used by native CMake consumers, while Python uses its own static
+# runtime-path helper. Keeping the native facade out of the wheel prevents an invalid build-tree helper dependency.
+set(DEME_INSTALL_VISUALIZER ${DEME_BUILD_VISUALIZER})
+if(SKBUILD)
+	set(DEME_INSTALL_VISUALIZER OFF)
+endif()
+
+if(DEME_INSTALL_VISUALIZER)
 	install(
 		TARGETS DEMEVisualizer
 		EXPORT DEMETargets

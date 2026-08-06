@@ -69,12 +69,20 @@ jobs:
           from zipfile import ZipFile
 
           with ZipFile(wheels[0]) as archive:
+              standalone_visualizer = [
+                  member for member in archive.namelist() if member.endswith("/libDEMEVisualizer.so")
+              ]
               bundled_cuda = [
                   member
                   for member in archive.namelist()
                   if ".libs/" in member
                   and any(library in member for library in ("libcuda", "libcudart", "libnvrtc"))
               ]
+          if standalone_visualizer:
+              raise SystemExit(
+                  "Python embeds the visualizer and must not package its native C++ facade: "
+                  f"{standalone_visualizer}"
+              )
           if bundled_cuda:
               raise SystemExit(f"CUDA libraries must remain external: {bundled_cuda}")
 
