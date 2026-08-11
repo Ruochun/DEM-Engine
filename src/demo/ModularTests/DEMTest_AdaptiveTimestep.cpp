@@ -65,7 +65,8 @@ int main() {
                                     {"nu", static_cast<float>(poisson_ratio)},
                                     {"CoR", 0.2f},
                                     {"mu", 0.4f},
-                                    {"Crr", 0.0f}});
+                                    {"Crr", 0.0f},
+                                    {"Cohesion", 0.0}});
     auto sphere = DEMSim.LoadSphereType(static_cast<float>(mass), static_cast<float>(radius), mat);
     DEMSim.AddClumps(sphere, make_float3(0.f, 0.f, 0.f));
 

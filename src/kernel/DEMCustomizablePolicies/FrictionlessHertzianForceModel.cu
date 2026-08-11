@@ -2,11 +2,12 @@
 
 if (overlapDepth > 0) {
     // Material properties
-    float E_cnt, CoR_cnt;
+    float E_cnt, CoR_cnt, Cohesion_cnt;
     {
         matProxy2ContactParam<float>(E_cnt, E[bodyAMatType], nu[bodyAMatType], E[bodyBMatType], nu[bodyBMatType]);
         // CoR is pair-wise, so obtain it this way
         CoR_cnt = CoR[bodyAMatType][bodyBMatType];
+        Cohesion_cnt = Cohesion[bodyAMatType][bodyBMatType];
     }
 
     // We also need the relative velocity between A and B in global frame to use in the damping terms
@@ -35,4 +36,7 @@ if (overlapDepth > 0) {
     const float gamma_n = (2.f * sqrtf(5.f / 6.f)) * beta * sqrtf(Sn * mass_eff);
 
     force += (k_n * overlapDepth + gamma_n * projection) * B2A;
+
+    // This simple cohesive force acts only during physical contact and attracts A toward B.
+    force += Cohesion_cnt * mass_eff * (-B2A);
 }

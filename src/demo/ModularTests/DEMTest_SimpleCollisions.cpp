@@ -229,8 +229,8 @@ RunResult run_single_collision(const float4& init_rot,
     DEMSim.SetExpandSafetyType("auto");
     DEMSim.SetExpandSafetyAdder(vmax);
 
-    auto mat_type =
-        DEMSim.LoadMaterial({{"E", kYoungsModulus}, {"nu", kPoissonsRatio}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.00}});
+    auto mat_type = DEMSim.LoadMaterial(
+        {{"E", kYoungsModulus}, {"nu", kPoissonsRatio}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.00}, {"Cohesion", 0.0}});
 
     float3 plane_normal = make_float3(0, 0, 1);
     auto plane = DEMSim.AddBCPlane(make_float3(0, 0, 0), plane_normal, mat_type);

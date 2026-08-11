@@ -88,7 +88,7 @@ int main() {
     // Enable contact-normal output for the detailed info query
     DEMSim.SetContactOutputContent({"FORCE", "NORMAL", "OWNER"});
 
-    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}});
+    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}, {"Cohesion", 0.0}});
 
     // =========================================================================
     // Cylinder A (fixed): axis along z, centered at origin.

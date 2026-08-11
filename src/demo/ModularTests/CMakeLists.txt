@@ -17,6 +17,7 @@ SET(MODULAR_TESTS
 		DEMTest_ConeGrazingPlane
 		DEMTest_ConeGrazingSphere
 		DEMTest_CylinderCrossRotation
+		DEMTest_DefaultModelCohesion
 		DEMTest_DeviceDataRetrieval
 		DEMTest_DeviceSelection
 		DEMTest_MeshSlidingOnSlope

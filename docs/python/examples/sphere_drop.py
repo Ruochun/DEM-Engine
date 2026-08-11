@@ -13,6 +13,7 @@ material = solver.LoadMaterial(
         "CoR": 0.5,
         "mu": 0.4,
         "Crr": 0.0,
+        "Cohesion": 0.0,
     }
 )
 

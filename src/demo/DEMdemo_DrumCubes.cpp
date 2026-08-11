@@ -40,8 +40,10 @@ int main() {
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetMeshParticlesLowPoly(true);
 
-    auto mat_type_cube = DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
-    auto mat_type_drum = DEMSim.LoadMaterial({{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
+    auto mat_type_cube =
+        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}, {"Cohesion", 0.0}});
+    auto mat_type_drum =
+        DEMSim.LoadMaterial({{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}, {"Cohesion", 0.0}});
     DEMSim.SetMaterialPropertyPair("mu", mat_type_cube, mat_type_drum, 0.5);
 
     const float cube_size = 0.004f;

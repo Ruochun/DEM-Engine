@@ -60,7 +60,8 @@ int main() {
     DEMSim.SetInitBinNumTarget(8);
     DEMSim.SetErrorOutAvgContacts(10000);
 
-    auto mat = DEMSim.LoadMaterial({{"E", 1e8f}, {"nu", 0.3f}, {"CoR", 0.1f}, {"mu", 0.5f}, {"Crr", 0.f}});
+    auto mat =
+        DEMSim.LoadMaterial({{"E", 1e8f}, {"nu", 0.3f}, {"CoR", 0.1f}, {"mu", 0.5f}, {"Crr", 0.f}, {"Cohesion", 0.0}});
 
     auto lower_cube = DEMSim.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/cube.obj").string(), mat);
     lower_cube->Scale(cube_side);

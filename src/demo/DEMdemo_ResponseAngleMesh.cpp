@@ -89,8 +89,10 @@ int main() {
     const float rpm = 40.0f;
     const float drum_ang_vel = rpm * 2.0f * PI / 60.0f;
 
-    auto mat_type_particle = DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.00}});
-    auto mat_type_drum = DEMSim.LoadMaterial({{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.00}});
+    auto mat_type_particle =
+        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.00}, {"Cohesion", 0.0}});
+    auto mat_type_drum =
+        DEMSim.LoadMaterial({{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.00}, {"Cohesion", 0.0}});
     DEMSim.SetMaterialPropertyPair("mu", mat_type_particle, mat_type_drum, 0.5);
 
     // --------------------- Particle settings block ---------------------

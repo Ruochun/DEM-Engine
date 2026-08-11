@@ -27,8 +27,10 @@ int main() {
     DEMSim.SetOutputContent(OUTPUT_CONTENT::XYZ);
 
     // Define materials
-    auto mat_type_terrain = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.5}});
-    auto mat_type_wheel = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.5}});
+    auto mat_type_terrain =
+        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_wheel =
+        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
 
     // Define the simulation world
     double world_y_size = 2.0;

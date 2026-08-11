@@ -87,7 +87,7 @@ int main() {
     DEMSim.SetExpandSafetyAdder(graze_speed);
     DEMSim.SetContactOutputContent({"OWNER", "FORCE", "POINT", "NORMAL"});
 
-    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}});
+    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}, {"Cohesion", 0.0}});
 
     // =========================================================================
     // Flat plane mesh: plane_20by20.obj (fixed)

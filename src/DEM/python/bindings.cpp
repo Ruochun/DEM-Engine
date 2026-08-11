@@ -842,10 +842,11 @@ valid. IDs use the numbering visible to this process, including the effects of
              "owners tends to change (especially gradually increase) frequently in the simulation.")
         .def("UseFrictionalHertzianModel", &deme::DEMSolver::UseFrictionalHertzianModel,
              py::return_value_policy::reference_internal,
-             "Instruct the solver to use frictonal (history-based) Hertzian contact force model.")
+             "Use the frictional, history-based Hertzian model. Its pairwise Cohesion property contributes an "
+             "attractive force of Cohesion times effective mass during physical contact.")
         .def("UseFrictionlessHertzianModel", &deme::DEMSolver::UseFrictionlessHertzianModel,
              py::return_value_policy::reference_internal,
-             "Instruct the solver to use frictonless Hertzian contact force model")
+             "Use the frictionless Hertzian model with the same pairwise Cohesion property.")
         .def("DefineContactForceModel", &deme::DEMSolver::DefineContactForceModel,
              py::return_value_policy::reference_internal,
              "Define a custom contact force model by a string. Returns a pointer to the force model in use.")

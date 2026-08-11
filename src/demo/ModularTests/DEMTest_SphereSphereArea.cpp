@@ -71,7 +71,7 @@ int main() {
     // Use the simple patch ID-based triangle combination (RefBranch-style)
     DEMSim.SetSimplePatchCombination(true);
 
-    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.f}});
+    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.f}, {"Cohesion", 0.0}});
 
     // =========================================================================
     // Custom force model: write patch penetration and area to owner wildcards.

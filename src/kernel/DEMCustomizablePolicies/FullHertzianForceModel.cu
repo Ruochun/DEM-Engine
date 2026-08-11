@@ -4,7 +4,7 @@
 // when we added extra contact margins
 if (overlapDepth > 0) {
     // Material properties
-    float E_cnt, G_cnt, CoR_cnt, mu_cnt, Crr_cnt;
+    float E_cnt, G_cnt, CoR_cnt, mu_cnt, Crr_cnt, Cohesion_cnt;
     {
         // E and nu are associated with each material, so obtain them this way
         float E_A = E[bodyAMatType];
@@ -16,6 +16,7 @@ if (overlapDepth > 0) {
         CoR_cnt = CoR[bodyAMatType][bodyBMatType];
         mu_cnt = mu[bodyAMatType][bodyBMatType];
         Crr_cnt = Crr[bodyAMatType][bodyBMatType];
+        Cohesion_cnt = Cohesion[bodyAMatType][bodyBMatType];
     }
 
     // We also need the relative velocity between A and B in global frame to use in the damping terms
@@ -124,6 +125,9 @@ if (overlapDepth > 0) {
     delta_tan_x = delta_tan.x;
     delta_tan_y = delta_tan.y;
     delta_tan_z = delta_tan.z;
+
+    // This simple cohesive force acts only during physical contact and attracts A toward B.
+    force += Cohesion_cnt * mass_eff * (-B2A);
 } else {
     // This is to be more rigorous. If in fact no physical contact, then contact wildcards (such as contact history)
     // should be cleared (they will also be automatically cleared if the contact is no longer detected).

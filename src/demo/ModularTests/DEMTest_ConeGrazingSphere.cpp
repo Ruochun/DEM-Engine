@@ -105,7 +105,7 @@ int main() {
     DEMSim.SetContactOutputContent({"OWNER", "FORCE", "POINT", "NORMAL"});
     // DEMSim.SetSimplePatchCombination(true);
 
-    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}});
+    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}, {"Cohesion", 0.0}});
 
     // =========================================================================
     // Sphere mesh: sphere.obj (fixed at origin)

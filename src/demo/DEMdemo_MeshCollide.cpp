@@ -38,8 +38,10 @@ int main() {
     // DEMSim.SetSimplePatchCombination(true);
 
     // Special material: has a cohesion param
-    auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.3}, {"Crr", 0.0}});
-    auto mat_type_2 = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.4}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.0}});
+    auto mat_type_1 =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_2 =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.4}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
     // If you don't have this line, then CoR between thw 2 materials will take average when they are in contact
     DEMSim.SetMaterialPropertyPair("CoR", mat_type_1, mat_type_2, 0.6);
 

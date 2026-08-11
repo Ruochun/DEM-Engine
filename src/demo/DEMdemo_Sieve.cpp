@@ -44,7 +44,8 @@ int main() {
     float min_relpos = -0.015;
     float max_relpos = 0.015;
 
-    auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.5}});
+    auto mat_type_1 =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
 
     // First create clump type 0 for representing the sieve
     float sieve_sp_r = 0.05;

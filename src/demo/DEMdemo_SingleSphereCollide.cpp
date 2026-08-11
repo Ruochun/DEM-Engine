@@ -105,12 +105,6 @@ int main() {
     auto KE_finder = DEMSim.CreateInspector("clump_kinetic_energy");
     float KE;
 
-    // A custom force model can be read in through a file and used by the simulation. Magic, right?
-    auto my_force_model = DEMSim.ReadContactForceModel("ForceModelWithCohesion.cu");
-    // This custom force model still uses contact history arrays, so let's define it
-    my_force_model->SetPerContactWildcards({"delta_time", "delta_tan_x", "delta_tan_y", "delta_tan_z"});
-    my_force_model->SetMustPairwiseMatProp({"CoR", "mu", "Crr", "Cohesion"});
-
     DEMSim.SetInitTimeStep(2e-5);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.8));
     DEMSim.SetCDUpdateFreq(10);
@@ -119,16 +113,11 @@ int main() {
     DEMSim.SetExpandSafetyMultiplier(1.2);
     DEMSim.SetIntegrator("centered_difference");
 
-    // Testing modifying jitify options and force model prerequisites
+    // Testing modifying jitify options
     auto jitify_options = DEMSim.GetJitifyOptions();
     jitify_options.pop_back();  // Remove C++ std17 option
     jitify_options.push_back("-std=c++20");
     DEMSim.SetJitifyOptions(jitify_options);  // Then set it
-    my_force_model->DefineCustomModelPrerequisites(
-        "float3 __device__ GetContactForce(float3 AOwner, float3 BOwner, float3 ALinVel, float3 BLinVel, "
-        "float3 ARotVel, float3 BRotVel, float delta_time, float delta_tan_x, float delta_tan_y, "
-        "float delta_tan_z) { return make_float3(0.0f); }");
-
     DEMSim.Initialize();
 
     DEMSim.UpdateSimParams();  // Not needed; just testing if this function works...

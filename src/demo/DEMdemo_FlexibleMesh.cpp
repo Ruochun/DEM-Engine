@@ -43,8 +43,10 @@ int main() {
     DEMSim.SetContactOutputContent({"OWNER", "FORCE", "POINT", "TORQUE"});
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type_mesh = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.7}, {"Crr", 0.00}});
-    auto mat_type_particle = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.4}, {"Crr", 0.00}});
+    auto mat_type_mesh =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.7}, {"Crr", 0.00}, {"Cohesion", 0.0}});
+    auto mat_type_particle =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.4}, {"Crr", 0.00}, {"Cohesion", 0.0}});
     // If you don't have this line, then values will take average between 2 materials, when they are in contact
     DEMSim.SetMaterialPropertyPair("mu", mat_type_mesh, mat_type_particle, 0.5);
 

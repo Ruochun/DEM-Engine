@@ -22,7 +22,7 @@ int main() {
     sim.SetMeshUniversalContact(true);
     sim.SetExpandSafetyType("auto");
 
-    auto mat = sim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.3}});
+    auto mat = sim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
     sim.AddBCPlane(make_float3(0.f), make_float3(0.f, 0.f, 1.f), mat);
 
     DEMMesh strip;

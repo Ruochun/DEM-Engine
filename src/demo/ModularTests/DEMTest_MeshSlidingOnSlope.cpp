@@ -85,7 +85,7 @@ int main() {
     DEMSim.SetExpandSafetyType("auto");
     // DEMSim.SetSimplePatchCombination(true);
 
-    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}});
+    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.0f}, {"Cohesion", 0.0}});
 
     // =========================================================================
     // Slope mesh: thin_plate.obj (fixed)

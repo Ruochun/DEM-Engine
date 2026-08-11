@@ -179,9 +179,10 @@ class DEMSolver {
     /// yet :/
     void InstructNumOwners(size_t numOwners) { m_instructed_num_owners = numOwners; }
 
-    /// Instruct the solver to use frictonal (history-based) Hertzian contact force model.
+    /// Use the frictional, history-based Hertzian model. Its pairwise Cohesion property contributes an attractive
+    /// force of Cohesion * effective mass during physical contact.
     std::shared_ptr<DEMForceModel> UseFrictionalHertzianModel();
-    /// Instruct the solver to use frictonless Hertzian contact force model.
+    /// Use the frictionless Hertzian model with the same pairwise Cohesion property.
     std::shared_ptr<DEMForceModel> UseFrictionlessHertzianModel();
     /// Define a custom contact force model by a string. Returns a shared_ptr to the force model in use.
     std::shared_ptr<DEMForceModel> DefineContactForceModel(const std::string& model);

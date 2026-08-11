@@ -85,7 +85,8 @@ ScenarioResult runScenario(bool allow_intra_combined_contacts, bool use_batch = 
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, 0));
     DEMSim.SetCDUpdateFreq(1);
 
-    auto mat = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.5}, {"Crr", 0.0}});
+    auto mat =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
     auto sphere = DEMSim.LoadSphereType(kMass, kRadius, mat);
 
     std::vector<std::shared_ptr<DEMClumpTemplate>> component_templates = {sphere, sphere};
@@ -130,7 +131,8 @@ MotionResult runMemberAccelerationScenario(bool angular) {
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, 0));
     DEMSim.SetCDUpdateFreq(1);
 
-    auto mat = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.5}, {"Crr", 0.0}});
+    auto mat =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
     auto sphere = DEMSim.LoadSphereType(kMass, kRadius, mat);
 
     std::vector<std::shared_ptr<DEMClumpTemplate>> component_templates = {sphere, sphere};

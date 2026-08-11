@@ -26,8 +26,10 @@ int main() {
     std::cout << "Note: This is a relatively large demo and should take hours/days to run!!" << std::endl;
 
     // Define materials
-    auto mat_type_terrain = DEMSim.LoadMaterial({{"E", 2e9}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}});
-    auto mat_type_wheel = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.5}, {"Crr", 0.01}});
+    auto mat_type_terrain =
+        DEMSim.LoadMaterial({{"E", 2e9}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.01}, {"Cohesion", 0.0}});
+    auto mat_type_wheel =
+        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.5}, {"Crr", 0.01}, {"Cohesion", 0.0}});
 
     // Define the simulation world
     double world_size = 1.5;
