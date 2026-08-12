@@ -35,9 +35,8 @@ int main() {
     DEMSim.SetNoForceRecord();
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type_cone = DEMSim.LoadMaterial({{"E", 5e7}, {"nu", 0.3}, {"CoR", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_terrain =
-        DEMSim.LoadMaterial({{"E", 5e7}, {"nu", 0.3}, {"CoR", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_cone = DEMSim.LoadMaterial({{"E", 5e7}, {"nu", 0.3}, {"CoR", 0.5}});
+    auto mat_type_terrain = DEMSim.LoadMaterial({{"E", 5e7}, {"nu", 0.3}, {"CoR", 0.5}});
     DEMSim.UseFrictionlessHertzianModel();
 
     float shake_amp = 0.1;

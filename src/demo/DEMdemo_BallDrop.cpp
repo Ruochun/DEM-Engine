@@ -45,12 +45,12 @@ int main() {
             create_directory(out_dir);
 
             // E, nu, CoR, mu, Crr...
-            auto mat_type_ball = DEMSim.LoadMaterial(
-                {{"E", 7e7}, {"nu", 0.24}, {"CoR", 0.9}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-            auto mat_type_terrain = DEMSim.LoadMaterial(
-                {{"E", 7e7}, {"nu", 0.24}, {"CoR", 0.9}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-            auto mat_type_terrain_sim = DEMSim.LoadMaterial(
-                {{"E", 7e7}, {"nu", 0.24}, {"CoR", 0.9}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+            auto mat_type_ball =
+                DEMSim.LoadMaterial({{"E", 7e7}, {"nu", 0.24}, {"CoR", 0.9}, {"mu", 0.3}, {"Crr", 0.0}});
+            auto mat_type_terrain =
+                DEMSim.LoadMaterial({{"E", 7e7}, {"nu", 0.24}, {"CoR", 0.9}, {"mu", 0.3}, {"Crr", 0.0}});
+            auto mat_type_terrain_sim =
+                DEMSim.LoadMaterial({{"E", 7e7}, {"nu", 0.24}, {"CoR", 0.9}, {"mu", 0.3}, {"Crr", 0.0}});
 
             float step_size = 2e-6;
             double world_size = 0.2;

@@ -53,8 +53,7 @@ void EllpsiodFallingOver() {
     // Then calculate mass and MOI
     float mass = 5.0;
     // E, nu, CoR, mu, Crr
-    auto mat_type_1 =
-        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.25}, {"Crr", 0.2}, {"Cohesion", 0.0}});
+    auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.25}, {"Crr", 0.2}});
     float3 MOI = make_float3(1. / 5. * mass * (0.2 * 0.2 + 0.5 * 0.5), 1. / 5. * mass * (0.2 * 0.2 + 0.5 * 0.5),
                              1. / 5. * mass * (0.2 * 0.2 + 0.2 * 0.2));
     auto ellipsoid_template = DEMSim.LoadClumpType(mass, MOI, radii, relPos, mat_type_1);
@@ -103,8 +102,7 @@ void SphereRollUpIncline() {
         DEMSolver DEMSim;
         SetSolverProp(DEMSim);
 
-        auto mat_type_1 =
-            DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", mu}, {"Crr", 0.15}, {"Cohesion", 0.0}});
+        auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", mu}, {"Crr", 0.15}});
         // A ball
         auto sphere_template = DEMSim.LoadSphereType(mass, sphere_rad, mat_type_1);
 
@@ -155,8 +153,7 @@ void SphereRollUpIncline() {
             SetSolverProp(DEMSim);
             DEMSim.SetVerbosity("QUIET");
 
-            auto mat_type_1 = DEMSim.LoadMaterial(
-                {{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", mu}, {"Crr", Crr}, {"Cohesion", 0.0}});
+            auto mat_type_1 = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", mu}, {"Crr", Crr}});
             // A ball
             auto sphere_template = DEMSim.LoadSphereType(mass, sphere_rad, mat_type_1);
 
@@ -217,8 +214,8 @@ void SphereStack() {
                 SetSolverProp(DEMSim);
                 DEMSim.SetVerbosity("ERROR");
 
-                auto mat_type_1 = DEMSim.LoadMaterial(
-                    {{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", mu}, {"Crr", Crr}, {"Cohesion", 0.0}});
+                auto mat_type_1 =
+                    DEMSim.LoadMaterial({{"E", 2e6}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", mu}, {"Crr", Crr}});
                 // 2 types of spheres
                 auto sphere_top_template = DEMSim.LoadSphereType(m_top, sphere_rad, mat_type_1);
                 auto sphere_bot_template = DEMSim.LoadSphereType(m_bot, sphere_rad, mat_type_1);

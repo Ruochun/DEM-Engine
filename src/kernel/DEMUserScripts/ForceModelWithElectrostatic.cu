@@ -34,7 +34,7 @@ if (overlapDepth > 0) {
     }
 
     // A few re-usables
-    float mass_eff, sqrt_Rd, beta;
+    float mass_eff, cnt_rad, beta;
     float3 vrel_tan;
     float3 delta_tan = make_float3(delta_tan_x, delta_tan_y, delta_tan_z);
 
@@ -54,8 +54,10 @@ if (overlapDepth > 0) {
         }
 
         mass_eff = (AOwnerMass * BOwnerMass) / (AOwnerMass + BOwnerMass);
-        sqrt_Rd = sqrt(overlapDepth * (ARadius * BRadius) / (ARadius + BRadius));
-        const float Sn = 2. * E_cnt * sqrt_Rd;
+        // Derive the equivalent contact radius from the actual overlap geometry so non-spherical contacts use
+        // their measured overlap area rather than an inaccurate analytical radius.
+        cnt_rad = sqrtf(overlapArea / deme::PI);
+        const float Sn = 2. * E_cnt * cnt_rad;
 
         const float loge = (CoR_cnt < DEME_TINY_FLOAT) ? log(DEME_TINY_FLOAT) : log(CoR_cnt);
         beta = loge / sqrt(loge * loge + deme::PI_SQUARED);
@@ -72,7 +74,7 @@ if (overlapDepth > 0) {
         // Figure out if we should apply rolling resistance force
         bool should_add_rolling_resistance = true;
         {
-            const float R_eff = sqrtf((ARadius * BRadius) / (ARadius + BRadius));
+            const float R_eff = (cnt_rad * cnt_rad) / overlapDepth;
             const float kn_simple = deme::FOUR_OVER_THREE * E_cnt * sqrtf(R_eff);
             const float gn_simple = -2.f * sqrtf(deme::FIVE_OVER_THREE * mass_eff * E_cnt) * beta * powf(R_eff, 0.25f);
 
@@ -103,7 +105,7 @@ if (overlapDepth > 0) {
 
     // Tangential force part
     if (mu_cnt > 0.0) {
-        const float kt = 8. * G_cnt * sqrt_Rd;
+        const float kt = 8. * G_cnt * cnt_rad;
         const float gt = -deme::TWO_TIMES_SQRT_FIVE_OVER_SIX * beta * sqrt(mass_eff * kt);
         float3 tangent_force = -kt * delta_tan - gt * vrel_tan;
         const float ft = length(tangent_force);

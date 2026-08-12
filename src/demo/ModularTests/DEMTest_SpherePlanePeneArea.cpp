@@ -69,7 +69,7 @@ int main() {
     // Mesh-related contacts must be enabled
     DEMSim.SetMeshUniversalContact(true);
 
-    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.f}, {"Cohesion", 0.0}});
+    auto mat = DEMSim.LoadMaterial({{"E", E}, {"nu", nu}, {"CoR", CoR}, {"mu", mu}, {"Crr", 0.f}});
 
     // =========================================================================
     // Custom force model: write patch penetration and area to owner wildcards.

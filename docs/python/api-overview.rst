@@ -15,10 +15,6 @@ Core objects
 
 ``DEMMaterial``
    Stores material properties loaded through ``DEMSolver.LoadMaterial``.
-   The default frictional and frictionless Hertzian models use the pairwise
-   ``Cohesion`` property. It adds an attractive force equal to
-   ``Cohesion * effective mass`` while bodies physically overlap. Specify zero
-   when no cohesion is wanted.
 
 ``DEMClumpTemplate`` and ``DEMClumpBatch``
    Describe clump topology and a group of instances. A batch returned by

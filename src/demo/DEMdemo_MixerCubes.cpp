@@ -42,10 +42,8 @@ int main() {
     DEMSim.SetNoForceRecord();
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type_mixer =
-        DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_granular =
-        DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.2}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_mixer = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.0}});
+    auto mat_type_granular = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.2}, {"Crr", 0.0}});
     // If you don't have this line, then mu between mixer material and granular material will be 0.35 (average of the
     // two).
     DEMSim.SetMaterialPropertyPair("mu", mat_type_mixer, mat_type_granular, 0.5);

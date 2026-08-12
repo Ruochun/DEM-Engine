@@ -98,8 +98,7 @@ bool testFixedOwnerData(int visible_devices) {
 
     auto force_model = solver.GetContactForceModel();
     force_model->SetPerOwnerWildcards({"retrieval_tag"});
-    auto material =
-        solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto material = solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}});
     auto sphere = solver.LoadSphereType(2.5f, 0.5f, material);
 
     const std::vector<float3> positions = {make_float3(1.0f, 1.0f, 1.0f), make_float3(1.8f, 1.0f, 1.0f),
@@ -270,8 +269,7 @@ bool testNonJitifiedMassData() {
     solver.SetVerbosity("ERROR");
     solver.DisableJitifyMassProperties();
     solver.InstructBoxDomainDimension(4, 4, 4);
-    auto material =
-        solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto material = solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}});
     auto sphere = solver.LoadSphereType(3.25f, 0.4f, material);
     auto batch = solver.AddClumps(sphere, std::vector<float3>{make_float3(1, 1, 1), make_float3(3, 1, 1)});
     auto tracker = solver.Track(batch);

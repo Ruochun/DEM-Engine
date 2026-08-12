@@ -38,8 +38,7 @@ int main() {
     DEMSim.SetMeshUniversalContact(true);
 
     // Load a material
-    auto mat_type =
-        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.6}, {"mu", 0.5}});
 
     // Add a bottom plane
     DEMSim.AddBCPlane(make_float3(0, 0, -4), make_float3(0, 0, 1), mat_type);

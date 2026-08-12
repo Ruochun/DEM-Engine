@@ -43,10 +43,8 @@ int main() {
     DEMSim.SetMeshUniversalContact(true);
 
     // Define material properties
-    auto mat_box =
-        DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.4}, {"Crr", 0.1}, {"Cohesion", 0.0}});
-    auto mat_plane =
-        DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.1}, {"Cohesion", 0.0}});
+    auto mat_box = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.4}, {"Crr", 0.1}});
+    auto mat_plane = DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.4}, {"mu", 0.3}, {"Crr", 0.1}});
 
     // Add a bottom plane at z = 0
     DEMSim.AddBCPlane(make_float3(0, 0, 0), make_float3(0, 0, 1), mat_plane);

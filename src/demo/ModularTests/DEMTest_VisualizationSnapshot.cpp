@@ -24,8 +24,7 @@ int main() {
     solver.SetVerbosity("ERROR");
     solver.InstructBoxDomainDimension(8.0f, 8.0f, 8.0f);
 
-    auto material =
-        solver.LoadMaterial({{"E", 1.0e7}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.4}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto material = solver.LoadMaterial({{"E", 1.0e7}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.4}, {"Crr", 0.0}});
     auto sphere = solver.LoadSphereType(1.0f, 0.25f, material);
     solver.AddClumps(sphere, std::vector<float3>{make_float3(1.0f, 2.0f, 3.0f)});
 

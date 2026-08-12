@@ -1,10 +1,11 @@
-// DEM force calculation strategies, modifiable
+// DEM force calculation strategies for a model with a cohesive force.
+// Note the force is in effect only when two entities are in contact
 
 // No need to do any contact force calculation if no contact. And it can happen,
 // when we added extra contact margins
 if (overlapDepth > 0) {
     // Material properties
-    float E_cnt, G_cnt, CoR_cnt, mu_cnt, Crr_cnt;
+    float E_cnt, G_cnt, CoR_cnt, mu_cnt, Crr_cnt, Cohesion_coeff;
     {
         // E and nu are associated with each material, so obtain them this way
         float E_A = E[bodyAMatType];
@@ -16,6 +17,7 @@ if (overlapDepth > 0) {
         CoR_cnt = CoR[bodyAMatType][bodyBMatType];
         mu_cnt = mu[bodyAMatType][bodyBMatType];
         Crr_cnt = Crr[bodyAMatType][bodyBMatType];
+        Cohesion_coeff = Cohesion[bodyAMatType][bodyBMatType];
     }
 
     // We also need the relative velocity between A and B in global frame to use in the damping terms
@@ -47,7 +49,6 @@ if (overlapDepth > 0) {
         }
 
         mass_eff = (AOwnerMass * BOwnerMass) / (AOwnerMass + BOwnerMass);
-
         // Contact radius (radial distance from contact center axis) called cnt_rad, computed from area
         cnt_rad = sqrtf(overlapArea / deme::PI);
         const float Sn = 2.f * E_cnt * cnt_rad;
@@ -67,7 +68,7 @@ if (overlapDepth > 0) {
         // Figure out if we should apply rolling resistance force
         bool should_add_rolling_resistance = true;
         {
-            // Use geometric equivalence R_eff ≈ cnt_rad^2 / overlapDepth
+            // Use geometric equivalence R_eff ~= cnt_rad^2 / overlapDepth
             const float R_eff = (cnt_rad * cnt_rad) / overlapDepth;
 
             const float kn_simple = (4.f / 3.f) * E_cnt * sqrtf(R_eff);
@@ -124,6 +125,12 @@ if (overlapDepth > 0) {
     delta_tan_x = delta_tan.x;
     delta_tan_y = delta_tan.y;
     delta_tan_z = delta_tan.z;
+
+    // Finally add a simple cohesion model.
+    // The cohesion model is as simple as simple as Cohesion_coeff times effective mass.
+    // And cohesion pulls A towards B, so direction is -B2A
+    force += Cohesion_coeff * mass_eff * (-B2A);
+
 } else {
     // This is to be more rigorous. If in fact no physical contact, then contact wildcards (such as contact history)
     // should be cleared (they will also be automatically cleared if the contact is no longer detected).

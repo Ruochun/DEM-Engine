@@ -6,7 +6,7 @@ import deme
 
 solver = deme.DEMSolver([0])
 material = solver.LoadMaterial(
-    {"E": 1.0e7, "nu": 0.3, "CoR": 0.5, "mu": 0.4, "Crr": 0.0, "Cohesion": 0.0}
+    {"E": 1.0e7, "nu": 0.3, "CoR": 0.5, "mu": 0.4, "Crr": 0.0}
 )
 solver.InstructBoxDomainDimension(1.0, 1.0, 1.0)
 sphere_type = solver.LoadSphereType(0.01, 0.025, material)

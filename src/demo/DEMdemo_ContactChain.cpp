@@ -45,11 +45,11 @@ int main() {
     create_directories(out_dir);
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type_terrain = DEMSim.LoadMaterial(
-        {{"E", 1e7}, {"nu", 0.33}, {"CoR", 0.3}, {"mu", innerFriction}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_terrain =
+        DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.33}, {"CoR", 0.3}, {"mu", innerFriction}, {"Crr", 0.0}});
     // this second material definition is used at time zero per the particle initialization.
-    auto mat_type_terrain_zero = DEMSim.LoadMaterial(
-        {{"E", 1e7}, {"nu", 0.33}, {"CoR", 0.0}, {"mu", innerFriction}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_terrain_zero =
+        DEMSim.LoadMaterial({{"E", 1e7}, {"nu", 0.33}, {"CoR", 0.0}, {"mu", innerFriction}, {"Crr", 0.0}});
 
     // Defining some of the quantities that are used later for this script.
     float terrain_rad = 0.01;

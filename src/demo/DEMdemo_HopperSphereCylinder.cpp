@@ -62,24 +62,18 @@ int main() {
     path out_dir = current_path();
     out_dir /= "DemoOutput_HopperSphereCylinder";
 
-    auto mat_type_bottom =
-        DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_flume =
-        DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_walls =
-        DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_bottom = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}});
+    auto mat_type_flume = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}});
+    auto mat_type_walls = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.60}});
 
-    // auto mat_spheres = DEMSim.LoadMaterial({{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.50}, {"Crr", 0.03},
-    // {"Cohesion", 0.0}});
+    // auto mat_spheres = DEMSim.LoadMaterial({{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.50}, {"Crr", 0.03}});
 
     // auto mat_cylinders = DEMSim.LoadMaterial({{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.60}, {"Crr",
-    // 0.05}, {"Cohesion", 0.0}});
+    // 0.05}});
 
-    auto mat_spheres = DEMSim.LoadMaterial(
-        {{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.40}, {"Crr", 0.04}, {"Cohesion", 0.0}});
+    auto mat_spheres = DEMSim.LoadMaterial({{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.40}, {"Crr", 0.04}});
 
-    auto mat_cylinders = DEMSim.LoadMaterial(
-        {{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.30}, {"Crr", 0.03}, {"Cohesion", 0.0}});
+    auto mat_cylinders = DEMSim.LoadMaterial({{"E", 1.0e7}, {"nu", 0.35}, {"CoR", 0.85}, {"mu", 0.30}, {"Crr", 0.03}});
 
     DEMSim.SetMaterialPropertyPair("CoR", mat_type_walls, mat_cylinders, 0.7);
     DEMSim.SetMaterialPropertyPair("Crr", mat_type_walls, mat_cylinders, 0.05);

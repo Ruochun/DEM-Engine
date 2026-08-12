@@ -88,12 +88,9 @@ int main() {
     create_directory(out_dir);
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type_cube =
-        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.8}, {"mu", 0.4}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_granular_1 =
-        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.8}, {"mu", 0.3}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_granular_2 =
-        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.8}, {"mu", 0.4}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_cube = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.8}, {"mu", 0.4}, {"Crr", 0.0}});
+    auto mat_type_granular_1 = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.8}, {"mu", 0.3}, {"Crr", 0.0}});
+    auto mat_type_granular_2 = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.8}, {"mu", 0.4}, {"Crr", 0.0}});
     // CoR is a pair-wise property, so it should be mentioned here
     DEMSim.SetMaterialPropertyPair("CoR", mat_type_cube, mat_type_granular_1, 0.8);
     DEMSim.SetMaterialPropertyPair("CoR", mat_type_cube, mat_type_granular_2, 0.8);

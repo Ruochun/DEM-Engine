@@ -46,7 +46,7 @@ int main() {
     DEMSim.SetNoForceRecord();
 
     // Material for the planets, but they ultimately do not matter at all.
-    auto mat_type = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.8}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type = DEMSim.LoadMaterial({{"E", 10e9}, {"nu", 0.3}, {"CoR", 0.8}});
     // A custom force model that has GMm/R^2 force in it.
     auto my_force_model = DEMSim.ReadContactForceModel("ForceModelWithGravity.cu");
     // Those 2 following lines are needed.

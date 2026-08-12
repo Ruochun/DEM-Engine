@@ -25,8 +25,7 @@ int main() {
     DEMSim.SetOutputContent(OUTPUT_CONTENT::ABSV);
 
     // E, nu, CoR, mu, Crr...
-    auto mat_type =
-        DEMSim.LoadMaterial({{"E", 1e10}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.3}, {"Crr", 0.01}, {"Cohesion", 0.0}});
+    auto mat_type = DEMSim.LoadMaterial({{"E", 1e10}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.3}, {"Crr", 0.01}});
 
     // Bounding box...
     DEMSim.InstructBoxDomainBoundingBC("all", mat_type);

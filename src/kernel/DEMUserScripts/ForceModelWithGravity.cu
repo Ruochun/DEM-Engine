@@ -32,8 +32,9 @@ if (overlapDepth > 0) {
     const float projection = dot(velB2A, B2A);
 
     const float mass_eff = (AOwnerMass * BOwnerMass) / (AOwnerMass + BOwnerMass);
-    const float sqrt_Rd = sqrt(overlapDepth * (ARadius * BRadius) / (ARadius + BRadius));
-    const float Sn = 2. * E_cnt * sqrt_Rd;
+    // Use the measured overlap area so the Hertzian response remains meaningful for mesh-mesh contacts.
+    const float cnt_rad = sqrtf(overlapArea / deme::PI);
+    const float Sn = 2. * E_cnt * cnt_rad;
 
     const float loge = (CoR_cnt < DEME_TINY_FLOAT) ? log(DEME_TINY_FLOAT) : log(CoR_cnt);
     const float beta = loge / sqrt(loge * loge + deme::PI_SQUARED);

@@ -56,10 +56,8 @@ int main() {
     float world_halfsize = 5.;
     float bowl_bottom = -world_halfsize;
 
-    auto mat_type_walls =
-        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
-    auto mat_type_particles =
-        DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.7}, {"mu", 0.5}, {"Crr", 0.0}, {"Cohesion", 0.0}});
+    auto mat_type_walls = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.3}, {"mu", 0.5}});
+    auto mat_type_particles = DEMSim.LoadMaterial({{"E", 1e9}, {"nu", 0.3}, {"CoR", 0.7}, {"mu", 0.5}});
     // If you don't have this line, then CoR between wall material and granular material will be 0.5 (average of the
     // two).
     DEMSim.SetMaterialPropertyPair("CoR", mat_type_walls, mat_type_particles, 0.3);
