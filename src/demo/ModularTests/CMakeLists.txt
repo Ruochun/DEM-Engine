@@ -19,6 +19,7 @@ SET(MODULAR_TESTS
 		DEMTest_CylinderCrossRotation
 		DEMTest_DeviceDataRetrieval
 		DEMTest_DeviceSelection
+		DEMTest_MeshBox1Particle
 		DEMTest_MeshSlidingOnSlope
 		DEMTest_MeshTemplate
 		DEMTest_PatchLocations
