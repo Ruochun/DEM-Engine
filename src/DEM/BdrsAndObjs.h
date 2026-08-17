@@ -34,9 +34,10 @@ struct DEMSphereParams_t {
     objNormal_t normal;
 };
 
-/// Cone (pos is tip pos)
+/// Cone side. `cone_tip` is the apex, `dir` points toward the base, and `slope` is radial growth per axial distance.
 struct DEMConeParams_t {
     float3 cone_tip;
+    float3 dir;
     float slope;
     float hmax;
     float hmin;
@@ -64,6 +65,23 @@ struct DEMCylinderParams_t {
     float radius;
     objNormal_t normal;
 };
+
+/// Validate the geometric parameters shared by infinite and bounded analytical cones.
+inline void assertConeInputs(const float3 axis,
+                             const float slope,
+                             const float hmin,
+                             const float hmax,
+                             const std::string& function_name) {
+    if (!std::isfinite(axis.x) || !std::isfinite(axis.y) || !std::isfinite(axis.z) || length(axis) <= DEME_TINY_FLOAT) {
+        DEME_ERROR("%s's axis argument must be a finite, non-zero direction.", function_name.c_str());
+    }
+    if (!std::isfinite(slope) || slope <= 0.0f) {
+        DEME_ERROR("%s's slope argument must be finite and positive.", function_name.c_str());
+    }
+    if (!std::isfinite(hmin) || !std::isfinite(hmax) || hmin < 0.0f || hmax <= hmin) {
+        DEME_ERROR("%s's axial bounds must be finite and satisfy 0 <= hmin < hmax.", function_name.c_str());
+    }
+}
 
 /// API-(Host-)side struct that holds cached user-input external objects
 class DEMExternObj : public DEMInitializer {
@@ -100,6 +118,7 @@ class DEMExternObj : public DEMInitializer {
         DEMPlateParams_t plate;
         DEMPlaneParams_t plane;
         DEMCylinderParams_t cyl;
+        DEMConeParams_t cone;
     };
     std::vector<DEMAnalEntParams> entity_params;
 
@@ -228,6 +247,67 @@ class DEMExternObj : public DEMInitializer {
         assertThreeElements(pos, "AddCylinder", "pos");
         assertThreeElements(axis, "AddCylinder", "axis");
         AddCylinder(make_float3(pos[0], pos[1], pos[2]), make_float3(axis[0], axis[1], axis[2]), rad, material, normal);
+    }
+
+    /// Add an analytical single-nappe cone side extending indefinitely from `tip` along `axis`.
+    void AddCone(const float3 tip,
+                 const float3 axis,
+                 const float slope,
+                 const std::shared_ptr<DEMMaterial>& material,
+                 const objNormal_t normal = ENTITY_NORMAL_INWARD) {
+        assertConeInputs(axis, slope, 0.0f, DEME_HUGE_FLOAT, "AddCone");
+        types.push_back(OBJ_COMPONENT::CONE_INF);
+        materials.push_back(material);
+        DEMAnalEntParams params;
+        params.cone.cone_tip = tip;
+        params.cone.dir = normalize(axis);
+        params.cone.slope = slope;
+        params.cone.hmin = 0.0f;
+        params.cone.hmax = DEME_HUGE_FLOAT;
+        params.cone.normal = normal;
+        entity_params.push_back(params);
+    }
+    void AddCone(const std::vector<float>& tip,
+                 const std::vector<float>& axis,
+                 const float slope,
+                 const std::shared_ptr<DEMMaterial>& material,
+                 const objNormal_t normal = ENTITY_NORMAL_INWARD) {
+        assertThreeElements(tip, "AddCone", "tip");
+        assertThreeElements(axis, "AddCone", "axis");
+        AddCone(make_float3(tip[0], tip[1], tip[2]), make_float3(axis[0], axis[1], axis[2]), slope, material, normal);
+    }
+
+    /// Add a cone or frustum side clipped to hmin <= dot(point - tip, axis) <= hmax; caps are not included.
+    void AddConeSegment(const float3 tip,
+                        const float3 axis,
+                        const float slope,
+                        const float hmin,
+                        const float hmax,
+                        const std::shared_ptr<DEMMaterial>& material,
+                        const objNormal_t normal = ENTITY_NORMAL_INWARD) {
+        assertConeInputs(axis, slope, hmin, hmax, "AddConeSegment");
+        types.push_back(OBJ_COMPONENT::CONE);
+        materials.push_back(material);
+        DEMAnalEntParams params;
+        params.cone.cone_tip = tip;
+        params.cone.dir = normalize(axis);
+        params.cone.slope = slope;
+        params.cone.hmin = hmin;
+        params.cone.hmax = hmax;
+        params.cone.normal = normal;
+        entity_params.push_back(params);
+    }
+    void AddConeSegment(const std::vector<float>& tip,
+                        const std::vector<float>& axis,
+                        const float slope,
+                        const float hmin,
+                        const float hmax,
+                        const std::shared_ptr<DEMMaterial>& material,
+                        const objNormal_t normal = ENTITY_NORMAL_INWARD) {
+        assertThreeElements(tip, "AddConeSegment", "tip");
+        assertThreeElements(axis, "AddConeSegment", "axis");
+        AddConeSegment(make_float3(tip[0], tip[1], tip[2]), make_float3(axis[0], axis[1], axis[2]), slope, hmin, hmax,
+                       material, normal);
     }
 };
 

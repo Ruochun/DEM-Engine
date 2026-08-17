@@ -297,15 +297,28 @@ class DualArray : private NonCopyable {
 
     void resize(size_t n) {
         assert(m_host_vec_ptr == m_pinned_vec.get() && "resize() requires internal host ownership");
+        const size_t old_size = size();
         resizeHost(n);
         resizeDevice(n);
+        // resizeHost value-initializes the host tail, while resizeDevice only preserves the old device prefix.
+        // Define the newly grown device range without overwriting device-authoritative values in that prefix.
+        // This assumes prior growth also used resize(); shrink and same-size calls intentionally leave device storage
+        // untouched, and bytes beyond the logical size are not considered live array elements.
+        if (n > old_size) {
+            toDevice(old_size, n - old_size);
+        }
     }
 
-    // This resize flavor fills host values only!
     void resize(size_t n, const T& val) {
         assert(m_host_vec_ptr == m_pinned_vec.get() && "resize() requires internal host ownership");
+        const size_t old_size = size();
         resizeHost(n, val);
         resizeDevice(n);
+        // Keep the fill-value contract symmetric across host and device residences. Only the grown tail is copied so
+        // existing device data remains authoritative. The same growth and shrink preconditions as resize(n) apply.
+        if (n > old_size) {
+            toDevice(old_size, n - old_size);
+        }
     }
 
     void resizeHost(size_t n) {

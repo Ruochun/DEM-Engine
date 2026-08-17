@@ -53,7 +53,7 @@ constexpr uint8_t VOXEL_RES_POWER2 = sizeof(subVoxelPos_t) * DEME_BITS_PER_BYTE;
 constexpr uint8_t VOXEL_COUNT_POWER2 = sizeof(voxelID_t) * DEME_BITS_PER_BYTE;
 constexpr int64_t MAX_SUBVOXEL = (int64_t)1 << VOXEL_RES_POWER2;
 
-#define DEME_NUM_BODIES_PER_BLOCK 1024
+#define DEME_NUM_BODIES_PER_BLOCK 512
 #define DEME_NUM_MODERATORS_PER_BLOCK 512
 
 #define DEME_NUM_TRIANGLE_PER_BLOCK 512
@@ -153,6 +153,8 @@ constexpr contact_t ALL_CONTACT_TYPES[NUM_SUPPORTED_CONTACT_TYPES] = {
 const objType_t ANAL_OBJ_TYPE_PLANE = 0;
 const objType_t ANAL_OBJ_TYPE_PLATE = 1;
 const objType_t ANAL_OBJ_TYPE_CYL_INF = 2;
+const objType_t ANAL_OBJ_TYPE_CONE_INF = 3;
+const objType_t ANAL_OBJ_TYPE_CONE = 4;
 const objNormal_t ENTITY_NORMAL_INWARD = 0;
 const objNormal_t ENTITY_NORMAL_OUTWARD = 1;
 

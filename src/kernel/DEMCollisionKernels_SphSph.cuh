@@ -82,6 +82,17 @@ __host__ __device__ deme::contact_t checkSpheresOverlap(const T1& XA,
     return contactTypePrimitive;
 }
 
+// Return a deterministic radial direction for points on a cone axis, where the closest direction is non-unique.
+inline __host__ __device__ float3 anyPerpendicularUnitVector(const float3& axis) {
+    float3 reference = (fabsf(axis.x) < 0.5f) ? make_float3(1, 0, 0) : make_float3(0, 1, 0);
+    float3 perpendicular = cross(axis, reference);
+    if (length(perpendicular) < DEME_TINY_FLOAT) {
+        reference = make_float3(0, 0, 1);
+        perpendicular = cross(axis, reference);
+    }
+    return normalize(perpendicular);
+}
+
 // Check whether a sphere and an analytical boundary are in contact, and gives overlap depth, contact point and contact
 // normal. Returned contact type is only useful for kT to sort contact types, as for dT's force calculation, the flavor
 // used is determined by type B's actual objType.
@@ -146,6 +157,67 @@ __host__ __device__ deme::contact_t checkSphereEntityOverlap(const T1& A,
                 cntNormal = dirB;
                 CP = A;
             }
+            return contactTypePrimitive;
+        }
+        case (deme::ANAL_OBJ_TYPE_CONE_INF):
+        case (deme::ANAL_OBJ_TYPE_CONE): {
+            const T3 cone_slope = (T3)size1B;
+            const T3 min_h = (T3)size2B;
+            const T3 max_h = (T3)size3B;
+            const T1 tip2sph = A - B;
+            const T1 cone_axis = to_real3<float3, T1>(dirB);
+            const T3 axial_dist = dot(tip2sph, cone_axis);
+            const T1 radial_vec = tip2sph - cone_axis * axial_dist;
+            const T3 radial_dist = length(radial_vec);
+            const float3 radial_dir = (radial_dist >= (T3)DEME_TINY_FLOAT)
+                                          ? to_real3<T1, float3>(radial_vec / radial_dist)
+                                          : anyPerpendicularUnitVector(dirB);
+
+            // Project the sphere center onto the cone generator in (axial distance, radius) space. Clamping this
+            // projection supplies exact apex/rim contact for bounded cone segments without adding mesh facets.
+            const T3 inv_slope_metric = (T3)1.0 / ((T3)1.0 + cone_slope * cone_slope);
+            T3 closest_h = (axial_dist + cone_slope * radial_dist) * inv_slope_metric;
+            bool closest_is_edge = false;
+            if (closest_h < min_h) {
+                closest_h = min_h;
+                closest_is_edge = true;
+            } else if (closest_h > max_h) {
+                closest_h = max_h;
+                closest_is_edge = true;
+            }
+
+            if (closest_is_edge) {
+                const T1 closest =
+                    B + cone_axis * closest_h + to_real3<float3, T1>(radial_dir) * (cone_slope * closest_h);
+                const T1 feature2sph = A - closest;
+                const T3 dist_to_feature = length(feature2sph);
+                overlapDepth = (T3)radA + (T3)beta4Entity - dist_to_feature;
+                contactTypePrimitive = (overlapDepth < (T3)0.0) ? deme::NOT_A_CONTACT : deme::SPHERE_ANALYTICAL_CONTACT;
+                overlapArea = (contactTypePrimitive == deme::NOT_A_CONTACT)
+                                  ? (T3)0.0
+                                  : deme::PI * ((T3)2.0 * (T3)radA * overlapDepth - overlapDepth * overlapDepth);
+
+                if (dist_to_feature >= (T3)DEME_TINY_FLOAT) {
+                    cntNormal = to_real3<T1, float3>(feature2sph / dist_to_feature);
+                } else {
+                    const T3 side_normal_len = sqrt((T3)1.0 + cone_slope * cone_slope);
+                    cntNormal = normal_sign * ((float)cone_slope * dirB - radial_dir) / side_normal_len;
+                }
+                CP = A - to_real3<float3, T1>(cntNormal * ((T3)radA - overlapDepth / (T3)2.0));
+                return contactTypePrimitive;
+            }
+
+            // Directional side contact follows the analytical-cylinder convention: inward normals retain particles
+            // inside the cone, while outward normals model the exterior of a solid cone.
+            const T3 side_normal_len = sqrt((T3)1.0 + cone_slope * cone_slope);
+            const T3 signed_gap = (T3)normal_sign * (cone_slope * axial_dist - radial_dist) / side_normal_len;
+            overlapDepth = (T3)radA + (T3)beta4Entity - signed_gap;
+            contactTypePrimitive = (overlapDepth < (T3)0.0) ? deme::NOT_A_CONTACT : deme::SPHERE_ANALYTICAL_CONTACT;
+            overlapArea = (contactTypePrimitive == deme::NOT_A_CONTACT)
+                              ? (T3)0.0
+                              : deme::PI * ((T3)2.0 * (T3)radA * overlapDepth - overlapDepth * overlapDepth);
+            cntNormal = normal_sign * ((float)cone_slope * dirB - radial_dir) / side_normal_len;
+            CP = A - to_real3<float3, T1>(cntNormal * ((T3)radA - overlapDepth / (T3)2.0));
             return contactTypePrimitive;
         }
         default:

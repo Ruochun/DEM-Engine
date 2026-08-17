@@ -79,26 +79,23 @@ int main() {
     DEMSim.AddClumps(my_template, input_xyz);
     std::cout << "Total num of particles: " << input_xyz.size() << std::endl;
 
-    // Load in the cone used for this penetration test
-    auto cone_tip = DEMSim.AddWavefrontMeshObject(GetDEMEDataFile("mesh/cone.obj"), mat_type_cone);
+    // Use an exact analytical cone side for the penetrating tip; the attached cylindrical body remains a mesh.
+    const float tip_height = std::sqrt(3.0f);
+    const float cone_radius = cone_diameter / 2;
+    const float cone_height = cone_radius * tip_height;
+    auto cone_tip = DEMSim.AddExternalObject();
+    cone_tip->AddConeSegment(make_float3(0, 0, -3.0f / 4.0f * cone_height), make_float3(0, 0, 1), 1.0f / tip_height,
+                             0.0f, cone_height, mat_type_cone, ENTITY_NORMAL_OUTWARD);
     auto cone_body = DEMSim.AddWavefrontMeshObject(GetDEMEDataFile("mesh/cyl_r1_h2.obj"), mat_type_cone);
-    std::cout << "Total num of triangles: " << cone_tip->GetNumTriangles() + cone_body->GetNumTriangles() << std::endl;
+    std::cout << "Total num of mesh triangles: " << cone_body->GetNumTriangles() << std::endl;
 
-    // The initial cone mesh has base radius 1, and height 1. Let's stretch it a bit so it has a 60deg tip, instead of
-    // 90deg.
-    float tip_height = std::sqrt(3.);
-    cone_tip->Scale(make_float3(1, 1, tip_height));
-    // Then set mass properties
-    float cone_mass = 7.8e3 * tip_height / 3 * math_PI;
+    // Set the analytical owner's mass properties about a solid cone centroid located 3H/4 above its apex.
+    float cone_mass = 7.8e3 * math_PI * cone_radius * cone_radius * cone_height / 3;
     cone_tip->SetMass(cone_mass);
-    // You can checkout https://en.wikipedia.org/wiki/List_of_moments_of_inertia
-    cone_tip->SetMOI(make_float3(cone_mass * (3. / 20. + 3. / 80. * tip_height * tip_height),
-                                 cone_mass * (3. / 20. + 3. / 80. * tip_height * tip_height), 3 * cone_mass / 10));
-    // This cone mesh has its tip at the origin. And, float4 quaternion pattern is (x, y, z, w).
-    cone_tip->InformCentroidPrincipal(make_float3(0, 0, 3. / 4. * tip_height), make_float4(0, 0, 0, 1));
-    // Note the scale method will scale mass and MOI automatically. But this only goes for the case you scale xyz all
-    // together; otherwise, the MOI scaling will not be accurate and you should manually reset them.
-    cone_tip->Scale(cone_diameter / 2);
+    cone_tip->SetMOI(
+        make_float3(cone_mass * (3. / 20. * cone_radius * cone_radius + 3. / 80. * cone_height * cone_height),
+                    cone_mass * (3. / 20. * cone_radius * cone_radius + 3. / 80. * cone_height * cone_height),
+                    3 * cone_mass * cone_radius * cone_radius / 10));
     cone_tip->SetFamily(2);
 
     // The define the body that is connected to the tip

@@ -1804,6 +1804,20 @@ valid. IDs use the numbering visible to this process, including the effects of
                                                       const deme::objNormal_t)>(&deme::DEMExternObj::AddCylinder),
              "Add an infinite cylinder along a user-specified object-local axis.", py::arg("pos"), py::arg("axis"),
              py::arg("rad"), py::arg("material"), py::arg("normal") = deme::ENTITY_NORMAL_INWARD)
+        .def("AddCone",
+             static_cast<void (deme::DEMExternObj::*)(const std::vector<float>&, const std::vector<float>&, const float,
+                                                      const std::shared_ptr<deme::DEMMaterial>&,
+                                                      const deme::objNormal_t)>(&deme::DEMExternObj::AddCone),
+             "Add an analytical cone side extending indefinitely from its tip.", py::arg("tip"), py::arg("axis"),
+             py::arg("slope"), py::arg("material"), py::arg("normal") = deme::ENTITY_NORMAL_INWARD)
+        .def("AddConeSegment",
+             static_cast<void (deme::DEMExternObj::*)(
+                 const std::vector<float>&, const std::vector<float>&, const float, const float, const float,
+                 const std::shared_ptr<deme::DEMMaterial>&, const deme::objNormal_t)>(
+                 &deme::DEMExternObj::AddConeSegment),
+             "Add an analytical cone or frustum side clipped between two axial distances.", py::arg("tip"),
+             py::arg("axis"), py::arg("slope"), py::arg("hmin"), py::arg("hmax"), py::arg("material"),
+             py::arg("normal") = deme::ENTITY_NORMAL_INWARD)
         .def_readwrite("types", &deme::DEMExternObj::types)
         .def_readwrite("materials", &deme::DEMExternObj::materials)
         .def_readwrite("family_code", &deme::DEMExternObj::family_code)

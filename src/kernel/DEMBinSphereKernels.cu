@@ -54,6 +54,16 @@ DEME_KERNEL void getNumberOfBinsEachSphereTouches(deme::DEMSimParams* simParams,
                 const int nbY = (int)simParams->nbY;
                 const int nbZ = (int)simParams->nbZ;
 
+                // Non-finite geometry makes float-to-integer bin conversion undefined and can turn contact detection
+                // into a pathological whole-domain sweep. Surface a diverged simulation before computing bounds.
+                if (!isfinite(myPosXYZ.x) || !isfinite(myPosXYZ.y) || !isfinite(myPosXYZ.z) || !isfinite(myRadius)) {
+                    DEME_ABORT_KERNEL(
+                        "Sphere %llu has a non-finite position or contact-margin radius (%f, %f, %f; radius %f).\n"
+                        "This usually means the simulation diverged; consider a smaller step size or less stiff "
+                        "material parameters.\n",
+                        static_cast<unsigned long long>(sphereID), myPosXYZ.x, myPosXYZ.y, myPosXYZ.z, myRadius);
+                }
+
                 const deme::AxisBounds bx = axis_bounds(myPosXYZ.x, myRadius, nbX, invBinSize);
                 if (bx.imax < bx.imin) {
                     numBinsSphereTouches[sphereID] = 0;
