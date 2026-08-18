@@ -48,7 +48,7 @@ SET(DEMOS
 		DEMdemo_Electrostatic
 		DEMdemo_FlexibleMesh
 		DEMdemo_HopperSphereCylinder
-		DEMdemo_Fracture_Box
+		DEMdemo_FractureBox
 )
 
 # ------------------------------------------------------------------------------
