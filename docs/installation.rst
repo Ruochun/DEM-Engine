@@ -35,7 +35,7 @@ Install a released wheel with:
 
 .. code-block:: console
 
-   python -m pip install deme
+   python -m pip install deme3
 
 The canonical import is:
 
@@ -44,8 +44,8 @@ The canonical import is:
    import deme
 
 The historical ``import DEME`` spelling remains available as a compatibility
-alias. New code should use the canonical lowercase ``deme`` distribution and
-import name.
+alias. The experimental ``deme3`` distribution and official ``deme`` distribution both install the canonical
+lowercase ``deme`` import name.
 
 Build a wheel from a checkout
 -----------------------------
@@ -280,42 +280,43 @@ Return to the checkout when testing is complete:
    deactivate
    cd /path/to/DEM-Engine
 
-Publish the deme distribution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Publish the deme3 preview distribution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Publishing changes external package state and is only for authorized
 maintainers. ``python-wheels.yml`` uses PyPI Trusted Publishing, so it does not
 store a long-lived PyPI token in GitHub.
 
-Before the first upload, create a GitHub environment named ``pypi`` under
+Before the first upload, create a GitHub environment named ``pypi-deme3`` under
 ``Settings`` then ``Environments``. Configure required reviewers so that the
-publication job always pauses for approval. Then sign in to PyPI, open the
+publication job always pauses for approval, and restrict deployment branches to
+``Mesh_Particles_Py``. Then sign in to PyPI, open the
 account-level ``Publishing`` page, and add a pending GitHub publisher with:
 
-* PyPI project name: ``deme``;
+* PyPI project name: ``deme3``;
 * GitHub owner: ``Ruochun``;
 * repository: ``DEM-Engine``;
 * workflow filename: ``python-wheels.yml``; and
-* environment: ``pypi``.
+* environment: ``pypi-deme3``.
 
-The pending publisher creates ``deme`` on the first successful upload. It
+The pending publisher creates ``deme3`` on the first successful upload. It
 does not reserve the name before that upload. The project name must exactly
-match ``name = "deme"`` in ``pyproject.toml``.
+match ``name = "deme3"`` in ``pyproject.toml``.
 
 To build without publishing, open the repository's ``Actions`` tab, select
-``Build Python wheels``, choose ``Run workflow``, leave
-``publish_to_pypi`` disabled, and run it from the intended commit or branch.
+``Build deme3 preview wheels``, choose ``Run workflow``, leave
+``publish_to_pypi`` disabled, and run it from ``Mesh_Particles_Py``.
 Download and test all six artifacts after the jobs succeed.
 
 To publish the already-reviewed source commit, dispatch the same workflow
 again with ``publish_to_pypi`` enabled. The six build jobs run again; only if
-all succeed does the ``Publish deme wheels to PyPI`` job enter the protected
-``pypi`` environment. Approve that deployment after checking the commit and
+all succeed does the ``Publish deme3 preview wheels to PyPI`` job enter the protected
+``pypi-deme3`` environment. Approve that deployment after checking the commit and
 wheel jobs. The publishing job downloads the six artifacts and uploads them
 with a short-lived PyPI OIDC credential.
 
 PyPI does not allow replacing a file or reusing an existing release version.
-If any ``deme`` version |release| file has already been uploaded, increment the
+If any ``deme3`` version |release| file has already been uploaded, increment the
 project version and rebuild the complete wheel set rather than retrying with
 different bytes under the same version.
 

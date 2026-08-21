@@ -1,10 +1,10 @@
-name: Build deme Python wheels
+name: Build deme3 preview wheels
 
 on:
   workflow_dispatch:
     inputs:
       publish_to_pypi:
-        description: Publish the six validated wheels to the official deme project on PyPI
+        description: Publish the six validated preview wheels to the deme3 project on PyPI
         required: true
         type: boolean
         default: false
@@ -62,8 +62,8 @@ jobs:
 
           name = wheels[0].name
           expected_python = "${{ matrix.python }}"
-          if not name.startswith("deme-"):
-              raise SystemExit(f"Expected a deme distribution wheel, found: {name}")
+          if not name.startswith("deme3-"):
+              raise SystemExit(f"Expected a deme3 preview wheel, found: {name}")
           if expected_python not in name or "manylinux_2_28_x86_64" not in name:
               raise SystemExit(f"Unexpected wheel tags: {name}")
 
@@ -95,20 +95,20 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deme-${{ matrix.python }}-manylinux_2_28-x86_64
+          name: deme3-${{ matrix.python }}-manylinux_2_28-x86_64
           path: wheelhouse/*.whl
           if-no-files-found: error
           retention-days: 14
 
   publish-pypi:
-    name: Publish official deme wheels to PyPI
+    name: Publish deme3 preview wheels to PyPI
     if: >-
       github.event_name == 'workflow_dispatch' &&
       inputs.publish_to_pypi &&
-      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/Mesh_Particles')
+      github.ref == 'refs/heads/Mesh_Particles_Py'
     needs: build-linux-wheels
     runs-on: ubuntu-24.04
-    environment: pypi
+    environment: pypi-deme3
     permissions:
       contents: read
       id-token: write
@@ -117,7 +117,7 @@ jobs:
       - name: Download validated wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: deme-*-manylinux_2_28-x86_64
+          pattern: deme3-*-manylinux_2_28-x86_64
           path: dist
           merge-multiple: true
 

@@ -70,7 +70,7 @@ Once CUDA is ready, you can `pip` install _pyDEME_. In your conda environement, 
 conda create -n pyDEME python=3.11
 conda activate pyDEME
 conda install cmake
-pip3 install deme
+pip3 install deme3
 ```
 
 Use the conventional lowercase package name in Python:
@@ -80,6 +80,9 @@ import deme
 
 solver = deme.DEMSolver()
 ```
+
+The experimental ``deme3`` distribution installs the same ``deme`` import namespace. The official release channel is
+the ``deme`` distribution on PyPI.
 
 The historical `import DEME` spelling is also supported for backward
 compatibility, but new code should use `import deme`.

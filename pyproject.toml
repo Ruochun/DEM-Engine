@@ -6,9 +6,9 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "deme"
+name = "deme3"
 dynamic = ["version"]
-description = "Python bindings for DEM-Engine - a GPU-accelerated Discrete Element Method simulation engine"
+description = "Preview Python bindings for DEM-Engine - a GPU-accelerated Discrete Element Method simulation engine"
 readme = "README.md"
 authors = [
     { name = "Ruochun Zhang", email = "ruochunz@gmail.com" },
