@@ -38,6 +38,17 @@ Call ``Initialize()`` once after setup:
 Initialization resolves cached topology and prepares runtime/JIT CUDA data.
 Methods documented as post-initialization operations must not be used earlier.
 
+Python processes use the same persistent Jitify header cache as C++ programs.
+Set ``DEME_PERSISTENT_JITIFY_CACHE`` in the shell that launches Python, or set
+``os.environ["DEME_PERSISTENT_JITIFY_CACHE"]`` before importing ``deme`` and
+calling ``Initialize()``. Use an explicit, user-owned filename; unset the
+variable to retain normal non-persistent Jitify behavior.
+
+To compare cold and warm initialization in separate Python processes, run
+``python/demos/jitify_cache_timing.py`` from the repository root twice with the
+same cache filename. Remove the cache before the first run so that it measures
+header discovery rather than reuse.
+
 4. Advance, synchronize, and retrieve
 --------------------------------------
 
