@@ -64,94 +64,100 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
         // Take care of A
         {
             float myMass;
-            float3 myMOI;
             const deme::bodyID_t idPatch = idPatchA;
-            const float3 myCntPnt = granData->contactPointGeometryA[myID];
             const deme::bodyID_t myOwner = ownerA;
             // Get my mass info from either jitified arrays or global memory
             // Outputs myMass
             // Use an input named exactly `myOwner' which is the id of this owner
-            {
-                _massAcqStrat_;
-                _moiAcqStrat_;
-            }
+            { _massAcqStrat_; }
 
-            const bool bad_vec = !isfinite3(forceA) || !isfinite3(torqueA);
-            const bool bad_cp = !isfinite3(myCntPnt);
-            if (bad_vec || bad_cp) {
-                DEME_ABORT_KERNEL(
-                    "forceToAcc found invalid force/torque/contact point for A: contact %llu, owner %llu, type %u, "
-                    "bad_vec=%d, bad_cp=%d.\n",
-                    static_cast<unsigned long long>(myID), static_cast<unsigned long long>(myOwner),
-                    static_cast<unsigned int>(thisCntType), static_cast<int>(bad_vec), static_cast<int>(bad_cp));
+            if (!isfinite3(forceA) || !isfinite3(torqueA)) {
+                DEME_ABORT_KERNEL("forceToAcc found invalid force/torque for A: contact %llu, owner %llu, type %u.\n",
+                                  static_cast<unsigned long long>(myID), static_cast<unsigned long long>(myOwner),
+                                  static_cast<unsigned int>(thisCntType));
             }
 
             atomicAdd(granData->aX + myOwner, forceA.x / myMass);
             atomicAdd(granData->aY + myOwner, forceA.y / myMass);
             atomicAdd(granData->aZ + myOwner, forceA.z / myMass);
 
-            // Then ang acc
-            const deme::oriQ_t myOriQw = granData->oriQw[myOwner];
-            const deme::oriQ_t myOriQx = granData->oriQx[myOwner];
-            const deme::oriQ_t myOriQy = granData->oriQy[myOwner];
-            const deme::oriQ_t myOriQz = granData->oriQz[myOwner];
-
             // torque_inForceForm is usually the contribution of rolling resistance and it contributes to torque
-            // only, not linear velocity
-            float3 myF = (forceA + torqueA);
-            // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
-            applyOriQToVector3(myF, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
-            const float3 angAcc = cross(myCntPnt, myF) / myMOI;
-            atomicAdd(granData->alphaX + myOwner, angAcc.x);
-            atomicAdd(granData->alphaY + myOwner, angAcc.y);
-            atomicAdd(granData->alphaZ + myOwner, angAcc.z);
+            // only, not linear velocity. A zero resultant cannot produce angular acceleration, so do not read a
+            // contact-point slot that a margin-only pair may never have written. Besides avoiding cross(NaN, 0), this
+            // skips the orientation and angular atomics for the common zero-force case without dropping linear force.
+            // The in-force-kernel collection policy does not need this memory-safety guard because it consumes the
+            // locally computed contact point instead of reading a persistent contact-point array.
+            float3 myF = forceA + torqueA;
+            if (myF.x != 0.0f || myF.y != 0.0f || myF.z != 0.0f) {
+                float3 myMOI;
+                { _moiAcqStrat_; }
+                const float3 myCntPnt = granData->contactPointGeometryA[myID];
+                if (!isfinite3(myCntPnt)) {
+                    DEME_ABORT_KERNEL(
+                        "forceToAcc found invalid contact point for A: contact %llu, owner %llu, type %u.\n",
+                        static_cast<unsigned long long>(myID), static_cast<unsigned long long>(myOwner),
+                        static_cast<unsigned int>(thisCntType));
+                }
+
+                const deme::oriQ_t myOriQw = granData->oriQw[myOwner];
+                const deme::oriQ_t myOriQx = granData->oriQx[myOwner];
+                const deme::oriQ_t myOriQy = granData->oriQy[myOwner];
+                const deme::oriQ_t myOriQz = granData->oriQz[myOwner];
+                // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
+                applyOriQToVector3(myF, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
+                const float3 angAcc = cross(myCntPnt, myF) / myMOI;
+                atomicAdd(granData->alphaX + myOwner, angAcc.x);
+                atomicAdd(granData->alphaY + myOwner, angAcc.y);
+                atomicAdd(granData->alphaZ + myOwner, angAcc.z);
+            }
         }
 
         // Take care of B
         {
             float myMass;
-            float3 myMOI;
             const deme::bodyID_t idPatch = idPatchB;
-            const float3 myCntPnt = granData->contactPointGeometryB[myID];
             deme::bodyID_t myOwner = ownerB;
 
             // Get my mass info from either jitified arrays or global memory
             // Outputs myMass
             // Use an input named exactly `myOwner' which is the id of this owner
-            {
-                _massAcqStrat_;
-                _moiAcqStrat_;
-            }
+            { _massAcqStrat_; }
 
-            const bool bad_vec = !isfinite3(forceB) || !isfinite3(torqueB);
-            const bool bad_cp = !isfinite3(myCntPnt);
-            if (bad_vec || bad_cp) {
-                DEME_ABORT_KERNEL(
-                    "forceToAcc found invalid force/torque/contact point for B: contact %llu, owner %llu, type %u, "
-                    "bad_vec=%d, bad_cp=%d.\n",
-                    static_cast<unsigned long long>(myID), static_cast<unsigned long long>(myOwner),
-                    static_cast<unsigned int>(thisCntType), static_cast<int>(bad_vec), static_cast<int>(bad_cp));
+            if (!isfinite3(forceB) || !isfinite3(torqueB)) {
+                DEME_ABORT_KERNEL("forceToAcc found invalid force/torque for B: contact %llu, owner %llu, type %u.\n",
+                                  static_cast<unsigned long long>(myID), static_cast<unsigned long long>(myOwner),
+                                  static_cast<unsigned int>(thisCntType));
             }
 
             atomicAdd(granData->aX + myOwner, forceB.x / myMass);
             atomicAdd(granData->aY + myOwner, forceB.y / myMass);
             atomicAdd(granData->aZ + myOwner, forceB.z / myMass);
 
-            // Then ang acc
-            const deme::oriQ_t myOriQw = granData->oriQw[myOwner];
-            const deme::oriQ_t myOriQx = granData->oriQx[myOwner];
-            const deme::oriQ_t myOriQy = granData->oriQy[myOwner];
-            const deme::oriQ_t myOriQz = granData->oriQz[myOwner];
-
             // torque_inForceForm is usually the contribution of rolling resistance and it contributes to torque
-            // only, not linear velocity
-            float3 myF = (forceB + torqueB);
-            // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
-            applyOriQToVector3(myF, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
-            const float3 angAcc = cross(myCntPnt, myF) / myMOI;
-            atomicAdd(granData->alphaX + myOwner, angAcc.x);
-            atomicAdd(granData->alphaY + myOwner, angAcc.y);
-            atomicAdd(granData->alphaZ + myOwner, angAcc.z);
+            // only, not linear velocity. Keep B's guard independent because its contact point has separate storage.
+            float3 myF = forceB + torqueB;
+            if (myF.x != 0.0f || myF.y != 0.0f || myF.z != 0.0f) {
+                float3 myMOI;
+                { _moiAcqStrat_; }
+                const float3 myCntPnt = granData->contactPointGeometryB[myID];
+                if (!isfinite3(myCntPnt)) {
+                    DEME_ABORT_KERNEL(
+                        "forceToAcc found invalid contact point for B: contact %llu, owner %llu, type %u.\n",
+                        static_cast<unsigned long long>(myID), static_cast<unsigned long long>(myOwner),
+                        static_cast<unsigned int>(thisCntType));
+                }
+
+                const deme::oriQ_t myOriQw = granData->oriQw[myOwner];
+                const deme::oriQ_t myOriQx = granData->oriQx[myOwner];
+                const deme::oriQ_t myOriQy = granData->oriQy[myOwner];
+                const deme::oriQ_t myOriQz = granData->oriQz[myOwner];
+                // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
+                applyOriQToVector3(myF, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
+                const float3 angAcc = cross(myCntPnt, myF) / myMOI;
+                atomicAdd(granData->alphaX + myOwner, angAcc.x);
+                atomicAdd(granData->alphaY + myOwner, angAcc.y);
+                atomicAdd(granData->alphaZ + myOwner, angAcc.z);
+            }
         }
     }
 }
