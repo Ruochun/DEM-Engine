@@ -1,3 +1,7 @@
+// Unlike the dedicated collection kernel, this policy consumes locCPA/locCPB directly from the force-calculation
+// kernel. Those values are computed locally for active contacts and explicitly zeroed with the forces for inactive
+// margin candidates, so this route cannot read an unwritten global contact-point slot. A separate zero-resultant guard
+// is therefore unnecessary for the stochastic contact-ramp fix.
 float3 forceA = force;
 float3 forceB = make_float3(-force.x, -force.y, -force.z);
 float3 torqueA = torque_only_force;
