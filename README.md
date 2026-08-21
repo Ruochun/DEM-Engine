@@ -98,6 +98,23 @@ Then [Python scripts](https://github.com/projectchrono/DEM-Engine/tree/pyDEME_de
 
 If you use _pyDEME_ in conjunction with PyChrono, import `deme` first, then PyChrono.
 
+### Persistent Jitify startup cache
+
+DEME uses Jitify and NVRTC to discover CUDA headers and compile runtime kernels during solver initialization. Workloads
+that repeatedly start fresh DEME processes can persist the discovered header sources and avoid repeating much of that
+startup work. Set `DEME_PERSISTENT_JITIFY_CACHE` to a writable cache-file path:
+
+```bash
+export DEME_PERSISTENT_JITIFY_CACHE="$HOME/.cache/deme/jitify_header_cache.bin"
+mkdir -p "$(dirname "$DEME_PERSISTENT_JITIFY_CACHE")"
+```
+
+Values such as `1`, `true`, `on`, and `yes` select an automatic temporary path. Values such as `0`, `false`, `off`, and
+`no`, as well as an unset variable, disable the persistent cache. The cache is opt-in because an automatic shared
+temporary path can be unsafe on multi-user systems, concurrent writers can contend, and header contents can change
+without their paths or CUDA version changing. Prefer an explicit, user-owned path and remove the file after changing
+CUDA toolchains or headers. An unreadable, incompatible, or unwritable cache falls back to normal Jitify discovery.
+
 <h2 id="compilation">Compilation</h2>
 
 You can also build C++ _DEME_ from source. It allows for potentially more performance and more tailoring.

@@ -13,9 +13,16 @@ configure_file(
 	@ONLY
 )
 
-message(STATUS "${core_message} Extracting NVIDIA Jitify header...") 
+# Prefer DEME's Jitify variant, which adds the optional persistent CUDA-header cache. Keep the submodule path as a
+# fallback so source layouts that intentionally omit the vendored variant still configure with upstream Jitify.
+set(DEMEJitifyHeader "${ProjectIncludeSource}/jitify/jitify.hpp")
+if(NOT EXISTS "${DEMEJitifyHeader}")
+	set(DEMEJitifyHeader "${NVIDIAJitifyPath}/jitify.hpp")
+endif()
+
+message(STATUS "${core_message} Extracting Jitify header...")
 configure_file(
-	${NVIDIAJitifyPath}/jitify.hpp
+	${DEMEJitifyHeader}
 	${CMAKE_BINARY_DIR}/src/jitify/jitify.hpp
 	COPYONLY
 )
@@ -108,7 +115,7 @@ install(
 # Install Third-party Headers 
 install(
 	FILES 
-		"${NVIDIAJitifyPath}/jitify.hpp"
+		"${DEMEJitifyHeader}"
 	DESTINATION 
 		${CMAKE_INSTALL_INCLUDEDIR}/jitify
 )
