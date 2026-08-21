@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_to_pypi:
-        description: Publish the six validated wheels to the deme3 project on PyPI
+        description: Publish the six validated wheels to the deme project on PyPI
         required: true
         type: boolean
         default: false
@@ -14,6 +14,7 @@ on:
       - "CMakeLists.txt"
       - "cmake/**"
       - "pyproject.toml"
+      - "VERSION"
       - "src/**"
       - "thirdparty/**"
   push:
@@ -54,21 +55,18 @@ jobs:
           python -m auditwheel show wheelhouse/*.whl
           python - <<'PY'
           from pathlib import Path
+          from zipfile import ZipFile
 
           wheels = list(Path("wheelhouse").glob("*.whl"))
           if len(wheels) != 1:
               raise SystemExit(f"Expected exactly one wheel, found: {wheels}")
 
-          name = wheels[0].name
+          wheel = wheels[0]
           expected_python = "${{ matrix.python }}"
-          if expected_python not in name or "manylinux_2_28_x86_64" not in name:
-              raise SystemExit(f"Unexpected wheel tags: {name}")
+          if expected_python not in wheel.name or "manylinux_2_28_x86_64" not in wheel.name:
+              raise SystemExit(f"Unexpected wheel tags: {wheel.name}")
 
-          # CUDA must come from the deployment host. In particular, auditwheel must not copy its build-time driver
-          # stub or an incomplete NVRTC installation into the repaired artifact.
-          from zipfile import ZipFile
-
-          with ZipFile(wheels[0]) as archive:
+          with ZipFile(wheel) as archive:
               bundled_cuda = [
                   member
                   for member in archive.namelist()
@@ -78,19 +76,19 @@ jobs:
           if bundled_cuda:
               raise SystemExit(f"CUDA libraries must remain external: {bundled_cuda}")
 
-          print(f"Validated {name} ({wheels[0].stat().st_size / 1024 / 1024:.1f} MiB)")
+          print(f"Validated {wheel.name} ({wheel.stat().st_size / 1024 / 1024:.1f} MiB)")
           PY
 
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deme3-${{ matrix.python }}-manylinux_2_28-x86_64
+          name: deme-${{ matrix.python }}-manylinux_2_28-x86_64
           path: wheelhouse/*.whl
           if-no-files-found: error
           retention-days: 14
 
   publish-pypi:
-    name: Publish deme3 wheels to PyPI
+    name: Publish deme wheels to PyPI
     if: github.event_name == 'workflow_dispatch' && inputs.publish_to_pypi
     needs: build-linux-wheels
     runs-on: ubuntu-24.04
@@ -103,7 +101,7 @@ jobs:
       - name: Download validated wheel artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: deme3-*-manylinux_2_28-x86_64
+          pattern: deme-*-manylinux_2_28-x86_64
           path: dist
           merge-multiple: true
 

@@ -59,7 +59,9 @@ You are welcome to discuss _DEME_ on [Project Chrono's forum](https://groups.goo
 
 _DEME_ is now available as a Python package, _pyDEME_. It is quick to install and pick up its usage by trying this Python version. If you want to maximize the performance and use the cutting-edge features, you can instead <a href="#compilation">install the C++ version of _DEME_ from source</a>.
 
-To install _pyDEME_, use a Linux machine, install CUDA if you do not already have it. Useful installation instructions may be found [here](https://developer.nvidia.com/cuda-downloads). 
+> **pyDEME binary-wheel support:** The PyPI package currently supports 64-bit x86 Linux (including Linux under WSL), CPython 3.9 through 3.14, and NVIDIA GPUs through CUDA. Native Windows, macOS, Linux on ARM, PyPy, and AMD ROCm wheels are not currently provided. The CUDA driver and runtime must be installed separately; they are not bundled in the wheel. These restrictions apply to the PyPI package, not necessarily to DEME built from source.
+
+To install _pyDEME_, use a supported Linux environment and install CUDA if you do not already have it. Useful installation instructions may be found [here](https://developer.nvidia.com/cuda-downloads).
 
 - CUDA 12.8 is recommended. Versions older than 12.8 generally work, but note there are scattered bugged versions such as 11.3, 12.1, 12.2, 12.3 etc.
   - Avoid CUDA 13.0+. Currently version 13.0+ results in extremely slow just-in-time compilation. This may be fixed in future versions of DEME.
@@ -70,10 +72,10 @@ Once CUDA is ready, you can `pip` install _pyDEME_. In your conda environement, 
 conda create -n pyDEME python=3.11
 conda activate pyDEME
 conda install cmake
-pip3 install DEME
+pip3 install deme
 ```
 
-`pyDEME` can be replaced with an environement name of your choice. Other older Python versions other than 3.11 should work as well.
+`pyDEME` can be replaced with an environment name of your choice. Any supported CPython version from 3.9 through 3.14 can be used in place of 3.11.
 
 Then [Python scripts](https://github.com/projectchrono/DEM-Engine/tree/pyDEME_demo/src/demo) can be executed in this environment. To understand the content of each Python demo, refer to the explanations of the C++ demos with the same names in <a href="#examples">Numerical examples</a> section.
 
@@ -223,7 +225,7 @@ After the build process is done, you can start trying out the demos. On Windows,
 - `./bin/DEMdemo_Electrostatic` simulates a pile of complex-shaped and charged granular particles interacting with a mesh that is also charged. Its purpose is to show how to define a non-local force (electrostatic force) which takes effect even when the bodies are not in contact, using a custom force model file. This idea can be extended to modeling a custom cohesion force etc.
 - `./bin/DEMdemo_FlexibleMesh` simulates a deforming mesh interacting with DEM particles. The intention is to show that the user can extract the force pairs acting on a mesh, then update the mesh with deformation information. _DEME_ does not care how this deformation is calculated. Presumably the user can feed the forces to their own solid mechanics solver to get the deformation. _DEME_ does not come with a built-in linear solver so for simplicity, in this demo the mesh deformation is instead prescribed.
 - `./bin/DEMdemo_GameOfLife` is a fun game-of-life simulator built with the package, showing the flexibility in terms of how you can use this tool.
-- `./bin/DEMdemo_Fracture_Box` simulates a concrete bar breaking using a custom force model that creates inter-particle bonds and lets them break under certain conditions. This is a showcase for advanced usage of custom models that involves per-contact wildcard variables.
+- `./bin/DEMdemo_FractureBox` simulates a concrete bar breaking using a custom force model that creates inter-particle bonds and lets them break under certain conditions. This is a showcase for advanced usage of custom models that involves per-contact wildcard variables.
 - It is a good idea to read the comment lines at the top of the demo files to understand what they each does.
 
 [The documentations for _DEME_](https://api.projectchrono.org/) are hosted on Chrono website (work in progress).
