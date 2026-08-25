@@ -165,7 +165,7 @@ int main() {
     // that the solver does not error out when checking it.
     DEMSim.SetErrorOutAvgContacts(100);
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     // In this test we don't want dT to drift too much ahead of kT, or the contact margin could be too large, resulting
     // in too many false positive contacts, making the solver slower.
     DEMSim.SetCDMaxUpdateFreq(60);

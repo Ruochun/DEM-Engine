@@ -115,7 +115,7 @@ int main() {
     std::cout << "Total num of cube particles: " << input_xyz.size() << std::endl;
     std::cout << "Cube edge length: " << cube_size << " m, mass: " << cube_mass << " kg" << std::endl;
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetErrorOutVelocity(40.);
     // Mesh universal contact uses triangle primitives, so let the safety margin follow the measured mesh velocity and

@@ -107,7 +107,7 @@ int main() {
     auto total_mass_finder = DEMSim.CreateInspector("clump_mass");
     auto max_v_finder = DEMSim.CreateInspector("clump_max_absv");
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.Initialize();
 

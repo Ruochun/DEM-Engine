@@ -725,6 +725,11 @@ class DEMMesh : public DEMInitializer {
     /// of triangles in the mesh. Patch IDs should be non-negative integers starting from 0.
     void SetPatchIDs(const std::vector<patchID_t>& patch_ids);
 
+    /// @brief Assign every triangle to its own patch.
+    /// @details Patch IDs are assigned in triangle order as 0, 1, ..., GetNumTriangles() - 1. This must be called after
+    /// loading or constructing the mesh, and the triangle count must fit in the patchID_t representation.
+    void SetEachTriangleAsPatch();
+
     /// @brief Get the patch ID for each triangle.
     /// @return Vector of patch IDs (one per triangle). By default, all triangles are in patch 0 (assuming convex mesh).
     const std::vector<patchID_t>& GetPatchIDs() const { return m_patch_ids; }

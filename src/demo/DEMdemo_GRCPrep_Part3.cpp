@@ -162,7 +162,7 @@ int main() {
 
     // Make ready for simulation
     double step_size = 2e-6;
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetErrorOutVelocity(20.);
     // DEMSim.SetInitBinSize(scales.at(1));
@@ -181,8 +181,8 @@ int main() {
     DEMSim.DoDynamicsThenSync(0.3);
     // Doing this won't change the step size (and we don't need to in this demo),
     // but if the physics of the simulation changes significantly at some point,
-    // you can UpdateStepSize after a DoDynamicsThenSync call.
-    DEMSim.UpdateStepSize(step_size);
+    // You can change the step size after a DoDynamicsThenSync call.
+    DEMSim.SetTimeStepSize(step_size);
 
     // Now compress it
     DEMSim.EnableContactBetweenFamilies(0, 1);

@@ -101,7 +101,7 @@ int main() {
 
     std::cout << "\n--- Initializing Simulation ---" << std::endl;
     float step_time = 1e-5;
-    DEMSim.SetInitTimeStep(step_time);
+    DEMSim.SetTimeStepSize(step_time);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     DEMSim.Initialize();

@@ -109,7 +109,7 @@ int main() {
     auto max_z_finder = DEMSim.CreateInspector("clump_max_z");
     auto total_mass_finder = DEMSim.CreateInspector("clump_mass");
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetMaxVelocity(30.);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
 

@@ -25,6 +25,7 @@ SET(MODULAR_TESTS
 		DEMTest_MeshSlidingOnSlope
 		DEMTest_MeshTemplate
 		DEMTest_PatchLocations
+		DEMTest_RuntimeSimParams
 		DEMTest_MeshPatch
 		DEMTest_SimpleCollisions
 		DEMTest_SpherePlanePeneArea

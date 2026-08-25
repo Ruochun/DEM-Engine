@@ -95,7 +95,7 @@ int main() {
     float step_size = 5.0e-6;
     DEMSim.InstructBoxDomainDimension({-0.10, 0.10}, {-0.02, 0.02}, {-0.50, 1.0});
     DEMSim.InstructBoxDomainBoundingBC("top_open", mat_type_walls);
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     // Max velocity info is generally just for the solver's reference and the user do not have to set it. The solver
     // wouldn't take into account a vel larger than this when doing async-ed contact detection: but this vel won't

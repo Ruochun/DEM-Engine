@@ -272,7 +272,7 @@ RunResult run_single_collision(const float4& init_rot,
         }
     }
 
-    DEMSim.SetInitTimeStep(sim_dt);
+    DEMSim.SetTimeStepSize(sim_dt);
     DEMSim.Initialize();
 
     // NEW: angled initial velocity

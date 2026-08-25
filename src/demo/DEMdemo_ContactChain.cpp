@@ -112,7 +112,7 @@ int main() {
 
     std::cout << "Total num of particles: " << (int)input_pile_template_type.size() + 1 << "." << std::endl;
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetMaxVelocity(30.);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -gravityMagnitude));
 

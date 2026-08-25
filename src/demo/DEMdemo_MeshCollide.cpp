@@ -61,7 +61,7 @@ int main() {
     auto tracker2 = DEMSim.Track(particle2);
 
     float step_time = 1e-3;
-    DEMSim.SetInitTimeStep(step_time);
+    DEMSim.SetTimeStepSize(step_time);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     // DEMSim.DisableAdaptiveBinSize();

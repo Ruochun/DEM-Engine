@@ -223,7 +223,7 @@ int main() {
         auto total_mass_finder = DEMSim.CreateInspector("clump_mass");
         auto max_v_finder = DEMSim.CreateInspector("clump_max_absv");
 
-        DEMSim.SetInitTimeStep(step_size);
+        DEMSim.SetTimeStepSize(step_size);
         DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -G_mag));
         // DEMSim.SetCDUpdateFreq(30);
         // Max velocity info is generally just for the solver's reference and the user do not have to set it. The solver
@@ -269,7 +269,7 @@ int main() {
         // Switch wheel from free fall into DP test
         DEMSim.ChangeFamily(1, 2);
         step_size *= 2.;
-        DEMSim.UpdateStepSize(step_size);
+        DEMSim.SetTimeStepSize(step_size);
 
         for (double t = 0; t < sim_end; t += step_size, curr_step++) {
             if (curr_step % out_steps == 0) {

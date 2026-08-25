@@ -116,6 +116,49 @@ DEMSolver::~DEMSolver() {
     dTkT_GpuManager.reset();
 }
 
+void DEMSolver::SetGravitationalAcceleration(float3 g) {
+    G = g;
+    if (!sys_initialized) {
+        return;
+    }
+
+    // Gravity is read directly by device kernels, so keep both workers' host mirrors and device copies coherent.
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->Gx = g.x;
+        dT->simParams->Gy = g.y;
+        dT->simParams->Gz = g.z;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->Gx = g.x;
+        kT->simParams->Gy = g.y;
+        kT->simParams->Gz = g.z;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetTimeStepSize(double ts_size) {
+    m_ts_size = ts_size;
+    if (!sys_initialized) {
+        return;
+    }
+
+    // The device representation is currently float; narrow only at the host/device boundary.
+    const float device_ts = static_cast<float>(ts_size);
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->dyn.h = device_ts;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->dyn.h = device_ts;
+        kT->simParams.toDevice();
+    }
+}
+
 void DEMSolver::SetVerbosity(verbosity_t verbose) {
     switch (verbose) {
         case VERBOSITY_QUIET:
@@ -330,11 +373,11 @@ void DEMSolver::SetMeshParticlesLowPoly(bool use) {
         // This toggle is read inside both workers' device kernels, so on-the-fly changes must update device simParams.
         {
             ScopedCudaDevice device_scope(kT->streamInfo.device);
-            kT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+            kT->simParams.toDevice();
         }
         {
             ScopedCudaDevice device_scope(dT->streamInfo.device);
-            dT->simParams.syncMemberToDevice<bool>(offsetof(DEMSimParams, meshParticlesLowPoly));
+            dT->simParams.toDevice();
         }
     }
 }
@@ -1287,6 +1330,121 @@ void DEMSolver::SetMaxVelocity(float max_vel) {
     m_approx_max_vel = max_vel;
 }
 
+void DEMSolver::SetMaxTriTriPenetration(double max_margin) {
+    if (max_margin < 0.0) {
+        DEME_WARNING("SetMaxTriTriPenetration called with negative value %.6g. Setting to 0.", max_margin);
+        max_margin = 0.0;
+    }
+    m_max_tritri_penetration = max_margin;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->capTriTriPenetration = max_margin;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->capTriTriPenetration = max_margin;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetTriTriContactRejectionRatio(float ratio) {
+    m_triTriContactRejectionRatio = ratio;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->triTriContactRejectionRatio = ratio;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->triTriContactRejectionRatio = ratio;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetMaxSphereInBin(unsigned int max_sph) {
+    threshold_too_many_spheres_in_bin = max_sph;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->errOutBinSphNum = max_sph;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->errOutBinSphNum = max_sph;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetMaxTriangleInBin(unsigned int max_tri) {
+    threshold_too_many_tri_in_bin = max_tri;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->errOutBinTriNum = max_tri;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->errOutBinTriNum = max_tri;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetErrorOutVelocity(float vel) {
+    threshold_error_out_vel = vel;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->errOutVel = vel;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->errOutVel = vel;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetErrorOutAngularVelocity(float ang_vel) {
+    threshold_error_out_angvel = ang_vel;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->errOutAngVel = ang_vel;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->errOutAngVel = ang_vel;
+        kT->simParams.toDevice();
+    }
+}
+
+void DEMSolver::SetErrorOutAvgContacts(float num_cnts) {
+    threshold_error_out_num_cnts = num_cnts;
+    if (!sys_initialized) {
+        return;
+    }
+    dT->solverFlags.errOutAvgPrimitiveCnts = num_cnts;
+    kT->solverFlags.errOutAvgPrimitiveCnts = num_cnts;
+}
+
 void DEMSolver::SetTriTriPenetration(double penetration) {
     if (penetration < 0.0) {
         DEME_WARNING("SetTriTriPenetration called with negative value %.6g. Setting to 0.", penetration);
@@ -1318,9 +1476,21 @@ void DEMSolver::SetExpandSafetyType(const std::string& insp_type) {
 }
 
 void DEMSolver::SetUseAngularVelocityMargin(bool use) {
-    assertSysNotInit("SetUseAngularVelocityMargin");
     m_use_angvel_margin = use;
     m_use_angvel_margin_user_set = true;
+    if (!sys_initialized) {
+        return;
+    }
+    {
+        ScopedCudaDevice device_scope(dT->streamInfo.device);
+        dT->simParams->useAngVelMargin = use ? 1 : 0;
+        dT->simParams.toDevice();
+    }
+    {
+        ScopedCudaDevice device_scope(kT->streamInfo.device);
+        kT->simParams->useAngVelMargin = use ? 1 : 0;
+        kT->simParams.toDevice();
+    }
 }
 
 void DEMSolver::InstructBoxDomainDimension(float x, float y, float z, const std::string& dir_exact) {
@@ -2439,6 +2609,9 @@ std::shared_ptr<DEMMesh> DEMSolver::AddMesh(DEMMesh& mesh) {
     if (mesh.mesh_template_mark == NULL_MESH_TEMPLATE_MARK) {
         mesh.mesh_template_mark = nMeshTemplateMarks++;
     }
+    if (use_deme2_mesh_behavior) {
+        mesh.SetEachTriangleAsPatch();
+    }
     if (!mesh.mass_specified || !mesh.moi_specified) {
         double volume = 0.0;
         float3 center = make_float3(0, 0, 0);
@@ -2541,6 +2714,9 @@ std::shared_ptr<DEMMesh> DEMSolver::AddWavefrontShellObject(const std::string& f
 std::shared_ptr<DEMMesh> DEMSolver::LoadMeshType(DEMMesh& mesh) {
     if (mesh.GetNumTriangles() == 0) {
         DEME_WARNING(std::string("It seems that a mesh template contains 0 triangle facet at the time it is loaded."));
+    }
+    if (use_deme2_mesh_behavior) {
+        mesh.SetEachTriangleAsPatch();
     }
     mesh.mesh_template_mark = nMeshTemplateMarks++;
 
@@ -3304,14 +3480,7 @@ void DEMSolver::UpdateSimParams() {
 }
 
 void DEMSolver::UpdateStepSize(double ts) {
-    m_ts_size = ts;
-    // We for now store ts as float on devices...
-    dT->simParams->dyn.h = ts;
-    kT->simParams->dyn.h = ts;
-    // dT->simParams.syncMemberToDevice<float>(offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, h));
-    // kT->simParams.syncMemberToDevice<float>(offsetof(DEMSimParams, dyn) + offsetof(DEMSimParamsDynamic, h));
-    dT->simParams.toDevice();
-    kT->simParams.toDevice();
+    SetTimeStepSize(ts);
 }
 
 bool DEMSolver::findOwnerTriangleRange(bodyID_t ownerID, size_t& tri_start, size_t& tri_count) {

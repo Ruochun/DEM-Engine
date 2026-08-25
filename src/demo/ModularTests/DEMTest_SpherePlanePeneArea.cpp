@@ -120,7 +120,7 @@ int main() {
     // =========================================================================
     // Initialise (JIT-compiles the GPU kernels once)
     // =========================================================================
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetCDUpdateFreq(1);
     DEMSim.Initialize();
 

@@ -148,7 +148,7 @@ int main() {
     }
 
     float step_time = 2e-4;
-    DEMSim.SetInitTimeStep(step_time);
+    DEMSim.SetTimeStepSize(step_time);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     DEMSim.Initialize();

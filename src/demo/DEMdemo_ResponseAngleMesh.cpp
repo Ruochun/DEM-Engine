@@ -237,7 +237,7 @@ int main() {
 
     DEMSim.InstructBoxDomainDimension(0.3, 0.3, 0.2);
     float step_size = 5e-6f;
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGPUTimersEnabled(true);
     DEMSim.SetGravitationalAcceleration(make_float3(0, -9.81, 0));
     DEMSim.SetExpandSafetyType("auto");

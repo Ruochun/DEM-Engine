@@ -1042,6 +1042,43 @@ void DEMMesh::SetPatchIDs(const std::vector<patchID_t>& patch_ids) {
     }
 }
 
+// Assign consecutive patch IDs so no two triangles are combined into the same mesh patch.
+void DEMMesh::SetEachTriangleAsPatch() {
+    constexpr size_t max_patch_count = static_cast<size_t>(std::numeric_limits<patchID_t>::max()) + 1;
+    if (nTri > max_patch_count) {
+        DEME_ERROR(
+            "SetEachTriangleAsPatch cannot assign %zu triangles to unique patches because patchID_t supports at most "
+            "%zu non-negative patch IDs.",
+            nTri, max_patch_count);
+    }
+
+    // Preserve material assignment when the source mesh already uses one material per multi-triangle patch.
+    if (isMaterialSet && materials.size() > 1 && materials.size() != nTri) {
+        if (materials.size() != nPatches || m_patch_ids.size() != nTri) {
+            DEME_ERROR(
+                "SetEachTriangleAsPatch cannot expand %zu mesh materials over %zu triangles because the existing "
+                "patch assignment is inconsistent.",
+                materials.size(), nTri);
+        }
+        std::vector<std::shared_ptr<DEMMaterial>> triangle_materials(nTri);
+        for (size_t triangle = 0; triangle < nTri; triangle++) {
+            const patchID_t old_patch = m_patch_ids[triangle];
+            if (old_patch < 0 || static_cast<size_t>(old_patch) >= materials.size()) {
+                DEME_ERROR("SetEachTriangleAsPatch found invalid existing patch ID %d at triangle %zu.", old_patch,
+                           triangle);
+            }
+            triangle_materials[triangle] = materials[old_patch];
+        }
+        materials = std::move(triangle_materials);
+    }
+
+    std::vector<patchID_t> patch_ids(nTri);
+    for (size_t triangle = 0; triangle < nTri; triangle++) {
+        patch_ids[triangle] = static_cast<patchID_t>(triangle);
+    }
+    SetPatchIDs(patch_ids);
+}
+
 // Compute patch locations (relative to CoM, which is implicitly at 0,0,0)
 // If not explicitly set, calculates as:
 // - Single patch: (0,0,0)

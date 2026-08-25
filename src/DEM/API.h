@@ -86,15 +86,17 @@ class DEMSolver {
         m_bounding_box_material = mat;
     }
 
-    /// Set gravitational pull.
-    void SetGravitationalAcceleration(float3 g) { G = g; }
+    /// Set gravitational pull. This takes effect immediately when called from a synchronized stance after Initialize().
+    void SetGravitationalAcceleration(float3 g);
     void SetGravitationalAcceleration(const std::vector<float>& g) {
         assertThreeElements(g, "SetGravitationalAcceleration", "g");
-        G = make_float3(g[0], g[1], g[2]);
+        SetGravitationalAcceleration(make_float3(g[0], g[1], g[2]));
     }
-    /// Set the initial time step size. If using constant step size, then this will be used throughout; otherwise, the
-    /// actual step size depends on the variable step strategy.
-    void SetInitTimeStep(double ts_size) { m_ts_size = ts_size; }
+    /// Set the time step size before or after initialization. Post-initialization calls must be made from a
+    /// synchronized stance and take effect on the next step.
+    void SetTimeStepSize(double ts_size);
+    /// Legacy pre-initialization name for SetTimeStepSize. Kept for backward compatibility.
+    void SetInitTimeStep(double ts_size) { SetTimeStepSize(ts_size); }
     /// Return the number of clumps that are currently in the simulation. Must be used after initialization.
     size_t GetNumClumps() const { return nOwnerClumps; }
     /// Return the total number of owners (clumps + meshes + analytical objects) that are currently in the simulation.
@@ -108,6 +110,8 @@ class DEMSolver {
     /// Get the current expand factor in simulation.
     float GetExpandFactor() const;
     /// Set the number of dT steps before it waits for a contact-pair info update from kT.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers and interaction
+    /// manager.
     void SetCDUpdateFreq(int freq) {
         m_updateFreq = freq;
         m_suggestedFutureDrift = 2 * freq;
@@ -133,9 +137,11 @@ class DEMSolver {
     void UseHertzConstTimeStep() { SetAdaptiveTimeStepType("hertz_const"); }
 
     /// @brief Set the time integrator for this simulator.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     /// @param intg "forward_euler" or "extended_taylor" or "centered_difference".
     void SetIntegrator(const std::string& intg);
     /// @brief Set the time integrator for this simulator.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void SetIntegrator(TIME_INTEGRATOR intg) { m_integrator = intg; }
 
     /// Return whether this simulation system is initialized
@@ -214,6 +220,7 @@ class DEMSolver {
     /// (Explicitly) set the amount by which the radii of the spheres (and the thickness of the boundaries) are expanded
     /// for the purpose of contact detection (safe, and creates false positives). If fix is set to true, then this
     /// expand factor does not change even if the user uses variable time step size.
+    ///  After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void SetExpandFactor(float beta, bool fix = true) {
         m_expand_factor = beta;
         use_user_defined_expand_factor = fix;
@@ -228,10 +235,12 @@ class DEMSolver {
     /// @details Additionally, the solver will not use a velocity larger than this for determining the margin thickness,
     /// and velocity larger than this will be considered a system anomaly.
     /// @param max_vel Expected max velocity.
+    ///  After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void SetMaxVelocity(float max_vel);
     /// @brief Set the method this solver uses to derive current system velocity (for safety purposes in contact
     /// detection).
     /// @param insp_type A string. If "auto": the solver automatically derives.
+    ///  After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void SetExpandSafetyType(const std::string& insp_type);
     // void SetExpandSafetyType(const std::shared_ptr<DEMInspector>& insp) {
     //     m_max_v_finder_type = MARGIN_FINDER_TYPE::DEM_INSPECTOR;
@@ -241,10 +250,12 @@ class DEMSolver {
     /// Assign a multiplier to our estimated maximum system velocity, when deriving the thinckness of the contact
     /// "safety" margin. This can be greater than one if the simulation velocity can increase significantly in one kT
     /// update cycle, but this is not common and should be close to 1 in general.
+    ///  After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void SetExpandSafetyMultiplier(float param) { m_expand_safety_multi = param; }
     /// Set a "base" velocity, which we will always add to our estimated maximum system velocity, when deriving the
     /// thinckness of the contact "safety" margin. This need not to be large unless the simulation velocity can increase
     /// significantly in one kT update cycle.
+    ///  After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void SetExpandSafetyAdder(float vel) { m_expand_base_vel = vel; }
     /// @brief Control whether angular velocity contributes to the contact detection margin.
     /// @details Default is auto: false for pure single-sphere clumps; true when multi-sphere clumps or meshes exist.
@@ -266,40 +277,34 @@ class DEMSolver {
     /// only affects kT's contact detection algorithm's proactiveness in detecting future contacts, not capping the
     /// actual physical contact used in force calculation.
     /// @param max_margin Maximum allowed penetration margin (must be non-negative).
-    void SetMaxTriTriPenetration(double max_margin) {
-        if (max_margin < 0.0) {
-            DEME_WARNING("SetMaxTriTriPenetration called with negative value %.6g. Setting to 0.", max_margin);
-            max_margin = 0.0;
-        }
-        m_max_tritri_penetration = max_margin;
-    }
+    void SetMaxTriTriPenetration(double max_margin);
     /// @brief Set the ratio threshold used to reject suspicious triangle-triangle contacts.
     /// @details A negative value disables this guard when the corresponding contact kernel support is enabled.
-    void SetTriTriContactRejectionRatio(float ratio) { m_triTriContactRejectionRatio = ratio; }
+    void SetTriTriContactRejectionRatio(float ratio);
 
     /// @brief Used to force the solver to error out when there are too many spheres in a bin. A huge number can be used
     /// to discourage this error type.
     /// @param max_sph Max number of spheres in a bin.
-    void SetMaxSphereInBin(unsigned int max_sph) { threshold_too_many_spheres_in_bin = max_sph; }
+    void SetMaxSphereInBin(unsigned int max_sph);
 
     /// @brief Used to force the solver to error out when there are too many spheres in a bin. A huge number can be used
     /// to discourage this error type.
     /// @param max_tri Max number of triangles in a bin.
-    void SetMaxTriangleInBin(unsigned int max_tri) { threshold_too_many_tri_in_bin = max_tri; }
+    void SetMaxTriangleInBin(unsigned int max_tri);
 
     /// @brief Set the velocity which when exceeded, the solver errors out. A huge number can be used to discourage this
     /// error type. Defaulted to 1e3.
     /// @param vel Error-out velocity.
-    void SetErrorOutVelocity(float vel) { threshold_error_out_vel = vel; }
+    void SetErrorOutVelocity(float vel);
     /// @brief Set the angular velocity which when exceeded, the solver errors out. A huge number can be used to
     /// discourage this error type. Defaulted to 1e4.
     /// @param ang_vel Error-out angular velocity.
-    void SetErrorOutAngularVelocity(float ang_vel) { threshold_error_out_angvel = ang_vel; }
+    void SetErrorOutAngularVelocity(float ang_vel);
 
     /// @brief Set the average number of contacts a primitive geometry (sphere or triangle) has, before the solver
     /// errors out. A huge number can be used to discourage this error type. Defaulted to 100.
     /// @param num_cnts Error-out contact number.
-    void SetErrorOutAvgContacts(float num_cnts) { threshold_error_out_num_cnts = num_cnts; }
+    void SetErrorOutAvgContacts(float num_cnts);
 
     /// @brief Get the current number of contacts each primitive geometry (sphere or triangle) has.
     /// @return Number of contacts.
@@ -317,16 +322,21 @@ class DEMSolver {
     }
 
     /// @brief Enable or disable the use of adaptive bin size (by default it is on).
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     /// @param use Enable or disable.
     void UseAdaptiveBinSize(bool use = true) { auto_adjust_bin_size = use; }
-    /// @brief Disable the use of adaptive bin size (always use initial size).
+    /// @brief Disable the use of adaptive bin size.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void DisableAdaptiveBinSize() { auto_adjust_bin_size = false; }
-    /// @brief Enable or disable the use of adaptive max update step count (by default it is on).
+    /// @brief Enable or disable adaptive max update step count.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     /// @param use Enable or disable.
     void UseAdaptiveUpdateFreq(bool use = true) { auto_adjust_update_freq = use; }
-    /// @brief Disable the use of adaptive max update step count (always use initial update frequency).
+    /// @brief Disable adaptive max update step count.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     void DisableAdaptiveUpdateFreq() { auto_adjust_update_freq = false; }
     /// @brief Adjust how frequent kT updates the bin size.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the worker.
     /// @param n Number of contact detections before kT makes one adjustment to bin size.
     void SetAdaptiveBinSizeDelaySteps(unsigned int n) {
         if (n < NUM_STEPS_RESERVED_AFTER_CHANGING_BIN_SIZE)
@@ -337,18 +347,21 @@ class DEMSolver {
         auto_adjust_observe_steps = (n >= 1) ? n : 1;
     }
     /// @brief Set the max rate that the bin size can change in one adjustment.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the worker.
     /// @param rate 0: never changes; 1: can double or halve size in one go; suggest using default.
     void SetAdaptiveBinSizeMaxRate(float rate) { auto_adjust_max_rate = (rate > 0) ? rate : 0; }
-    /// @brief Set how fast kT changes the direction of bin size adjustmemt when there's a more beneficial direction.
+    /// @brief Set how fast kT changes adjustment direction.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the worker.
     /// @param acc 0.01: slowly change direction; 1: quickly change direction
     void SetAdaptiveBinSizeAcc(float acc) { auto_adjust_acc = clampBetween(acc, 0.01, 1.0); }
-    /// @brief Set how proactive the solver is in avoiding the bin being too big (leading to too many geometries in a
-    /// bin).
+    /// @brief Set how proactive the solver is in avoiding oversized bins.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the worker.
     /// @param ratio 0: not proavtive; 1: very proactive.
     void SetAdaptiveBinSizeUpperProactivity(float ratio) {
         auto_adjust_upper_proactive_ratio = clampBetween(ratio, 0.0, 1.0);
     }
-    /// @brief Set how proactive the solver is in avoiding the bin being too small (leading to too many bins in domain).
+    /// @brief Set how proactive the solver is in avoiding undersized bins.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the worker.
     /// @param ratio 0: not proavtive; 1: very proactive.
     void SetAdaptiveBinSizeLowerProactivity(float ratio) {
         auto_adjust_lower_proactive_ratio = clampBetween(ratio, 0.0, 1.0);
@@ -362,18 +375,22 @@ class DEMSolver {
     /// @return Number of bins.
     size_t GetBinNum() { return kT->stateParams.numBins; }
 
-    /// @brief Set the upper bound of kT update frequency (when it is adjusted automatically).
+    /// @brief Set the upper bound of kT update frequency.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in the workers.
     /// @details This only affects when the update freq is updated automatically. To manually control the freq, use
     /// SetCDUpdateFreq then call DisableAdaptiveUpdateFreq.
     /// @param max_freq dT will not receive updates less frequently than 1 update per max_freq steps.
     void SetCDMaxUpdateFreq(unsigned int max_freq) { upper_bound_future_drift = 2 * max_freq; }
-    /// @brief Set the number of steps dT configures its max drift more than average drift steps.
+    /// @brief Set the number of steps dT configures its max drift above average.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in dT.
     /// @param n Number of steps. Suggest using default.
     void SetCDNumStepsMaxDriftAheadOfAvg(float n) { max_drift_ahead_of_avg_drift = n; }
-    /// @brief Set the multiplier which dT configures its max drift to be w.r.t. the average drift steps.
+    /// @brief Set the maximum-drift multiplier.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in dT.
     /// @param m The multiplier. Suggest using default.
     void SetCDNumStepsMaxDriftMultipleOfAvg(float m) { max_drift_multiple_of_avg_drift = m; }
-    /// @brief Set the number of past kT updates that dT will use to calibrate the max future drift limit.
+    /// @brief Set the drift-regulator history size.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in dT.
     /// @param n Number of kT updates. Suggest using default.
     void SetCDNumStepsMaxDriftHistorySize(unsigned int n);
     /// @brief Get the current update frequency used by the solver.
@@ -845,6 +862,13 @@ class DEMSolver {
 
     /// @brief Load a mesh-represented object into the simulation, using the internal mesh format.
     std::shared_ptr<DEMMesh> AddMesh(DEMMesh& mesh);
+
+    /// @brief Control whether subsequently loaded meshes use DEME 2 patch behavior.
+    /// @details When enabled, every triangle of each subsequently loaded mesh is assigned to an individual patch. When
+    /// disabled, the solver leaves patch assignment unchanged. This setting defaults to false and does not modify
+    /// meshes that were loaded previously.
+    /// @param use Whether to apply DEME 2 patch behavior to subsequently loaded meshes.
+    void SetDEME2MeshBehavior(bool use = true) { use_deme2_mesh_behavior = use; }
     /// @brief Load a shell mesh (triangular surface plus finite thickness) into the simulation.
     /// @param mesh Mesh object.
     /// @param shell_thickness Full shell thickness, in simulation length units. Must be finite and non-negative.
@@ -1442,12 +1466,14 @@ class DEMSolver {
 
     /// Reduce contact forces to accelerations right after calculating them, in the same kernel. This may give some
     /// performance boost if you have only polydisperse spheres, no clumps.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in dT.
     void SetCollectAccRightAfterForceCalc(bool flag = true) { collect_force_in_force_kernel = flag; }
 
     /// Instruct the solver that there is no need to record the contact force (and contact point location etc.) in an
     /// array. If set to true, the contact forces must be reduced to accelerations right in the force calculation kernel
     /// (meaning SetCollectAccRightAfterForceCalc is effectively called too). Calling this method could reduce some
     /// memory usage, but will disable contact pair output.
+    /// @note After initialization, call UpdateSimParams() for this change to take effect in dT.
     void SetNoForceRecord(bool flag = true) {
         no_recording_contact_forces = flag;
         if (flag)
@@ -1659,7 +1685,7 @@ class DEMSolver {
     /// @brief Legacy method name for Update.
     void UpdateClumps() { Update(); }
 
-    /// @brief Update the time step size. Used after system initialization.
+    /// @brief Legacy post-initialization name for SetTimeStepSize. Kept for backward compatibility.
     /// @param ts Time step size.
     void UpdateStepSize(double ts);
 
@@ -2050,6 +2076,8 @@ class DEMSolver {
     // Internal mesh-template identity counter. Explicit LoadMeshType calls and legacy AddMesh calls both consume a
     // mark, but AddMeshFromTemplate preserves the already-loaded template mark.
     size_t nMeshTemplateMarks = 0;
+    // If enabled, meshes receive one patch per triangle as they enter the solver's cache or template collection.
+    bool use_deme2_mesh_behavior = false;
     // Number of materials loaded. Never decreases.
     size_t nMaterialsLoad = 0;
 

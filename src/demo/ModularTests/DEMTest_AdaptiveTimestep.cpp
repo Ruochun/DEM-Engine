@@ -59,7 +59,7 @@ int main() {
     DEMSim.InstructBoxDomainDimension(1.0, 1.0, 1.0);
     DEMSim.SetGravitationalAcceleration(make_float3(0.f, 0.f, 0.f));
     DEMSim.SetInitBinNumTarget(8);
-    DEMSim.SetInitTimeStep(manual_dt);
+    DEMSim.SetTimeStepSize(manual_dt);
 
     auto mat = DEMSim.LoadMaterial({{"E", static_cast<float>(youngs_modulus)},
                                     {"nu", static_cast<float>(poisson_ratio)},

@@ -84,7 +84,7 @@ int main() {
     DEMSim.AddClumps(template_granular, input_xyz);
     std::cout << "Total num of particles: " << input_xyz.size() << std::endl;
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetCDUpdateFreq(40);
     DEMSim.SetErrorOutVelocity(20.);

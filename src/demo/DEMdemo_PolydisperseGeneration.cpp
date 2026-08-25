@@ -56,7 +56,7 @@ int main() {
     DEMSim.InstructBoxDomainDimension(world_size, world_size, world_size * 2);
     DEMSim.InstructBoxDomainBoundingBC("all", mat_type_terrain);
     DEMSim.AddBCPlane(make_float3(0, 0, -world_size / 2), make_float3(0, 0, 1), mat_type_terrain);
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.8 / shrink_factor));
     // If you want to use a large UpdateFreq then you have to expand spheres to ensure safety
     DEMSim.SetCDUpdateFreq(10);
@@ -104,7 +104,7 @@ int main() {
     }
 
     step_size = 1e-6;
-    DEMSim.UpdateStepSize(step_size);
+    DEMSim.SetTimeStepSize(step_size);
 
     float sim_end = 10.0;
     unsigned int steps_togo = (unsigned int)(0.1 / step_size);

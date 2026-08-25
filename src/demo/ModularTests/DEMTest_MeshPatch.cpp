@@ -185,6 +185,18 @@ int main() {
         for (const auto& entry : manual_patch_counts) {
             std::cout << "  Patch " << entry.first << ": " << entry.second << " triangles" << std::endl;
         }
+
+        // Both convenience names must assign one consecutive patch ID to every triangle.
+        cube_mesh->SetEachTriangleAsPatch();
+        if (cube_mesh->GetNumPatches() != num_tris || cube_mesh->GetPatchIDs().size() != num_tris) {
+            return fail("SetEachTriangleAsPatch did not create one patch per triangle");
+        }
+        for (size_t triangle = 0; triangle < num_tris; triangle++) {
+            if (cube_mesh->GetPatchIDs()[triangle] != static_cast<patchID_t>(triangle)) {
+                return fail("SetEachTriangleAsPatch did not assign consecutive patch IDs");
+            }
+        }
+
     } else {
         std::cout << "Failed to load cube mesh" << std::endl;
     }

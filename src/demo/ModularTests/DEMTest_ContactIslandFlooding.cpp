@@ -49,7 +49,7 @@ int main() {
     auto strip_handle = sim.AddMesh(strip);
     strip_handle->SetFamily(1);
 
-    sim.SetInitTimeStep(kStepSize);
+    sim.SetTimeStepSize(kStepSize);
     sim.Initialize();
     sim.DoDynamics(kStepSize);
 

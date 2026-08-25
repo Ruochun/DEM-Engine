@@ -128,7 +128,7 @@ int main() {
     // =========================================================================
     // Initialize and run
     // =========================================================================
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetInitBinNumTarget(10);
     DEMSim.SetErrorOutAvgContacts(10000);
     DEMSim.Initialize();

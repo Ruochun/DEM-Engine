@@ -130,7 +130,7 @@ int main() {
     // -0.3);");
     auto total_mass_finder = DEMSim.CreateInspector("clump_mass");
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     // CD freq will be auto-adapted so it does not matter much here.
     DEMSim.SetCDUpdateFreq(20);

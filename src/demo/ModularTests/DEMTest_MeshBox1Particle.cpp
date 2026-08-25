@@ -79,7 +79,7 @@ int main() {
     auto sphere_batch = solver.AddClumps(sphere_type, initial_position);
     auto sphere_tracker = solver.Track(sphere_batch);
 
-    solver.SetInitTimeStep(step_size);
+    solver.SetTimeStepSize(step_size);
     solver.SetGravitationalAcceleration(make_float3(0.0f, -gravity, 0.0f));
     solver.Initialize();
 
