@@ -722,10 +722,10 @@ valid. IDs use the numbering visible to this process, including the effects of
         .def("GetGPUDeviceIDs", &deme::DEMSolver::GetGPUDeviceIDs,
              "Return ``[dynamic_worker_device, kinematic_worker_device]`` using process-visible logical CUDA IDs.")
         .def("UpdateStepSize", &deme::DEMSolver::UpdateStepSize,
-             "Update the time step size. Used after system initialization.", py::arg("ts") = -1.0)
+             "Legacy name for SetTimeStepSize, kept for backward compatibility.", py::arg("ts") = -1.0)
         .def("SetNoForceRecord", &deme::DEMSolver::SetNoForceRecord,
              "Instruct the solver that there is no need to record the contact force (and contact point location etc.) "
-             "in an array.",
+             "in an array. After initialization, call UpdateSimParams() for this change to take effect in dT.",
              py::arg("flag") = true)
         .def("LoadSphereType",
              static_cast<std::shared_ptr<deme::DEMClumpTemplate> (deme::DEMSolver::*)(
@@ -786,7 +786,8 @@ valid. IDs use the numbering visible to this process, including the effects of
              py::arg("flag") = true)
         .def("SetCollectAccRightAfterForceCalc", &deme::DEMSolver::SetCollectAccRightAfterForceCalc,
              "Reduce contact forces to accelerations right after calculating them, in the same kernel. This may give "
-             "some performance boost if you have only polydisperse spheres, no clumps.",
+             "some performance boost if you have only polydisperse spheres, no clumps. After initialization, call "
+             "UpdateSimParams() for this change to take effect in dT.",
              py::arg("flag") = true)
 
         .def("SetInitBinSize", &deme::DEMSolver::SetInitBinSize,
@@ -798,7 +799,8 @@ valid. IDs use the numbering visible to this process, including the effects of
              "Get the number of kT-reported potential contact pairs.")
         .def("GetTimeStepSize", &deme::DEMSolver::GetTimeStepSize, "Get the current time step size in simulation.")
         .def("SetCDUpdateFreq", &deme::DEMSolver::SetCDUpdateFreq,
-             "Set the number of dT steps before it waits for a contact-pair info update from kT.")
+             "Set the number of dT steps before it waits for a contact-pair update. After initialization, call "
+             "UpdateSimParams() for this change to take effect in the workers.")
         .def("GetSimTime", &deme::DEMSolver::GetSimTime,
              "Get the simulation time passed since the start of simulation.")
         .def("SetSimTime", &deme::DEMSolver::SetSimTime,
@@ -812,10 +814,10 @@ valid. IDs use the numbering visible to this process, including the effects of
              "Use the setup-time Hertzian constant timestep estimate.")
         .def("SetIntegrator",
              static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetIntegrator),
-             "Set the time integrator for this simulator.")
+             "Set the time integrator. After initialization, call UpdateSimParams() for this change to take effect.")
         .def("SetIntegrator",
              static_cast<void (deme::DEMSolver::*)(deme::TIME_INTEGRATOR)>(&deme::DEMSolver::SetIntegrator),
-             "Set the time integrator for this simulator.")
+             "Set the time integrator. After initialization, call UpdateSimParams() for this change to take effect.")
         .def("GetInitStatus", &deme::DEMSolver::GetInitStatus, "Return whether this simulation system is initialized.")
         .def("GetJitStringSubs", &deme::DEMSolver::GetJitStringSubs,
              "Get the jitification string substitution laundary list. It is needed by some of this simulation system's "
@@ -877,11 +879,16 @@ valid. IDs use the numbering visible to this process, including the effects of
         .def("SetExpandFactor", &deme::DEMSolver::SetExpandFactor,
              "(Explicitly) set the amount by which the radii of the spheres (and the thickness of the boundaries) are "
              "expanded for the purpose of contact detection (safe, and creates false positives). If fix is set to "
-             "true, then this expand factor does not change even if the user uses variable time step size.",
+             "true, then this expand factor does not change even if the user uses variable time step size. After "
+             "initialization, call UpdateSimParams() for this change to take effect in the workers.",
              py::arg("beta"), py::arg("fix") = true)
         .def("SetMeshUniversalContact", &deme::DEMSolver::SetMeshUniversalContact,
              "Set whether mesh-mesh contacts should be universally detected. Set to false to speedup simulation if "
              "meshes are not expected to have contacts. Default is false.",
+             py::arg("use") = true)
+        .def("SetDEME2MeshBehavior", &deme::DEMSolver::SetDEME2MeshBehavior,
+             "When enabled, assign every triangle of subsequently loaded meshes to its own patch. Disabling restores "
+             "the normal behavior of leaving new meshes' patch assignments unchanged.",
              py::arg("use") = true)
         .def("SetPersistentContact", &deme::DEMSolver::SetPersistentContact,
              "Set whether the solver should expect the user to mark certain contacts as persistent across kT updates. "
@@ -900,10 +907,12 @@ valid. IDs use the numbering visible to this process, including the effects of
              py::arg("use") = true)
 
         .def("SetExpandSafetyType", &deme::DEMSolver::SetExpandSafetyType,
-             "A string. If 'auto': the solver automatically derives.")
+             "Select the contact-margin velocity strategy. After initialization, call UpdateSimParams() for this "
+             "change to take effect in the workers.")
         .def("SetExpandSafetyAdder", &deme::DEMSolver::SetExpandSafetyAdder,
              "Set a `base' velocity, which we will always add to our estimated maximum system velocity, when deriving "
-             "the thickness of the contact `safety' margin")
+             "the thickness of the contact `safety' margin. After initialization, call UpdateSimParams() for this "
+             "change to take effect in the workers.")
         .def("SetUseAngularVelocityMargin", &deme::DEMSolver::SetUseAngularVelocityMargin,
              "Control whether angular velocity contributes to the contact detection margin.")
         .def("SetMaxSphereInBin", &deme::DEMSolver::SetMaxSphereInBin,
@@ -936,38 +945,42 @@ valid. IDs use the numbering visible to this process, including the effects of
         .def("GetAvgSphContacts", &deme::DEMSolver::GetAvgSphContacts,
              "Get the current number of contacts each sphere has")
         .def("UseAdaptiveBinSize", &deme::DEMSolver::UseAdaptiveBinSize,
-             "Enable or disable the use of adaptive bin size (by default it is on)", py::arg("use") = true)
+             "Enable or disable adaptive bin size. After initialization, call UpdateSimParams() for this change to "
+             "take effect in the workers.", py::arg("use") = true)
         .def("DisableAdaptiveBinSize", &deme::DEMSolver::DisableAdaptiveBinSize,
-             "Disable the use of adaptive bin size (always use initial size)")
+             "Disable adaptive bin size. After initialization, call UpdateSimParams() for this change to take effect "
+             "in the workers.")
         .def("UseAdaptiveUpdateFreq", &deme::DEMSolver::UseAdaptiveUpdateFreq,
-             "Enable or disable the use of adaptive max update step count (by default it is on)", py::arg("use") = true)
+             "Enable or disable adaptive contact-update frequency. After initialization, call UpdateSimParams() for "
+             "this change to take effect in the workers.", py::arg("use") = true)
         .def("DisableAdaptiveUpdateFreq", &deme::DEMSolver::DisableAdaptiveUpdateFreq,
-             "Disable the use of adaptive max update step count (always use initial update frequency)")
+             "Disable adaptive contact-update frequency. After initialization, call UpdateSimParams() for this "
+             "change to take effect in the workers.")
         .def("SetAdaptiveBinSizeDelaySteps", &deme::DEMSolver::SetAdaptiveBinSizeDelaySteps,
-             "Adjust how frequent kT updates the bin size")
+             "Adjust how frequently kT updates the bin size. After initialization, call UpdateSimParams().")
         .def("SetAdaptiveBinSizeMaxRate", &deme::DEMSolver::SetAdaptiveBinSizeMaxRate,
-             "Set the max rate that the bin size can change in one adjustment")
+             "Set the maximum bin-size change rate. After initialization, call UpdateSimParams().")
         .def("SetAdaptiveBinSizeAcc", &deme::DEMSolver::SetAdaptiveBinSizeAcc,
-             "Set how fast kT changes the direction of bin size adjustmemt when there's a more beneficial direction")
+             "Set the bin-size adjustment acceleration. After initialization, call UpdateSimParams().")
         .def("SetAdaptiveBinSizeUpperProactivity", &deme::DEMSolver::SetAdaptiveBinSizeUpperProactivity,
              "Set how proactive the solver is in avoiding the bin being too big (leading to too many geometries in a "
-             "bin)")
+             "bin). After initialization, call UpdateSimParams().")
         .def(
             "SetAdaptiveBinSizeLowerProactivity", &deme::DEMSolver::SetAdaptiveBinSizeLowerProactivity,
-            "Set how proactive the solver is in avoiding the bin being too small (leading to too many bins in domain).")
+            "Set how proactive the solver is in avoiding undersized bins. After initialization, call UpdateSimParams().")
         .def("GetBinSize", &deme::DEMSolver::GetBinSize,
              "Get the current bin (for contact detection) size. Must be called from synchronized stance.")
         .def("GetBinNum", &deme::DEMSolver::GetBinNum,
              "Get the current number of bins (for contact detection). Must be called from synchronized stance.")
         .def("SetCDMaxUpdateFreq", &deme::DEMSolver::SetCDMaxUpdateFreq,
-             "Set the upper bound of kT update frequency (when it is adjusted automatically).")
+             "Set the upper bound of kT update frequency. After initialization, call UpdateSimParams().")
         .def("SetCDNumStepsMaxDriftAheadOfAvg", &deme::DEMSolver::SetCDNumStepsMaxDriftAheadOfAvg,
-             "Set the number of steps dT configures its max drift more than average drift steps.")
+             "Set dT's drift allowance above average. After initialization, call UpdateSimParams().")
         .def("SetCDNumStepsMaxDriftMultipleOfAvg", &deme::DEMSolver::SetCDNumStepsMaxDriftMultipleOfAvg,
-             "Set the multiplier which dT configures its max drift to be w.r.t. the average drift steps.")
+             "Set dT's maximum-drift multiplier. After initialization, call UpdateSimParams().")
         .def("SetCDNumStepsMaxDriftHistorySize", &deme::DEMSolver::SetCDNumStepsMaxDriftHistorySize,
              "Set how many past kinematic-worker updates calibrate the maximum future drift limit. The default is "
-             "recommended for normal use.",
+             "recommended for normal use. After initialization, call UpdateSimParams().",
              py::arg("n"))
         .def("GetUpdateFreq", &deme::DEMSolver::GetUpdateFreq, "Get the current update frequency used by the solver.")
         .def("SetForceCalcThreadsPerBlock", &deme::DEMSolver::SetForceCalcThreadsPerBlock,
@@ -1497,23 +1510,29 @@ valid. IDs use the numbering visible to this process, including the effects of
                  const std::string&, const std::string&)>(&deme::DEMSolver::CreateInspector),
              "Create a inspector object that can help query some statistical info of the clumps in the simulation.")
         .def("SetInitTimeStep", &deme::DEMSolver::SetInitTimeStep,
-             "Set the initial timestep in seconds before ``Initialize``. A constant-step simulation uses it "
-             "throughout; an adaptive strategy may update it later.",
+             "Legacy name for SetTimeStepSize, kept for backward compatibility.",
+             py::arg("ts"))
+        .def("SetTimeStepSize", &deme::DEMSolver::SetTimeStepSize,
+             "Set the timestep in seconds before or after initialization. A post-initialization call takes effect on "
+             "the next step and must be made while the solver is synchronized.",
              py::arg("ts"))
         .def("SetGravitationalAcceleration",
              static_cast<void (deme::DEMSolver::*)(const std::vector<float>&)>(
                  &deme::DEMSolver::SetGravitationalAcceleration),
-             "Set the global gravitational acceleration as ``[x, y, z]`` in length/time^2 units.",
+             "Set the global gravitational acceleration as ``[x, y, z]`` in length/time^2 units. This takes effect "
+             "immediately after initialization when called while the solver is synchronized.",
              py::arg("acc"))
         .def("SetMaxVelocity", &deme::DEMSolver::SetMaxVelocity,
              "Set the maximum expected particle velocity. The solver will not use a velocity larger than this for "
-             "determining the margin thickness, and velocity larger than this will be considered a system anomaly.")
+             "determining the margin thickness, and velocity larger than this will be considered a system anomaly. "
+             "After initialization, call UpdateSimParams() for this change to take effect in the workers.")
         .def("SetErrorOutVelocity", &deme::DEMSolver::SetErrorOutVelocity,
              "Set the velocity which when exceeded, the solver errors out. A huge number can be used to discourage "
              "this error type. Defaulted to 5e4.")
         .def("SetExpandSafetyMultiplier", &deme::DEMSolver::SetExpandSafetyMultiplier,
              "Assign a multiplier to our estimated maximum system velocity, when deriving the thinckness of the "
-             "contact `safety' margin.")
+             "contact `safety' margin. After initialization, call UpdateSimParams() for this change to take effect in "
+             "the workers.")
         .def("Initialize", &deme::DEMSolver::Initialize,
              "Finalize cached setup data, allocate runtime state, and prepare JIT CUDA kernels. Call once after "
              "materials, geometry, particles, and solver options have been configured. ``dry_run=True`` performs "
@@ -1857,6 +1876,8 @@ valid. IDs use the numbering visible to this process, including the effects of
         .def("GetTriangle", &deme::DEMMeshConnected::GetTriangle, "Access the n-th triangle in mesh")
         .def("SetPatchIDs", &deme::DEMMeshConnected::SetPatchIDs, "Set one patch ID per triangle.",
              py::arg("patch_ids"))
+        .def("SetEachTriangleAsPatch", &deme::DEMMeshConnected::SetEachTriangleAsPatch,
+             "Assign every triangle to its own patch using consecutive patch IDs.")
         .def("GetPatchIDs", &deme::DEMMeshConnected::GetPatchIDs, "Get one patch ID per triangle.")
         .def("GetNumPatches", &deme::DEMMeshConnected::GetNumPatches, "Get the number of mesh patches.")
         .def("ArePatchesExplicitlySet", &deme::DEMMeshConnected::ArePatchesExplicitlySet,

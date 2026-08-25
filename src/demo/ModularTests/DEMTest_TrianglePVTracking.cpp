@@ -78,7 +78,7 @@ int main() {
     upper_cube->SetFamily(1);
     auto upper_tracker = DEMSim.Track(upper_cube);
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.Initialize();
     DEMSim.SetTriTriPenetration(overlap * 2.f);
 

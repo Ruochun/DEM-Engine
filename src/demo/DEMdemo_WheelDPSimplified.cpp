@@ -145,7 +145,7 @@ int main() {
     auto max_v_finder = DEMSim.CreateInspector("clump_max_absv");
 
     // Make ready for simulation
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -G_mag));
     // Max velocity info is generally just for the solver's reference and the user do not have to set it. The solver
     // wouldn't take into account a vel larger than this when doing async-ed contact detection: but this vel won't

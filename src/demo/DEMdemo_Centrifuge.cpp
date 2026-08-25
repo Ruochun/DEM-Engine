@@ -138,7 +138,7 @@ int main() {
     // Make the domain large enough
     DEMSim.InstructBoxDomainDimension(5, 5, 5);
     float step_size = 5e-6;
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGPUTimersEnabled(true);
     // DEMSim.UseHertzConstTimeStep();
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));

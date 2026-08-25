@@ -111,7 +111,7 @@ int main() {
     my_force_model->SetPerContactWildcards({"delta_time", "delta_tan_x", "delta_tan_y", "delta_tan_z"});
     my_force_model->SetMustPairwiseMatProp({"CoR", "mu", "Crr", "Cohesion"});
 
-    DEMSim.SetInitTimeStep(2e-5);
+    DEMSim.SetTimeStepSize(2e-5);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.8));
     DEMSim.SetCDUpdateFreq(10);
     DEMSim.SetMaxVelocity(6.);

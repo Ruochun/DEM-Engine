@@ -128,7 +128,7 @@ int main() {
 
     DEMSim.SetFamilyExtraMargin(1, fact_radius * sphere_rad);
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     // The `dry-run' option is on in this demo, which establishes the initial contact pairs while initializing. This is
     // needed in this demo specifically, as we'll soon modify the contact wildcards associated with these contacts.

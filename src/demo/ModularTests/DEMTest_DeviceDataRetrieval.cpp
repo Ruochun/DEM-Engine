@@ -122,7 +122,7 @@ bool testFixedOwnerData(int visible_devices) {
     auto batch = solver.AddClumps(input_batch);
     auto tracker = solver.Track(batch);
 
-    solver.SetInitTimeStep(1e-5);
+    solver.SetTimeStepSize(1e-5);
     solver.Initialize();
     solver.DoDynamicsThenSync(1e-5);
 
@@ -273,7 +273,7 @@ bool testNonJitifiedMassData() {
     auto sphere = solver.LoadSphereType(3.25f, 0.4f, material);
     auto batch = solver.AddClumps(sphere, std::vector<float3>{make_float3(1, 1, 1), make_float3(3, 1, 1)});
     auto tracker = solver.Track(batch);
-    solver.SetInitTimeStep(1e-5);
+    solver.SetTimeStepSize(1e-5);
     solver.Initialize();
 
     TestDeviceBuffer<float> masses(2, 0);

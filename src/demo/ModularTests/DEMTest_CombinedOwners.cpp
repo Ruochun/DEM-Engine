@@ -109,7 +109,7 @@ ScenarioResult runScenario(bool allow_intra_combined_contacts, bool use_batch = 
         DEMSim.SetAllowIntraCombinedOwnerContacts(true);
     }
 
-    DEMSim.SetInitTimeStep(kStepSize);
+    DEMSim.SetTimeStepSize(kStepSize);
     DEMSim.Initialize(true);
 
     for (size_t i = 0; i < result.total_member_owners; i++) {
@@ -139,7 +139,7 @@ MotionResult runMemberAccelerationScenario(bool angular) {
     auto combined_inst = DEMSim.AddCombinedFromTemplate(combined_type, kInitPos, kIdentityQ);
     auto tracker = DEMSim.Track(combined_inst);
 
-    DEMSim.SetInitTimeStep(kStepSize);
+    DEMSim.SetTimeStepSize(kStepSize);
     DEMSim.Initialize();
 
     result.initial_positions = tracker->Positions();

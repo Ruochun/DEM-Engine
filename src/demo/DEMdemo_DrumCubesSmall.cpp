@@ -107,7 +107,7 @@ int main() {
 
     DEMSim.InstructBoxDomainDimension(0.4, 0.4, 0.4);
     float step_size = 1e-4f;
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetExpandSafetyType("auto");
     DEMSim.SetExpandSafetyAdder(drum_ang_vel * CylRad);

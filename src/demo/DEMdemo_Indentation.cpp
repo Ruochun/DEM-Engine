@@ -159,7 +159,7 @@ int main() {
     std::cout << "Total num of particles: " << num_particles << std::endl;
     auto particle_tracker = DEMSim.Track(particles);
 
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
     DEMSim.SetCDUpdateFreq(20);
     // You usually don't have to worry about initial bin size. But sometimes if you can set the init bin size so that

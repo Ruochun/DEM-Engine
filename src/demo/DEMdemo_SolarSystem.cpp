@@ -168,7 +168,7 @@ int main() {
     */
 
     float step_size = 0.01;
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, 0));
     DEMSim.InstructBoxDomainDimension({-50, 50}, {-50, 50}, {-50, 50});
     DEMSim.SetInitBinNumTarget(10);

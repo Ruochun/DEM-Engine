@@ -120,7 +120,7 @@ int main() {
     // init bin size may save the simulation.
     // DEMSim.SetInitBinSize(world_size / 100.);
 
-    DEMSim.SetInitTimeStep(1.);
+    DEMSim.SetTimeStepSize(1.);
     DEMSim.SetCDUpdateFreq(0);
     // Must disable this if you want to run dT and kT synchronizely, or the solver will automatically find a non-zero
     // update frequency that it sees fit to run it in an async fashion.

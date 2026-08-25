@@ -230,7 +230,7 @@ int main() {
         float3 this_G = make_float3(-G_mag * std::sin(G_ang), 0, -G_mag * std::cos(G_ang));
         DEMSim.SetGravitationalAcceleration(this_G);
 
-        DEMSim.SetInitTimeStep(step_size);
+        DEMSim.SetTimeStepSize(step_size);
         DEMSim.SetCDUpdateFreq(15);
         // Max velocity info is generally just for the solver's reference and the user do not have to set it. The solver
         // wouldn't take into account a vel larger than this when doing async-ed contact detection: but this vel won't

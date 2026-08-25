@@ -141,7 +141,7 @@ int main() {
     // =========================================================================
     // Initialize and run
     // =========================================================================
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.Initialize();
 
     std::cout << "\nCube init position: (" << cube_init_pos.x << ", " << cube_init_pos.y << ", " << cube_init_pos.z

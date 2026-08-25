@@ -168,7 +168,7 @@ int main(int argc, char** argv) {
     }
     DEMSim.InstructBoxDomainDimension({-1.5f, 14.0f}, {-1.5f, 1.5f}, {-1.0f, 2.5f});
     DEMSim.InstructBoxDomainBoundingBC("none", mat_cone);
-    DEMSim.SetInitTimeStep(1.0e-6);
+    DEMSim.SetTimeStepSize(1.0e-6);
     DEMSim.SetCDUpdateFreq(1);
     DEMSim.SetGravitationalAcceleration(make_float3(0.0f));
     DEMSim.SetMaxVelocity(1.0f);

@@ -132,7 +132,7 @@ int main() {
     // =========================================================================
     // Initialize and run
     // =========================================================================
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.Initialize();
 
     // After initialization, set cone velocity (prescribed family uses expression

@@ -129,7 +129,7 @@ int main() {
     float step_size = 5e-6;
     auto max_v_finder = DEMSim.CreateInspector("clump_max_absv");
     DEMSim.InstructBoxDomainDimension(5, 5, 5);
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.8));
     // For SetCDNumStepsMaxDrift methods, you can just use defaults, and they mean this: the solver will record the
     // average num of steps that dT is ahead of kT, say n steps, then the solver sets the max number of steps allowed

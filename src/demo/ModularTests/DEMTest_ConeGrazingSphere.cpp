@@ -167,7 +167,7 @@ int main() {
     // =========================================================================
     // Initialize and run
     // =========================================================================
-    DEMSim.SetInitTimeStep(step_size);
+    DEMSim.SetTimeStepSize(step_size);
     DEMSim.Initialize();
 
     // Set initial velocity to match the prescribed formula at t=0.
