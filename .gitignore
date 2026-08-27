@@ -13,6 +13,7 @@ Makefile
 *.o
 *.obj
 !data/mesh/box_50mm_reverse_winding.obj
+!data/mesh/geometry4/*.obj
 *.a
 *.so
 *.dylib
