@@ -1501,6 +1501,149 @@ void DEMDynamicThread::writeSpheresAsCsvFromHost(std::ofstream& ptFile) {
     ptFile << outstrstream.str();
 }
 
+void DEMDynamicThread::writeSpheresAsVtk(std::ofstream& ptFile) {
+    migrateFamilyToHost();
+    migrateClumpPosInfoToHost();
+    migrateClumpHighOrderInfoToHost();
+    migrateOwnerWildcardToHost();
+    migrateSphGeoWildcardToHost();
+    writeSpheresAsVtkFromHost(ptFile);
+}
+
+void DEMDynamicThread::writeSpheresAsVtkFromHost(std::ofstream& ptFile) {
+    // Keep one compact point record per component sphere. ParaView can turn these points into rendered spheres with a
+    // Glyph filter using `r` as the scale array, without DEME writing a triangle tessellation for every sphere.
+    struct SpherePointData {
+        float3 pos;
+        float radius;
+        float3 vel;
+        float3 ang_vel;
+        float3 acc;
+        float3 ang_acc;
+        family_t family;
+        std::vector<float> owner_wildcards;
+        std::vector<float> geo_wildcards;
+    };
+
+    std::vector<SpherePointData> spheres;
+    spheres.reserve(simParams->nSpheresGM);
+
+    // Resolve owner-frame component locations and collect all enabled attributes before writing the VTK section
+    // counts. Filtering is done here so every point-data array has exactly the same length as the POINTS section.
+    for (size_t i = 0; i < simParams->nSpheresGM; i++) {
+        const bodyID_t owner = ownerClumpBody[i];
+        const family_t family = familyID[owner];
+        if (familiesNoOutput.find(family) != familiesNoOutput.end()) {
+            continue;
+        }
+
+        float X, Y, Z;
+        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(X, Y, Z, voxelID[owner], locX[owner], locY[owner],
+                                                           locZ[owner], simParams->nvXp2, simParams->nvYp2,
+                                                           simParams->voxelSize, simParams->l);
+        const float3 owner_pos = make_float3(X + simParams->LBFX, Y + simParams->LBFY, Z + simParams->LBFZ);
+        const size_t component = solverFlags.useClumpJitify ? clumpComponentOffsetExt[i] : i;
+        float3 rel_pos = make_float3(relPosSphereX[component], relPosSphereY[component], relPosSphereZ[component]);
+        applyOriQToVector3<float, float>(rel_pos.x, rel_pos.y, rel_pos.z, oriQw[owner], oriQx[owner], oriQy[owner],
+                                         oriQz[owner]);
+
+        SpherePointData sphere;
+        sphere.pos = owner_pos + rel_pos;
+        sphere.radius = radiiSphere[component];
+        sphere.vel = make_float3(vX[owner], vY[owner], vZ[owner]);
+        sphere.ang_vel = make_float3(omgBarX[owner], omgBarY[owner], omgBarZ[owner]);
+        sphere.acc = make_float3(aX[owner], aY[owner], aZ[owner]);
+        sphere.ang_acc = make_float3(alphaX[owner], alphaY[owner], alphaZ[owner]);
+        sphere.family = family;
+        if (solverFlags.outputFlags & OUTPUT_CONTENT::OWNER_WILDCARD) {
+            sphere.owner_wildcards.reserve(m_owner_wildcard_names.size());
+            for (const auto& wildcard : ownerWildcards) {
+                sphere.owner_wildcards.push_back((*wildcard)[owner]);
+            }
+        }
+        if (solverFlags.outputFlags & OUTPUT_CONTENT::GEO_WILDCARD) {
+            sphere.geo_wildcards.reserve(m_geo_wildcard_names.size());
+            for (const auto& wildcard : sphereWildcards) {
+                sphere.geo_wildcards.push_back((*wildcard)[i]);
+            }
+        }
+        spheres.push_back(std::move(sphere));
+    }
+
+    std::ostringstream out;
+    out << "# vtk DataFile Version 2.0\n";
+    out << "DEME component spheres\n";
+    out << "ASCII\n";
+    out << "DATASET POLYDATA\n";
+    out << "POINTS " << spheres.size() << " float\n";
+    for (const auto& sphere : spheres) {
+        out << sphere.pos.x << " " << sphere.pos.y << " " << sphere.pos.z << "\n";
+    }
+    out << "VERTICES " << spheres.size() << " " << 2 * spheres.size() << "\n";
+    for (size_t i = 0; i < spheres.size(); i++) {
+        out << "1 " << i << "\n";
+    }
+    out << "POINT_DATA " << spheres.size() << "\n";
+
+    auto write_scalar = [&out, &spheres](const std::string& name, const auto& value) {
+        out << "SCALARS " << name << " float 1\n";
+        out << "LOOKUP_TABLE default\n";
+        for (const auto& sphere : spheres) {
+            out << value(sphere) << "\n";
+        }
+    };
+    auto write_vector = [&out, &spheres](const std::string& name, const auto& value) {
+        out << "VECTORS " << name << " float\n";
+        for (const auto& sphere : spheres) {
+            const float3 vector = value(sphere);
+            out << vector.x << " " << vector.y << " " << vector.z << "\n";
+        }
+    };
+
+    write_scalar("r", [](const SpherePointData& sphere) { return sphere.radius; });
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ABSV) {
+        write_scalar("absv", [](const SpherePointData& sphere) { return length(sphere.vel); });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::VEL) {
+        write_vector("velocity", [](const SpherePointData& sphere) { return sphere.vel; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ANG_VEL) {
+        write_vector("angular_velocity", [](const SpherePointData& sphere) { return sphere.ang_vel; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ABS_ACC) {
+        write_scalar("abs_acc", [](const SpherePointData& sphere) { return length(sphere.acc); });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ACC) {
+        write_vector("acceleration", [](const SpherePointData& sphere) { return sphere.acc; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ANG_ACC) {
+        write_vector("angular_acceleration", [](const SpherePointData& sphere) { return sphere.ang_acc; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
+        write_scalar("family", [](const SpherePointData& sphere) { return +sphere.family; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::OWNER_WILDCARD) {
+        size_t wildcard_index = 0;
+        for (const auto& wildcard_name : m_owner_wildcard_names) {
+            write_scalar(wildcard_name, [wildcard_index](const SpherePointData& sphere) {
+                return sphere.owner_wildcards[wildcard_index];
+            });
+            wildcard_index++;
+        }
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::GEO_WILDCARD) {
+        size_t wildcard_index = 0;
+        for (const auto& wildcard_name : m_geo_wildcard_names) {
+            write_scalar(wildcard_name, [wildcard_index](const SpherePointData& sphere) {
+                return sphere.geo_wildcards[wildcard_index];
+            });
+            wildcard_index++;
+        }
+    }
+
+    ptFile << out.str();
+}
+
 void DEMDynamicThread::writeClumpsAsCsv(std::ofstream& ptFile, unsigned int accuracy) {
     migrateFamilyToHost();
     migrateClumpPosInfoToHost();

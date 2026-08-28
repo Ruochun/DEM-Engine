@@ -11,8 +11,6 @@ Makefile
 
 # Native/CUDA build artifacts
 *.o
-*.obj
-!data/mesh/box_50mm_reverse_winding.obj
 *.a
 *.so
 *.dylib

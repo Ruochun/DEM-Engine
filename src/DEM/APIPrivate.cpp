@@ -349,6 +349,9 @@ void DEMSolver::addAnalCompTemplate(const objType_t type,
     m_anal_size_3.push_back(d3);
     float normal_sign = (normal == ENTITY_NORMAL_INWARD) ? 1 : -1;
     m_anal_normals.push_back(normal_sign);
+    // Unlike the flattened arrays, this compact definition persists after Initialize() so current owner transforms can
+    // be combined with the original component geometry for analytical VTK output.
+    m_anal_output_definitions.push_back({type, pos, rot, d1, d2, d3, normal_sign});
 }
 
 void DEMSolver::jitifyKernels() {

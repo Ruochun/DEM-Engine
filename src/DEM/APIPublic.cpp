@@ -6,6 +6,7 @@
 #include <core/ApiVersion.h>
 #include "API.h"
 #include "Defines.h"
+#include "utils/AnalyticalOutput.hpp"
 #include "utils/CombinedOwnerUtils.hpp"
 #include "utils/HostSideHelpers.hpp"
 #include "utils/MeshUtils.hpp"
@@ -218,6 +219,9 @@ void DEMSolver::SetOutputFormat(const std::string& format) {
             break;
         case ("BINARY"_):
             m_out_format = OUTPUT_FORMAT::BINARY;
+            break;
+        case ("VTK"_):
+            m_out_format = OUTPUT_FORMAT::VTK;
             break;
         default:
             DEME_ERROR("Instruction %s is unknown in SetOutputFormat call.", format.c_str());
@@ -3050,9 +3054,68 @@ void DEMSolver::WriteSphereFile(const std::string& outfilename) const {
             });
             break;
         }
+        case (OUTPUT_FORMAT::VTK): {
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateClumpHighOrderInfoToHost();
+            dT->migrateOwnerWildcardToHost();
+            dT->migrateSphGeoWildcardToHost();
+            m_output_thread = std::thread([this, outfilename]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeSpheresAsVtkFromHost(ptFile);
+            });
+            break;
+        }
         default:
             DEME_ERROR(std::string("Sphere output file format is unknown. Please set it via SetOutputFormat."));
     }
+}
+
+void DEMSolver::WriteAnalyticalFile(const std::string& outfilename, unsigned int circumferential_resolution) const {
+    if (circumferential_resolution < 3) {
+        DEME_ERROR("WriteAnalyticalFile circumferential resolution must be at least 3, not %u.",
+                   circumferential_resolution);
+    }
+
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    WaitForPendingOutput();
+    dT->migrateFamilyToHost();
+    dT->migrateClumpPosInfoToHost();
+
+    // Snapshot current owner transforms before launching the asynchronous writer. Component definitions are setup-time
+    // data, while an analytical owner's pose can change on every dynamics step.
+    std::vector<AnalyticalOutputComponent> components;
+    components.reserve(m_anal_output_definitions.size());
+    for (size_t i = 0; i < m_anal_output_definitions.size(); i++) {
+        const auto& definition = m_anal_output_definitions[i];
+        const bodyID_t owner = dT->ownerAnalBody[i];
+        const family_t family = dT->familyID[owner];
+        if (dT->familiesNoOutput.find(family) != dT->familiesNoOutput.end()) {
+            continue;
+        }
+
+        float3 owner_pos;
+        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(
+            owner_pos.x, owner_pos.y, owner_pos.z, dT->voxelID[owner], dT->locX[owner], dT->locY[owner],
+            dT->locZ[owner], dT->simParams->nvXp2, dT->simParams->nvYp2, dT->simParams->voxelSize, dT->simParams->l);
+        owner_pos += make_float3(dT->simParams->LBFX, dT->simParams->LBFY, dT->simParams->LBFZ);
+        const float4 owner_ori = make_float4(dT->oriQx[owner], dT->oriQy[owner], dT->oriQz[owner], dT->oriQw[owner]);
+        float3 component_pos = definition.position;
+        applyFrameTransformLocalToGlobal(component_pos, owner_pos, owner_ori);
+        float3 component_axis = definition.axis;
+        applyOriQToVector3<float, float>(component_axis.x, component_axis.y, component_axis.z, dT->oriQw[owner],
+                                         dT->oriQx[owner], dT->oriQy[owner], dT->oriQz[owner]);
+        components.push_back({definition.type, component_pos, component_axis, definition.size_1, definition.size_2,
+                              definition.size_3, definition.normal_sign, owner, family});
+    }
+
+    const float3 domain_min = m_user_box_min;
+    const float3 domain_max = m_user_box_max;
+    m_output_thread = std::thread(
+        [outfilename, components = std::move(components), domain_min, domain_max, circumferential_resolution]() {
+            std::ofstream file(outfilename, std::ios::out);
+            writeAnalyticalAsVtk(file, components, domain_min, domain_max, circumferential_resolution);
+        });
 }
 
 void DEMSolver::WriteClumpFile(const std::string& outfilename, unsigned int accuracy) const {

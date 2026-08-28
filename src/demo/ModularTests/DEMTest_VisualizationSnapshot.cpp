@@ -4,7 +4,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 
 #include "DEM/API.h"
 
@@ -32,6 +36,7 @@ int main() {
     mesh->Scale(0.1f);
     mesh->SetFamily(1);
     solver.SetFamilyFixed(1);
+    solver.AddBCPlane(make_float3(0, 0, 0), make_float3(0, 0, 1), material);
     solver.Initialize();
 
     const auto sphere_snapshot = solver.GetVisualizationSnapshot(true, false);
@@ -43,6 +48,41 @@ int main() {
     if (!near(rendered_sphere.position.x, 1.0f) || !near(rendered_sphere.position.y, 2.0f) ||
         !near(rendered_sphere.position.z, 3.0f) || !near(rendered_sphere.radius, 0.25f)) {
         std::cerr << "FAIL: visualization sphere does not match its initialized world transform." << std::endl;
+        return 1;
+    }
+
+    // Exercise the public asynchronous writer and check the core legacy-VTK sections that ParaView consumes.
+    const auto vtk_path = std::filesystem::temp_directory_path() /
+                          ("deme_sphere_output_" + std::to_string(reinterpret_cast<std::uintptr_t>(&solver)) + ".vtk");
+    solver.SetOutputFormat(OUTPUT_FORMAT::VTK);
+    solver.WriteSphereFile(vtk_path);
+    solver.WaitForPendingOutput();
+    std::ifstream vtk_file(vtk_path);
+    std::ostringstream vtk_contents;
+    vtk_contents << vtk_file.rdbuf();
+    std::filesystem::remove(vtk_path);
+    const std::string vtk_text = vtk_contents.str();
+    if (vtk_text.find("DATASET POLYDATA") == std::string::npos ||
+        vtk_text.find("POINTS 1 float") == std::string::npos ||
+        vtk_text.find("SCALARS r float 1") == std::string::npos) {
+        std::cerr << "FAIL: VTK sphere output is missing required ParaView point-data sections." << std::endl;
+        return 1;
+    }
+
+    const auto analytical_vtk_path =
+        std::filesystem::temp_directory_path() /
+        ("deme_analytical_output_" + std::to_string(reinterpret_cast<std::uintptr_t>(&solver)) + ".vtk");
+    solver.WriteAnalyticalFile(analytical_vtk_path);
+    solver.WaitForPendingOutput();
+    std::ifstream analytical_vtk_file(analytical_vtk_path);
+    std::ostringstream analytical_vtk_contents;
+    analytical_vtk_contents << analytical_vtk_file.rdbuf();
+    std::filesystem::remove(analytical_vtk_path);
+    const std::string analytical_vtk_text = analytical_vtk_contents.str();
+    if (analytical_vtk_text.find("DATASET POLYDATA") == std::string::npos ||
+        analytical_vtk_text.find("POLYGONS 2 8") == std::string::npos ||
+        analytical_vtk_text.find("SCALARS component_type int 1") == std::string::npos) {
+        std::cerr << "FAIL: analytical VTK output is missing the clipped plane surface or metadata." << std::endl;
         return 1;
     }
 

@@ -28,7 +28,8 @@ int main() {
     std::cout << "========================================" << std::endl;
     DEMSolver DEMSim;
     DEMSim.SetVerbosity("METRIC");
-    DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
+    // Write component spheres as compact VTK point data for ParaView's Glyph filter.
+    DEMSim.SetOutputFormat(OUTPUT_FORMAT::VTK);
     DEMSim.SetContactOutputContent({"OWNER", "FORCE", "POINT", "NORMAL", "TORQUE", "CNT_WILDCARD"});
     DEMSim.EnsureKernelErrMsgLineNum();
     DEMSim.SetPersistentContact(true);
@@ -169,12 +170,16 @@ int main() {
         // }
 
         char filename[100];
-        sprintf(filename, "DEMdemo_output_%04d.csv", i);
+        sprintf(filename, "DEMdemo_output_%04d.vtk", i);
         DEMSim.WriteSphereFile(out_dir / filename);
 
         char cnt_filename[100];
         sprintf(cnt_filename, "Contact_pairs_%04d.csv", i);
         DEMSim.WriteContactFile(out_dir / cnt_filename);
+
+        char analytical_filename[100];
+        sprintf(analytical_filename, "DEMdemo_analytical_%04d.vtk", i);
+        DEMSim.WriteAnalyticalFile(out_dir / analytical_filename);
 
         char meshfilename[100];
         sprintf(meshfilename, "DEMdemo_mesh_%04d.vtk", i);

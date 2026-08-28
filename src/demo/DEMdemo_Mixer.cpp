@@ -126,11 +126,13 @@ int main() {
     std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
     for (float t = 0; t < sim_end; t += frame_time) {
         std::cout << "Frame: " << currframe << std::endl;
-        char filename[100], meshfilename[100], cnt_filename[100];
+        char filename[100], analytical_filename[100], meshfilename[100], cnt_filename[100];
         sprintf(filename, "DEMdemo_output_%04d.csv", currframe);
+        sprintf(analytical_filename, "DEMdemo_analytical_%04d.vtk", currframe);
         sprintf(meshfilename, "DEMdemo_mesh_%04d.vtk", currframe);
         sprintf(cnt_filename, "Contact_pairs_%04d.csv", currframe++);
         DEMSim.WriteSphereFile(out_dir / filename);
+        DEMSim.WriteAnalyticalFile(out_dir / analytical_filename);
         DEMSim.WriteMeshFile(out_dir / meshfilename);
         // DEMSim.WriteContactFile(out_dir / cnt_filename);
 

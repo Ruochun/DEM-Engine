@@ -735,6 +735,8 @@ class DEMDynamicThread {
 
     void writeSpheresAsCsv(std::ofstream& ptFile);
     void writeSpheresAsCsvFromHost(std::ofstream& ptFile);
+    void writeSpheresAsVtk(std::ofstream& ptFile);
+    void writeSpheresAsVtkFromHost(std::ofstream& ptFile);
     void writeClumpsAsCsv(std::ofstream& ptFile, unsigned int accuracy = 10);
     void writeClumpsAsCsvFromHost(std::ofstream& ptFile, unsigned int accuracy = 10);
     void writeContactsAsCsv(std::ofstream& ptFile, float force_thres = DEME_TINY_FLOAT);

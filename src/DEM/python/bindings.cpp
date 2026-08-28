@@ -794,7 +794,10 @@ valid. IDs use the numbering visible to this process, including the effects of
              " Explicitly instruct the bin size (for contact detection) that the solver should use.")
         .def("SetOutputFormat",
              static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetOutputFormat),
-             "Choose sphere and clump output file format.")
+             "Choose sphere and clump output file format by name.", py::arg("format"))
+        .def("SetOutputFormat",
+             static_cast<void (deme::DEMSolver::*)(deme::OUTPUT_FORMAT)>(&deme::DEMSolver::SetOutputFormat),
+             "Choose sphere and clump output file format. VTK is supported by WriteSphereFile.", py::arg("format"))
         .def("GetNumContacts", &deme::DEMSolver::GetNumContacts,
              "Get the number of kT-reported potential contact pairs.")
         .def("GetTimeStepSize", &deme::DEMSolver::GetTimeStepSize, "Get the current time step size in simulation.")
@@ -1540,7 +1543,13 @@ valid. IDs use the numbering visible to this process, including the effects of
              py::arg("dry_run") = false)
         .def("WriteSphereFile",
              static_cast<void (deme::DEMSolver::*)(const std::string&) const>(&deme::DEMSolver::WriteSphereFile),
-             "Writes the current status of clumps (but decomposed as spheres) file.")
+             "Write clumps as component spheres using the selected CSV or VTK output format.",
+             py::arg("outfilename"))
+        .def("WriteAnalyticalFile",
+             static_cast<void (deme::DEMSolver::*)(const std::string&, unsigned int) const>(
+                 &deme::DEMSolver::WriteAnalyticalFile),
+             "Write analytical boundary surfaces as VTK clipped to the user-specified domain.",
+             py::arg("outfilename"), py::arg("circumferential_resolution") = 32)
         .def("WriteMeshFile",
              static_cast<void (deme::DEMSolver::*)(const std::string&) const>(&deme::DEMSolver::WriteMeshFile),
              "Write the current status of all meshes to a file.")
@@ -1977,6 +1986,7 @@ valid. IDs use the numbering visible to this process, including the effects of
     py::enum_<deme::OUTPUT_FORMAT>(obj, "OUTPUT_FORMAT")
         .value("CSV", deme::OUTPUT_FORMAT::CSV)
         .value("BINARY", deme::OUTPUT_FORMAT::BINARY)
+        .value("VTK", deme::OUTPUT_FORMAT::VTK)
         .export_values();
 
     py::enum_<deme::MESH_FORMAT>(obj, "MESH_FORMAT")

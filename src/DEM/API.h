@@ -1508,10 +1508,18 @@ class DEMSolver {
     void WriteClumpFile(const std::filesystem::path& outfilename, unsigned int accuracy = 10) const {
         WriteClumpFile(outfilename.string(), accuracy);
     }
-    /// Write the current status of "clumps" to a file, but not as clumps, instead, as each individual sphere. This may
-    /// make small-scale rendering easier.
+    /// Write the current status of "clumps" to a file, but not as clumps, instead, as each individual sphere. CSV and
+    /// VTK formats are supported. VTK stores sphere centers and the `r` radius scalar as point data for ParaView's
+    /// Glyph filter, avoiding duplicated sphere tessellations in every output frame.
     void WriteSphereFile(const std::string& outfilename) const;
     void WriteSphereFile(const std::filesystem::path& outfilename) const { WriteSphereFile(outfilename.string()); }
+    /// @brief Write directly displayable VTK surfaces for all analytical boundary components.
+    /// @details Infinite primitives are clipped to the domain specified by InstructBoxDomainDimension.
+    void WriteAnalyticalFile(const std::string& outfilename, unsigned int circumferential_resolution = 32) const;
+    void WriteAnalyticalFile(const std::filesystem::path& outfilename,
+                             unsigned int circumferential_resolution = 32) const {
+        WriteAnalyticalFile(outfilename.string(), circumferential_resolution);
+    }
     /// @brief Write all contact pairs to a file.
     /// @details The outputted torque using this method is in global, rather than each object's local coordinate system.
     /// @param outfilename Output filename.
@@ -1756,7 +1764,7 @@ class DEMSolver {
     /// @brief Set output detail level.
     void SetVerbosity(verbosity_t verbose);
     /// @brief Choose sphere and clump output file format.
-    /// @param format Choice among "CSV", "BINARY".
+    /// @param format Choice among "CSV", "BINARY", and "VTK". VTK is supported by WriteSphereFile.
     void SetOutputFormat(const std::string& format);
     /// @brief Specify the information that needs to go into the clump or sphere output files.
     /// @param content A list of "XYZ", "QUAT", "ABSV", "VEL", "ANG_VEL", "ABS_ACC", "ACC", "ANG_ACC", "FAMILY", "MAT",
@@ -2280,6 +2288,20 @@ class DEMSolver {
     // Component object normal direction (represented by sign, 1 or -1), defaulting to inward (1). If this object is
     // topologically a plane then this param is meaningless, since its normal is determined by its rotation.
     std::vector<float> m_anal_normals;
+
+    // Persistent analytical definitions used for visualization after the flattened initialization arrays above are
+    // released. Runtime owner IDs and transforms remain in dT and are combined with these local-frame definitions at
+    // output time.
+    struct AnalyticalOutputDefinition {
+        objType_t type;
+        float3 position;
+        float3 axis;
+        float size_1;
+        float size_2;
+        float size_3;
+        float normal_sign;
+    };
+    std::vector<AnalyticalOutputDefinition> m_anal_output_definitions;
 
     // These mesh facets' owners' ID, flattened
     std::vector<bodyID_t> m_mesh_facet_owner;
