@@ -35,6 +35,9 @@ int main() {
     auto mesh = solver.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/plane_20by20.obj").string(), material);
     mesh->Scale(0.1f);
     mesh->SetFamily(1);
+    mesh->AddGeometryWildcard("mesh_test_value", 7.0f);
+    solver.SetMeshOutputContent({"QUAT", "ABSV", "VEL", "ANG_VEL", "ABS_ACC", "ACC", "ANG_ACC", "FAMILY", "MAT",
+                                 "GEO_WILDCARD", "OWNER", "MESH_ID", "TRI_ID", "PATCH_ID"});
     solver.SetFamilyFixed(1);
     solver.AddBCPlane(make_float3(0, 0, 0), make_float3(0, 0, 1), material);
     solver.Initialize();
@@ -84,6 +87,38 @@ int main() {
         analytical_vtk_text.find("SCALARS component_type int 1") == std::string::npos) {
         std::cerr << "FAIL: analytical VTK output is missing the clipped plane surface or metadata." << std::endl;
         return 1;
+    }
+
+    const auto mesh_vtk_path =
+        std::filesystem::temp_directory_path() /
+        ("deme_mesh_output_" + std::to_string(reinterpret_cast<std::uintptr_t>(&solver)) + ".vtk");
+    solver.WriteMeshFile(mesh_vtk_path);
+    solver.WaitForPendingOutput();
+    std::ifstream mesh_vtk_file(mesh_vtk_path);
+    std::ostringstream mesh_vtk_contents;
+    mesh_vtk_contents << mesh_vtk_file.rdbuf();
+    std::filesystem::remove(mesh_vtk_path);
+    const std::string mesh_vtk_text = mesh_vtk_contents.str();
+    const std::vector<std::string> required_mesh_fields = {"CELL_DATA 2",
+                                                           "SCALARS quaternion float 4",
+                                                           "SCALARS absv float 1",
+                                                           "VECTORS velocity float",
+                                                           "VECTORS angular_velocity float",
+                                                           "SCALARS abs_acc float 1",
+                                                           "VECTORS acceleration float",
+                                                           "VECTORS angular_acceleration float",
+                                                           "SCALARS family int 1",
+                                                           "SCALARS material int 1",
+                                                           "SCALARS owner int 1",
+                                                           "SCALARS mesh_id int 1",
+                                                           "SCALARS tri_id int 1",
+                                                           "SCALARS patch_id int 1",
+                                                           "SCALARS mesh_test_value float 1"};
+    for (const auto& required_field : required_mesh_fields) {
+        if (mesh_vtk_text.find(required_field) == std::string::npos) {
+            std::cerr << "FAIL: mesh VTK output is missing requested CELL_DATA field: " << required_field << std::endl;
+            return 1;
+        }
     }
 
     const auto triangle_snapshot = solver.GetVisualizationSnapshot(false, true);

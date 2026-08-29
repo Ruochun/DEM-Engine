@@ -1009,6 +1009,14 @@ valid. IDs use the numbering visible to this process, including the effects of
         .def("SetMeshOutputFormat",
              static_cast<void (deme::DEMSolver::*)(const std::string&)>(&deme::DEMSolver::SetMeshOutputFormat),
              "Specify the output file format of meshes.")
+        .def("SetMeshOutputContent",
+             static_cast<void (deme::DEMSolver::*)(const std::vector<std::string>&)>(
+                 &deme::DEMSolver::SetMeshOutputContent),
+             "Specify per-triangle fields to include in mesh VTK output.", py::arg("content"))
+        .def("SetMeshOutputContent",
+             static_cast<void (deme::DEMSolver::*)(deme::MESH_OUTPUT_CONTENT)>(
+                 &deme::DEMSolver::SetMeshOutputContent),
+             "Specify one per-triangle field to include in mesh VTK output.", py::arg("content"))
         .def("EnableMeshPatchColorOutput", &deme::DEMSolver::EnableMeshPatchColorOutput,
              "Enable or disable patch color metadata in PLY mesh output.", py::arg("enable") = true)
         .def("SetContactOutputContent",
@@ -1982,6 +1990,24 @@ valid. IDs use the numbering visible to this process, including the effects of
         .value("MAT", deme::OUTPUT_CONTENT::MAT)
         .value("OWNER_WILDCARD", deme::OUTPUT_CONTENT::OWNER_WILDCARD)
         .export_values();
+
+    py::enum_<deme::MESH_OUTPUT_CONTENT>(obj, "MESH_OUTPUT_CONTENT")
+        .value("XYZ", deme::MESH_OUTPUT_CONTENT::XYZ)
+        .value("QUAT", deme::MESH_OUTPUT_CONTENT::QUAT)
+        .value("ABSV", deme::MESH_OUTPUT_CONTENT::ABSV)
+        .value("VEL", deme::MESH_OUTPUT_CONTENT::VEL)
+        .value("ANG_VEL", deme::MESH_OUTPUT_CONTENT::ANG_VEL)
+        .value("ABS_ACC", deme::MESH_OUTPUT_CONTENT::ABS_ACC)
+        .value("ACC", deme::MESH_OUTPUT_CONTENT::ACC)
+        .value("ANG_ACC", deme::MESH_OUTPUT_CONTENT::ANG_ACC)
+        .value("FAMILY", deme::MESH_OUTPUT_CONTENT::FAMILY)
+        .value("MAT", deme::MESH_OUTPUT_CONTENT::MAT)
+        .value("OWNER_WILDCARD", deme::MESH_OUTPUT_CONTENT::OWNER_WILDCARD)
+        .value("GEO_WILDCARD", deme::MESH_OUTPUT_CONTENT::GEO_WILDCARD)
+        .value("OWNER", deme::MESH_OUTPUT_CONTENT::OWNER)
+        .value("MESH_ID", deme::MESH_OUTPUT_CONTENT::MESH_ID)
+        .value("TRI_ID", deme::MESH_OUTPUT_CONTENT::TRI_ID)
+        .value("PATCH_ID", deme::MESH_OUTPUT_CONTENT::PATCH_ID);
 
     py::enum_<deme::OUTPUT_FORMAT>(obj, "OUTPUT_FORMAT")
         .value("CSV", deme::OUTPUT_FORMAT::CSV)

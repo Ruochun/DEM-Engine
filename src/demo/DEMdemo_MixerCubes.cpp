@@ -34,6 +34,7 @@ int main() {
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
     DEMSim.SetOutputContent(OUTPUT_CONTENT::ABSV);
     DEMSim.SetMeshOutputFormat(MESH_FORMAT::VTK);
+    DEMSim.SetMeshOutputContent(MESH_OUTPUT_CONTENT::ABSV | MESH_OUTPUT_CONTENT::OWNER);
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetMeshParticlesLowPoly(true);
     DEMSim.SetSimplePatchCombination(true);

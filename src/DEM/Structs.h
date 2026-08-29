@@ -503,6 +503,7 @@ struct SolverFlags {
     // Some output-related flags
     unsigned int outputFlags = OUTPUT_CONTENT::QUAT | OUTPUT_CONTENT::ABSV;
     unsigned int cntOutFlags;
+    unsigned int meshOutFlags = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ);
     // Time step constant-ness and expand factor constant-ness
     bool isStepConst = true;
     bool isExpandFactorFixed = false;

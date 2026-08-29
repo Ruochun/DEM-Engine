@@ -306,6 +306,65 @@ void DEMSolver::SetOutputContent(const std::vector<std::string>& content) {
         }
     }
 }
+
+void DEMSolver::SetMeshOutputContent(const std::vector<std::string>& content) {
+    m_mesh_out_content = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ);
+    for (const auto& field : content) {
+        const std::string upper_field = str_to_upper(field);
+        switch (hash_charr(upper_field.c_str())) {
+            case ("XYZ"_):
+                break;
+            case ("QUAT"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::QUAT);
+                break;
+            case ("ABSV"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABSV);
+                break;
+            case ("VEL"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::VEL);
+                break;
+            case ("ANG_VEL"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_VEL);
+                break;
+            case ("ABS_ACC"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABS_ACC);
+                break;
+            case ("ACC"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ACC);
+                break;
+            case ("ANG_ACC"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_ACC);
+                break;
+            case ("FAMILY"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::FAMILY);
+                break;
+            case ("MAT"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MAT);
+                break;
+            case ("OWNER_WILDCARD"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER_WILDCARD);
+                break;
+            case ("GEO_WILDCARD"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD);
+                break;
+            case ("OWNER"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER);
+                break;
+            case ("MESH_ID"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MESH_ID);
+                break;
+            case ("TRI_ID"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::TRI_ID);
+                break;
+            case ("PATCH_ID"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::PATCH_ID);
+                break;
+            default:
+                DEME_ERROR("Instruction %s is unknown in SetMeshOutputContent call.", field.c_str());
+        }
+    }
+}
+
 void DEMSolver::SetContactOutputContent(const std::vector<std::string>& content) {
     std::vector<std::string> u_content(content.size());
     for (unsigned int i = 0; i < content.size(); i++) {
@@ -3199,6 +3258,20 @@ void DEMSolver::WriteMeshFile(const std::string& outfilename) const {
         case (MESH_FORMAT::VTK): {
             dT->migrateFamilyToHost();
             dT->migrateClumpPosInfoToHost();
+            const unsigned int flags = dT->solverFlags.meshOutFlags;
+            const unsigned int high_order_flags = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABSV) |
+                                                  MESH_OUTPUT_CONTENT::VEL | MESH_OUTPUT_CONTENT::ANG_VEL |
+                                                  MESH_OUTPUT_CONTENT::ABS_ACC | MESH_OUTPUT_CONTENT::ACC |
+                                                  MESH_OUTPUT_CONTENT::ANG_ACC;
+            if (flags & high_order_flags) {
+                dT->migrateClumpHighOrderInfoToHost();
+            }
+            if (flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER_WILDCARD)) {
+                dT->migrateOwnerWildcardToHost();
+            }
+            if (flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD)) {
+                dT->migrateTriGeoWildcardToHost();
+            }
             m_output_thread = std::thread([this, outfilename]() {
                 std::ofstream ptFile(outfilename, std::ios::out);
                 dT->writeMeshesAsVtkFromHost(ptFile);

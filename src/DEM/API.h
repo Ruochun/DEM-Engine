@@ -1751,6 +1751,9 @@ class DEMSolver {
     void SetContactOutputContent(unsigned int content) { m_cnt_out_content = content; }
     /// Specify the file format of meshes.
     void SetMeshOutputFormat(MESH_FORMAT format) { m_mesh_out_format = format; }
+    /// Specify per-triangle metadata to include in mesh VTK output. XYZ geometry is always written.
+    void SetMeshOutputContent(unsigned int content) { m_mesh_out_content = content; }
+    void SetMeshOutputContent(MESH_OUTPUT_CONTENT content) { m_mesh_out_content = static_cast<unsigned int>(content); }
     /// Enable/disable patch color metadata in PLY mesh output.
     void EnableMeshPatchColorOutput(bool enable = true) { m_mesh_out_ply_patch_colors = enable; }
     /// Enable/disable outputting owner wildcard values to file.
@@ -1770,6 +1773,8 @@ class DEMSolver {
     /// @param content A list of "XYZ", "QUAT", "ABSV", "VEL", "ANG_VEL", "ABS_ACC", "ACC", "ANG_ACC", "FAMILY", "MAT",
     /// and/or "OWNER_WILDCARD".
     void SetOutputContent(const std::vector<std::string>& content);
+    /// Specify mesh VTK output fields by name. Supported names mirror MESH_OUTPUT_CONTENT.
+    void SetMeshOutputContent(const std::vector<std::string>& content);
     /// @brief Specify the file format of contact pairs.
     /// @param format Choice among "CSV", "BINARY".
     void SetContactOutputFormat(const std::string& format);
@@ -1878,6 +1883,8 @@ class DEMSolver {
                                      CNT_OUTPUT_CONTENT::NORMAL | CNT_OUTPUT_CONTENT::CNT_WILDCARD;
     // The output file format for meshes
     MESH_FORMAT m_mesh_out_format = MESH_FORMAT::VTK;
+    // Mesh geometry is always output; optional per-triangle VTK fields default to none.
+    unsigned int m_mesh_out_content = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ);
     bool m_mesh_out_ply_patch_colors = false;
     // If the solver should output wildcards to file
     bool m_is_out_owner_wildcards = false;

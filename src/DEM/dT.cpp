@@ -2108,6 +2108,127 @@ void DEMDynamicThread::writeMeshesAsVtkFromHost(std::ofstream& ptFile) {
         mesh_num++;
     }
 
+    const unsigned int mesh_flags = solverFlags.meshOutFlags;
+    if (mesh_flags != static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ)) {
+        ostream << "\nCELL_DATA " << total_f << "\n";
+
+        // Visit triangles in exactly the same order as the CELLS section. The global triangle ID advances through
+        // skipped meshes as well, preserving IDs used by DEME contact and wildcard APIs.
+        auto for_each_output_triangle = [&](const auto& callback) {
+            size_t global_triangle = 0;
+            for (size_t output_mesh = 0; output_mesh < m_meshes.size(); output_mesh++) {
+                const auto& mesh = m_meshes[output_mesh];
+                const size_t triangle_count = mesh->GetIndicesVertexes().size();
+                if (!thisMeshSkip[output_mesh]) {
+                    for (size_t local_triangle = 0; local_triangle < triangle_count; local_triangle++) {
+                        callback(*mesh, output_mesh, local_triangle, global_triangle, mesh->owner);
+                        global_triangle++;
+                    }
+                } else {
+                    global_triangle += triangle_count;
+                }
+            }
+        };
+        auto write_scalar = [&](const std::string& name, const std::string& type, const auto& value) {
+            ostream << "SCALARS " << name << " " << type << " 1\nLOOKUP_TABLE default\n";
+            for_each_output_triangle([&](const DEMMesh& mesh, size_t mesh_id, size_t local_triangle,
+                                         size_t global_triangle, bodyID_t owner) {
+                ostream << value(mesh, mesh_id, local_triangle, global_triangle, owner) << "\n";
+            });
+        };
+        auto write_vector = [&](const std::string& name, const auto& value) {
+            ostream << "VECTORS " << name << " float\n";
+            for_each_output_triangle([&](const DEMMesh& mesh, size_t mesh_id, size_t local_triangle,
+                                         size_t global_triangle, bodyID_t owner) {
+                const float3 vector = value(mesh, mesh_id, local_triangle, global_triangle, owner);
+                ostream << vector.x << " " << vector.y << " " << vector.z << "\n";
+            });
+        };
+
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::QUAT)) {
+            ostream << "SCALARS quaternion float 4\nLOOKUP_TABLE default\n";
+            for_each_output_triangle([&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                ostream << oriQw[owner] << " " << oriQx[owner] << " " << oriQy[owner] << " " << oriQz[owner] << "\n";
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABSV)) {
+            write_scalar("absv", "float", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return length(make_float3(vX[owner], vY[owner], vZ[owner]));
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::VEL)) {
+            write_vector("velocity", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(vX[owner], vY[owner], vZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_VEL)) {
+            write_vector("angular_velocity", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(omgBarX[owner], omgBarY[owner], omgBarZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABS_ACC)) {
+            write_scalar("abs_acc", "float", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return length(make_float3(aX[owner], aY[owner], aZ[owner]));
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ACC)) {
+            write_vector("acceleration", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(aX[owner], aY[owner], aZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_ACC)) {
+            write_vector("angular_acceleration", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(alphaX[owner], alphaY[owner], alphaZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::FAMILY)) {
+            write_scalar("family", "int",
+                         [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) { return +familyID[owner]; });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MAT)) {
+            write_scalar("material", "int", [&](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                return +patchMaterialOffset[triPatchID[global_triangle]];
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER)) {
+            write_scalar("owner", "int", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) { return owner; });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MESH_ID)) {
+            write_scalar("mesh_id", "int",
+                         [&](const DEMMesh&, size_t mesh_id, size_t, size_t, bodyID_t) { return mesh_id; });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::TRI_ID)) {
+            write_scalar("tri_id", "int", [&](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                return global_triangle;
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::PATCH_ID)) {
+            write_scalar("patch_id", "int", [&](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                return +triPatchID[global_triangle];
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER_WILDCARD)) {
+            size_t wildcard_index = 0;
+            for (const auto& wildcard_name : m_owner_wildcard_names) {
+                write_scalar(wildcard_name, "float",
+                             [&, wildcard_index](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                                 return (*ownerWildcards[wildcard_index])[owner];
+                             });
+                wildcard_index++;
+            }
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD)) {
+            size_t wildcard_index = 0;
+            for (const auto& wildcard_name : m_geo_wildcard_names) {
+                write_scalar(wildcard_name, "float",
+                             [&, wildcard_index](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                                 return (*triWildcards[wildcard_index])[global_triangle];
+                             });
+                wildcard_index++;
+            }
+        }
+    }
+
     ptFile << ostream.str();
 }
 
