@@ -129,7 +129,7 @@ enum class INSPECT_ENTITY_TYPE { SPHERE, CLUMP, MESH, MESH_FACET, EVERYTHING };
 // Which reduce operation is needed in an inspection
 enum class CUB_REDUCE_FLAVOR { NONE, MAX, MIN, SUM };
 // Format of the output files
-enum class OUTPUT_FORMAT { CSV, BINARY };
+enum class OUTPUT_FORMAT { CSV, BINARY, VTK };
 // Mesh output format
 enum class MESH_FORMAT { VTK, OBJ, STL, PLY };
 // Adaptive time step size methods
@@ -503,6 +503,7 @@ struct SolverFlags {
     // Some output-related flags
     unsigned int outputFlags = OUTPUT_CONTENT::QUAT | OUTPUT_CONTENT::ABSV;
     unsigned int cntOutFlags;
+    unsigned int meshOutFlags = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ);
     // Time step constant-ness and expand factor constant-ness
     bool isStepConst = true;
     bool isExpandFactorFixed = false;

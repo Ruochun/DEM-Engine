@@ -129,6 +129,8 @@ class DEMTracker {
     std::vector<std::vector<float>> GetPositions();
     /// Fill CUDA-accessible memory with all tracked positions. Capacity is measured in float3 elements.
     void PositionsToDevice(float3* destination, size_t capacity, int destination_device);
+    /// Synchronously set all tracked global positions from CUDA memory.
+    void SetPositionsFromDevice(const float3* source, int source_device);
 
     /// Get the angular velocity of this tracked object in its own local coordinate system. Applying OriQ to it would
     /// give you the ang vel in global frame.
@@ -149,6 +151,8 @@ class DEMTracker {
     std::vector<std::vector<float>> GetAngularVelocitiesGlobal();
     /// Fill CUDA-accessible memory with all tracked global-frame angular velocities.
     void AngularVelocitiesGlobalToDevice(float3* destination, size_t capacity, int destination_device);
+    /// Synchronously set all tracked global angular velocities from CUDA memory.
+    void SetAngularVelocitiesGlobalFromDevice(const float3* source, int source_device);
 
     /// Get the velocity of this tracked object in global frame.
     float3 Vel(size_t offset = 0);
@@ -158,6 +162,8 @@ class DEMTracker {
     std::vector<std::vector<float>> GetVelocities();
     /// Fill CUDA-accessible memory with all tracked global-frame velocities.
     void VelocitiesToDevice(float3* destination, size_t capacity, int destination_device);
+    /// Synchronously set all tracked global linear velocities from CUDA memory.
+    void SetVelocitiesFromDevice(const float3* source, int source_device);
 
     /// Get the quaternion that represents the orientation of this tracked object's own coordinate system.
     float4 OriQ(size_t offset = 0);
@@ -173,6 +179,8 @@ class DEMTracker {
     std::vector<std::vector<float>> GetOrientationQuaternions();
     /// Fill CUDA-accessible memory with all tracked public-order (x, y, z, w) quaternions.
     void OrientationQuaternionsToDevice(float4* destination, size_t capacity, int destination_device);
+    /// Synchronously set all tracked public-order (x, y, z, w) quaternions from CUDA memory.
+    void SetOrientationQuaternionsFromDevice(const float4* source, int source_device);
 
     /// @brief Get the family number of the tracked object.
     /// @param offset The offset of the entites to get family number out of.
@@ -231,6 +239,11 @@ class DEMTracker {
     std::vector<std::vector<float>> GetContactAngularAccelerationsGlobal();
     /// Fill CUDA-accessible memory with all tracked global-frame contact angular accelerations.
     void ContactAngularAccelerationsGlobalToDevice(float3* destination, size_t capacity, int destination_device);
+    /// Fill CUDA memory with one global resultant force and owner-position torque per tracked owner.
+    void ContactWrenchesToDevice(float3* force_destination,
+                                 float3* torque_destination,
+                                 size_t capacity,
+                                 int destination_device);
 
     /// @brief Get the mass of the tracked object.
     /// @param offset The offset to this entites. If first entites, input 0.

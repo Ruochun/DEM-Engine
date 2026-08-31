@@ -224,6 +224,35 @@ enum OUTPUT_CONTENT {
     OWNER_WILDCARD = 512,
     GEO_WILDCARD = 1024
 };
+// Per-triangle fields that can accompany mesh geometry in VTK output. XYZ is always written and intentionally has no
+// bit set, preserving the historical geometry-only default.
+enum class MESH_OUTPUT_CONTENT : unsigned int {
+    XYZ = 0,
+    QUAT = 1,
+    ABSV = 2,
+    VEL = 4,
+    ANG_VEL = 8,
+    ABS_ACC = 16,
+    ACC = 32,
+    ANG_ACC = 64,
+    FAMILY = 128,
+    MAT = 256,
+    OWNER_WILDCARD = 512,
+    GEO_WILDCARD = 1024,
+    OWNER = 2048,
+    MESH_ID = 4096,
+    TRI_ID = 8192,
+    PATCH_ID = 16384
+};
+constexpr unsigned int operator|(MESH_OUTPUT_CONTENT lhs, MESH_OUTPUT_CONTENT rhs) {
+    return static_cast<unsigned int>(lhs) | static_cast<unsigned int>(rhs);
+}
+constexpr unsigned int operator|(unsigned int lhs, MESH_OUTPUT_CONTENT rhs) {
+    return lhs | static_cast<unsigned int>(rhs);
+}
+constexpr unsigned int operator|(MESH_OUTPUT_CONTENT lhs, unsigned int rhs) {
+    return static_cast<unsigned int>(lhs) | rhs;
+}
 // Output particles as individual (component) spheres, or as owner clumps (clump CoMs for location, as an example)?
 enum class SPATIAL_DIR { X, Y, Z, NONE };
 // The info that should be present in the contact pair output files

@@ -611,6 +611,14 @@ class DEMSolver {
                                       int destination_device,
                                       bodyID_t ownerID,
                                       bodyID_t n = 1) const;
+    /// Fill CUDA memory with one global contact force and global torque about each owner's position. Contact recording
+    /// must be enabled (the default). A zero count is a no-op.
+    void GetOwnerContactWrenchToDevice(float3* force_destination,
+                                       float3* torque_destination,
+                                       size_t capacity,
+                                       int destination_device,
+                                       bodyID_t ownerID,
+                                       bodyID_t count = 1) const;
     /// Fill caller-provided CUDA memory with owner family numbers as unsigned integers.
     void GetOwnerFamilyToDevice(unsigned int* destination,
                                 size_t capacity,
@@ -694,6 +702,14 @@ class DEMSolver {
     /// Set quaternion of consecutive owners starting from ownerID, based on input quaternion vector. N (the size of the
     /// input vector) elements will be modified.
     void SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ);
+    /// Synchronously set global positions for consecutive owners directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerPositionFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
+    /// Synchronously set public-order (x, y, z, w) orientations directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerOriQFromDevice(bodyID_t ownerID, const float4* source, int source_device, size_t count = 1);
+    /// Synchronously set global linear velocities directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerVelocityFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
+    /// Synchronously set global angular velocities directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerAngVelGlobalFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
     /// @brief Set the family number of consecutive owners.
     /// @param ownerID The ID of the owner.
     /// @param fam Family number.
@@ -1508,10 +1524,18 @@ class DEMSolver {
     void WriteClumpFile(const std::filesystem::path& outfilename, unsigned int accuracy = 10) const {
         WriteClumpFile(outfilename.string(), accuracy);
     }
-    /// Write the current status of "clumps" to a file, but not as clumps, instead, as each individual sphere. This may
-    /// make small-scale rendering easier.
+    /// Write the current status of "clumps" to a file, but not as clumps, instead, as each individual sphere. CSV and
+    /// VTK formats are supported. VTK stores sphere centers and the `r` radius scalar as point data for ParaView's
+    /// Glyph filter, avoiding duplicated sphere tessellations in every output frame.
     void WriteSphereFile(const std::string& outfilename) const;
     void WriteSphereFile(const std::filesystem::path& outfilename) const { WriteSphereFile(outfilename.string()); }
+    /// @brief Write directly displayable VTK surfaces for all analytical boundary components.
+    /// @details Infinite primitives are clipped to the domain specified by InstructBoxDomainDimension.
+    void WriteAnalyticalFile(const std::string& outfilename, unsigned int circumferential_resolution = 32) const;
+    void WriteAnalyticalFile(const std::filesystem::path& outfilename,
+                             unsigned int circumferential_resolution = 32) const {
+        WriteAnalyticalFile(outfilename.string(), circumferential_resolution);
+    }
     /// @brief Write all contact pairs to a file.
     /// @details The outputted torque using this method is in global, rather than each object's local coordinate system.
     /// @param outfilename Output filename.
@@ -1743,6 +1767,9 @@ class DEMSolver {
     void SetContactOutputContent(unsigned int content) { m_cnt_out_content = content; }
     /// Specify the file format of meshes.
     void SetMeshOutputFormat(MESH_FORMAT format) { m_mesh_out_format = format; }
+    /// Specify per-triangle metadata to include in mesh VTK output. XYZ geometry is always written.
+    void SetMeshOutputContent(unsigned int content) { m_mesh_out_content = content; }
+    void SetMeshOutputContent(MESH_OUTPUT_CONTENT content) { m_mesh_out_content = static_cast<unsigned int>(content); }
     /// Enable/disable patch color metadata in PLY mesh output.
     void EnableMeshPatchColorOutput(bool enable = true) { m_mesh_out_ply_patch_colors = enable; }
     /// Enable/disable outputting owner wildcard values to file.
@@ -1756,12 +1783,14 @@ class DEMSolver {
     /// @brief Set output detail level.
     void SetVerbosity(verbosity_t verbose);
     /// @brief Choose sphere and clump output file format.
-    /// @param format Choice among "CSV", "BINARY".
+    /// @param format Choice among "CSV", "BINARY", and "VTK". VTK is supported by WriteSphereFile.
     void SetOutputFormat(const std::string& format);
     /// @brief Specify the information that needs to go into the clump or sphere output files.
     /// @param content A list of "XYZ", "QUAT", "ABSV", "VEL", "ANG_VEL", "ABS_ACC", "ACC", "ANG_ACC", "FAMILY", "MAT",
     /// and/or "OWNER_WILDCARD".
     void SetOutputContent(const std::vector<std::string>& content);
+    /// Specify mesh VTK output fields by name. Supported names mirror MESH_OUTPUT_CONTENT.
+    void SetMeshOutputContent(const std::vector<std::string>& content);
     /// @brief Specify the file format of contact pairs.
     /// @param format Choice among "CSV", "BINARY".
     void SetContactOutputFormat(const std::string& format);
@@ -1870,6 +1899,8 @@ class DEMSolver {
                                      CNT_OUTPUT_CONTENT::NORMAL | CNT_OUTPUT_CONTENT::CNT_WILDCARD;
     // The output file format for meshes
     MESH_FORMAT m_mesh_out_format = MESH_FORMAT::VTK;
+    // Mesh geometry is always output; optional per-triangle VTK fields default to none.
+    unsigned int m_mesh_out_content = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ);
     bool m_mesh_out_ply_patch_colors = false;
     // If the solver should output wildcards to file
     bool m_is_out_owner_wildcards = false;
@@ -2280,6 +2311,20 @@ class DEMSolver {
     // Component object normal direction (represented by sign, 1 or -1), defaulting to inward (1). If this object is
     // topologically a plane then this param is meaningless, since its normal is determined by its rotation.
     std::vector<float> m_anal_normals;
+
+    // Persistent analytical definitions used for visualization after the flattened initialization arrays above are
+    // released. Runtime owner IDs and transforms remain in dT and are combined with these local-frame definitions at
+    // output time.
+    struct AnalyticalOutputDefinition {
+        objType_t type;
+        float3 position;
+        float3 axis;
+        float size_1;
+        float size_2;
+        float size_3;
+        float normal_sign;
+    };
+    std::vector<AnalyticalOutputDefinition> m_anal_output_definitions;
 
     // These mesh facets' owners' ID, flattened
     std::vector<bodyID_t> m_mesh_facet_owner;

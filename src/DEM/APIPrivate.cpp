@@ -349,6 +349,9 @@ void DEMSolver::addAnalCompTemplate(const objType_t type,
     m_anal_size_3.push_back(d3);
     float normal_sign = (normal == ENTITY_NORMAL_INWARD) ? 1 : -1;
     m_anal_normals.push_back(normal_sign);
+    // Unlike the flattened arrays, this compact definition persists after Initialize() so current owner transforms can
+    // be combined with the original component geometry for analytical VTK output.
+    m_anal_output_definitions.push_back({type, pos, rot, d1, d2, d3, normal_sign});
 }
 
 void DEMSolver::jitifyKernels() {
@@ -1181,6 +1184,7 @@ void DEMSolver::setSolverParams() {
         output_level = output_level | OUTPUT_CONTENT::OWNER_WILDCARD;
     }
     dT->solverFlags.outputFlags = output_level;
+    dT->solverFlags.meshOutFlags = m_mesh_out_content;
     output_level = m_cnt_out_content;
     if (m_is_out_cnt_wildcards) {
         output_level = output_level | CNT_OUTPUT_CONTENT::CNT_WILDCARD;
@@ -1375,14 +1379,29 @@ void DEMSolver::setSimParams() {
         m_use_angvel_margin = has_multi_sphere_clump || nTriGM > 0;
     }
 
+    // Geometry wildcards historically had no output consumer. Allocate the mesh-provided names when explicitly
+    // requested so VTK CELL_DATA can preserve their per-triangle values.
+    std::set<std::string> mesh_output_geo_wildcards;
+    if (m_mesh_out_content & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD)) {
+        // Cached meshes are cleared after initialization, so retain the worker's established names on later
+        // UpdateSimParams calls and merge names from any setup-time mesh cache.
+        if (sys_initialized) {
+            mesh_output_geo_wildcards = dT->m_geo_wildcard_names;
+        }
+        for (const auto& mesh : cached_mesh_objs) {
+            for (const auto& wildcard : mesh->geo_wildcards) {
+                mesh_output_geo_wildcards.insert(wildcard.first);
+            }
+        }
+    }
     dT->setSimParams(nvXp2, nvYp2, nvZp2, l, m_voxelSize, m_binSize, nbX, nbY, nbZ, m_boxLBF, m_user_box_min,
                      m_user_box_max, G, m_ts_size, m_expand_factor, m_approx_max_vel, m_max_tritri_penetration,
                      m_triTriContactRejectionRatio, m_expand_safety_multi, m_expand_base_vel, m_use_angvel_margin,
-                     m_force_model->m_contact_wildcards, m_force_model->m_owner_wildcards, {});
+                     m_force_model->m_contact_wildcards, m_force_model->m_owner_wildcards, mesh_output_geo_wildcards);
     kT->setSimParams(nvXp2, nvYp2, nvZp2, l, m_voxelSize, m_binSize, nbX, nbY, nbZ, m_boxLBF, m_user_box_min,
                      m_user_box_max, G, m_ts_size, m_expand_factor, m_approx_max_vel, m_max_tritri_penetration,
                      m_triTriContactRejectionRatio, m_expand_safety_multi, m_expand_base_vel, m_use_angvel_margin,
-                     m_force_model->m_contact_wildcards, m_force_model->m_owner_wildcards, {});
+                     m_force_model->m_contact_wildcards, m_force_model->m_owner_wildcards, mesh_output_geo_wildcards);
 }
 
 void DEMSolver::allocateGPUArrays() {

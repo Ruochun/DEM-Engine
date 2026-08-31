@@ -1501,6 +1501,149 @@ void DEMDynamicThread::writeSpheresAsCsvFromHost(std::ofstream& ptFile) {
     ptFile << outstrstream.str();
 }
 
+void DEMDynamicThread::writeSpheresAsVtk(std::ofstream& ptFile) {
+    migrateFamilyToHost();
+    migrateClumpPosInfoToHost();
+    migrateClumpHighOrderInfoToHost();
+    migrateOwnerWildcardToHost();
+    migrateSphGeoWildcardToHost();
+    writeSpheresAsVtkFromHost(ptFile);
+}
+
+void DEMDynamicThread::writeSpheresAsVtkFromHost(std::ofstream& ptFile) {
+    // Keep one compact point record per component sphere. ParaView can turn these points into rendered spheres with a
+    // Glyph filter using `r` as the scale array, without DEME writing a triangle tessellation for every sphere.
+    struct SpherePointData {
+        float3 pos;
+        float radius;
+        float3 vel;
+        float3 ang_vel;
+        float3 acc;
+        float3 ang_acc;
+        family_t family;
+        std::vector<float> owner_wildcards;
+        std::vector<float> geo_wildcards;
+    };
+
+    std::vector<SpherePointData> spheres;
+    spheres.reserve(simParams->nSpheresGM);
+
+    // Resolve owner-frame component locations and collect all enabled attributes before writing the VTK section
+    // counts. Filtering is done here so every point-data array has exactly the same length as the POINTS section.
+    for (size_t i = 0; i < simParams->nSpheresGM; i++) {
+        const bodyID_t owner = ownerClumpBody[i];
+        const family_t family = familyID[owner];
+        if (familiesNoOutput.find(family) != familiesNoOutput.end()) {
+            continue;
+        }
+
+        float X, Y, Z;
+        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(X, Y, Z, voxelID[owner], locX[owner], locY[owner],
+                                                           locZ[owner], simParams->nvXp2, simParams->nvYp2,
+                                                           simParams->voxelSize, simParams->l);
+        const float3 owner_pos = make_float3(X + simParams->LBFX, Y + simParams->LBFY, Z + simParams->LBFZ);
+        const size_t component = solverFlags.useClumpJitify ? clumpComponentOffsetExt[i] : i;
+        float3 rel_pos = make_float3(relPosSphereX[component], relPosSphereY[component], relPosSphereZ[component]);
+        applyOriQToVector3<float, float>(rel_pos.x, rel_pos.y, rel_pos.z, oriQw[owner], oriQx[owner], oriQy[owner],
+                                         oriQz[owner]);
+
+        SpherePointData sphere;
+        sphere.pos = owner_pos + rel_pos;
+        sphere.radius = radiiSphere[component];
+        sphere.vel = make_float3(vX[owner], vY[owner], vZ[owner]);
+        sphere.ang_vel = make_float3(omgBarX[owner], omgBarY[owner], omgBarZ[owner]);
+        sphere.acc = make_float3(aX[owner], aY[owner], aZ[owner]);
+        sphere.ang_acc = make_float3(alphaX[owner], alphaY[owner], alphaZ[owner]);
+        sphere.family = family;
+        if (solverFlags.outputFlags & OUTPUT_CONTENT::OWNER_WILDCARD) {
+            sphere.owner_wildcards.reserve(m_owner_wildcard_names.size());
+            for (const auto& wildcard : ownerWildcards) {
+                sphere.owner_wildcards.push_back((*wildcard)[owner]);
+            }
+        }
+        if (solverFlags.outputFlags & OUTPUT_CONTENT::GEO_WILDCARD) {
+            sphere.geo_wildcards.reserve(m_geo_wildcard_names.size());
+            for (const auto& wildcard : sphereWildcards) {
+                sphere.geo_wildcards.push_back((*wildcard)[i]);
+            }
+        }
+        spheres.push_back(std::move(sphere));
+    }
+
+    std::ostringstream out;
+    out << "# vtk DataFile Version 2.0\n";
+    out << "DEME component spheres\n";
+    out << "ASCII\n";
+    out << "DATASET POLYDATA\n";
+    out << "POINTS " << spheres.size() << " float\n";
+    for (const auto& sphere : spheres) {
+        out << sphere.pos.x << " " << sphere.pos.y << " " << sphere.pos.z << "\n";
+    }
+    out << "VERTICES " << spheres.size() << " " << 2 * spheres.size() << "\n";
+    for (size_t i = 0; i < spheres.size(); i++) {
+        out << "1 " << i << "\n";
+    }
+    out << "POINT_DATA " << spheres.size() << "\n";
+
+    auto write_scalar = [&out, &spheres](const std::string& name, const auto& value) {
+        out << "SCALARS " << name << " float 1\n";
+        out << "LOOKUP_TABLE default\n";
+        for (const auto& sphere : spheres) {
+            out << value(sphere) << "\n";
+        }
+    };
+    auto write_vector = [&out, &spheres](const std::string& name, const auto& value) {
+        out << "VECTORS " << name << " float\n";
+        for (const auto& sphere : spheres) {
+            const float3 vector = value(sphere);
+            out << vector.x << " " << vector.y << " " << vector.z << "\n";
+        }
+    };
+
+    write_scalar("r", [](const SpherePointData& sphere) { return sphere.radius; });
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ABSV) {
+        write_scalar("absv", [](const SpherePointData& sphere) { return length(sphere.vel); });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::VEL) {
+        write_vector("velocity", [](const SpherePointData& sphere) { return sphere.vel; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ANG_VEL) {
+        write_vector("angular_velocity", [](const SpherePointData& sphere) { return sphere.ang_vel; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ABS_ACC) {
+        write_scalar("abs_acc", [](const SpherePointData& sphere) { return length(sphere.acc); });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ACC) {
+        write_vector("acceleration", [](const SpherePointData& sphere) { return sphere.acc; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::ANG_ACC) {
+        write_vector("angular_acceleration", [](const SpherePointData& sphere) { return sphere.ang_acc; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::FAMILY) {
+        write_scalar("family", [](const SpherePointData& sphere) { return +sphere.family; });
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::OWNER_WILDCARD) {
+        size_t wildcard_index = 0;
+        for (const auto& wildcard_name : m_owner_wildcard_names) {
+            write_scalar(wildcard_name, [wildcard_index](const SpherePointData& sphere) {
+                return sphere.owner_wildcards[wildcard_index];
+            });
+            wildcard_index++;
+        }
+    }
+    if (solverFlags.outputFlags & OUTPUT_CONTENT::GEO_WILDCARD) {
+        size_t wildcard_index = 0;
+        for (const auto& wildcard_name : m_geo_wildcard_names) {
+            write_scalar(wildcard_name, [wildcard_index](const SpherePointData& sphere) {
+                return sphere.geo_wildcards[wildcard_index];
+            });
+            wildcard_index++;
+        }
+    }
+
+    ptFile << out.str();
+}
+
 void DEMDynamicThread::writeClumpsAsCsv(std::ofstream& ptFile, unsigned int accuracy) {
     migrateFamilyToHost();
     migrateClumpPosInfoToHost();
@@ -1963,6 +2106,127 @@ void DEMDynamicThread::writeMeshesAsVtkFromHost(std::ofstream& ptFile) {
                 ostream << "5 " << std::endl;
         }
         mesh_num++;
+    }
+
+    const unsigned int mesh_flags = solverFlags.meshOutFlags;
+    if (mesh_flags != static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ)) {
+        ostream << "\nCELL_DATA " << total_f << "\n";
+
+        // Visit triangles in exactly the same order as the CELLS section. The global triangle ID advances through
+        // skipped meshes as well, preserving IDs used by DEME contact and wildcard APIs.
+        auto for_each_output_triangle = [&](const auto& callback) {
+            size_t global_triangle = 0;
+            for (size_t output_mesh = 0; output_mesh < m_meshes.size(); output_mesh++) {
+                const auto& mesh = m_meshes[output_mesh];
+                const size_t triangle_count = mesh->GetIndicesVertexes().size();
+                if (!thisMeshSkip[output_mesh]) {
+                    for (size_t local_triangle = 0; local_triangle < triangle_count; local_triangle++) {
+                        callback(*mesh, output_mesh, local_triangle, global_triangle, mesh->owner);
+                        global_triangle++;
+                    }
+                } else {
+                    global_triangle += triangle_count;
+                }
+            }
+        };
+        auto write_scalar = [&](const std::string& name, const std::string& type, const auto& value) {
+            ostream << "SCALARS " << name << " " << type << " 1\nLOOKUP_TABLE default\n";
+            for_each_output_triangle([&](const DEMMesh& mesh, size_t mesh_id, size_t local_triangle,
+                                         size_t global_triangle, bodyID_t owner) {
+                ostream << value(mesh, mesh_id, local_triangle, global_triangle, owner) << "\n";
+            });
+        };
+        auto write_vector = [&](const std::string& name, const auto& value) {
+            ostream << "VECTORS " << name << " float\n";
+            for_each_output_triangle([&](const DEMMesh& mesh, size_t mesh_id, size_t local_triangle,
+                                         size_t global_triangle, bodyID_t owner) {
+                const float3 vector = value(mesh, mesh_id, local_triangle, global_triangle, owner);
+                ostream << vector.x << " " << vector.y << " " << vector.z << "\n";
+            });
+        };
+
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::QUAT)) {
+            ostream << "SCALARS quaternion float 4\nLOOKUP_TABLE default\n";
+            for_each_output_triangle([&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                ostream << oriQw[owner] << " " << oriQx[owner] << " " << oriQy[owner] << " " << oriQz[owner] << "\n";
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABSV)) {
+            write_scalar("absv", "float", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return length(make_float3(vX[owner], vY[owner], vZ[owner]));
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::VEL)) {
+            write_vector("velocity", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(vX[owner], vY[owner], vZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_VEL)) {
+            write_vector("angular_velocity", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(omgBarX[owner], omgBarY[owner], omgBarZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABS_ACC)) {
+            write_scalar("abs_acc", "float", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return length(make_float3(aX[owner], aY[owner], aZ[owner]));
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ACC)) {
+            write_vector("acceleration", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(aX[owner], aY[owner], aZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_ACC)) {
+            write_vector("angular_acceleration", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                return make_float3(alphaX[owner], alphaY[owner], alphaZ[owner]);
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::FAMILY)) {
+            write_scalar("family", "int",
+                         [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) { return +familyID[owner]; });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MAT)) {
+            write_scalar("material", "int", [&](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                return +patchMaterialOffset[triPatchID[global_triangle]];
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER)) {
+            write_scalar("owner", "int", [&](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) { return owner; });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MESH_ID)) {
+            write_scalar("mesh_id", "int",
+                         [&](const DEMMesh&, size_t mesh_id, size_t, size_t, bodyID_t) { return mesh_id; });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::TRI_ID)) {
+            write_scalar("tri_id", "int", [&](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                return global_triangle;
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::PATCH_ID)) {
+            write_scalar("patch_id", "int", [&](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                return +triPatchID[global_triangle];
+            });
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER_WILDCARD)) {
+            size_t wildcard_index = 0;
+            for (const auto& wildcard_name : m_owner_wildcard_names) {
+                write_scalar(wildcard_name, "float",
+                             [&, wildcard_index](const DEMMesh&, size_t, size_t, size_t, bodyID_t owner) {
+                                 return (*ownerWildcards[wildcard_index])[owner];
+                             });
+                wildcard_index++;
+            }
+        }
+        if (mesh_flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD)) {
+            size_t wildcard_index = 0;
+            for (const auto& wildcard_name : m_geo_wildcard_names) {
+                write_scalar(wildcard_name, "float",
+                             [&, wildcard_index](const DEMMesh&, size_t, size_t, size_t global_triangle, bodyID_t) {
+                                 return (*triWildcards[wildcard_index])[global_triangle];
+                             });
+                wildcard_index++;
+            }
+        }
     }
 
     ptFile << ostream.str();
@@ -4231,6 +4495,93 @@ void DEMDynamicThread::getOwnerDataToDevice(void* destination,
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
     DEME_GPU_CALL(ownerDataTransferBuffer.Copy(destination, destination_device, packed, streamInfo.device, bytes));
     solverScratchSpace.finishUsingTempVector(scratch_name);
+}
+
+void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
+                                              const void* source,
+                                              size_t count,
+                                              int source_device,
+                                              OwnerStateField field) {
+    if (ownerID > simParams->nOwnerBodies || count > simParams->nOwnerBodies - ownerID) {
+        DEME_ERROR("Owner device update range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
+                   (size_t)(ownerID + count), (size_t)simParams->nOwnerBodies);
+    }
+    if (count == 0) {
+        return;
+    }
+    if (source_device != streamInfo.device) {
+        DEME_ERROR(
+            "Owner device updates currently require source device %d (the dynamic-worker device), but device "
+            "%d was requested.",
+            streamInfo.device, source_device);
+    }
+
+    const size_t element_size = field == OwnerStateField::ORIENTATION ? sizeof(float4) : sizeof(float3);
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(source, count * element_size, source_device));
+    ScopedCudaDevice device_scope(streamInfo.device);
+    UnpackOwnerState(source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+
+    // Position, orientation, and velocity all affect either geometry or the conservative contact margin seen by kT.
+    pendingCriticalUpdate = true;
+}
+
+void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
+                                                     float3* torques,
+                                                     size_t capacity,
+                                                     int destination_device,
+                                                     bodyID_t ownerID,
+                                                     bodyID_t count) {
+    if (ownerID > simParams->nOwnerBodies || count > simParams->nOwnerBodies - ownerID) {
+        DEME_ERROR("Owner contact-wrench range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
+                   (size_t)(ownerID + count), (size_t)simParams->nOwnerBodies);
+    }
+    if (capacity < count) {
+        DEME_ERROR("Owner contact-wrench retrieval needs capacity for %zu owners, but the destination has %zu.",
+                   (size_t)count, capacity);
+    }
+
+    const size_t bytes = static_cast<size_t>(count) * sizeof(float3);
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(forces, bytes, destination_device));
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(torques, bytes, destination_device));
+    if (count == 0) {
+        return;
+    }
+    if (solverFlags.useNoContactRecord) {
+        DEME_ERROR("Owner contact-wrench retrieval requires contact recording; do not enable SetNoForceRecord().");
+    }
+
+    ScopedCudaDevice device_scope(streamInfo.device);
+    const bool same_device = destination_device == streamInfo.device;
+    if (!same_device) {
+        int peer_access = 0;
+        DEME_GPU_CALL(cudaDeviceCanAccessPeer(&peer_access, destination_device, streamInfo.device));
+        if (!peer_access) {
+            DEME_ERROR(
+                "Owner contact-wrench retrieval from device %d to device %d requires CUDA peer access; host "
+                "staging is not permitted for this GPU-only API.",
+                streamInfo.device, destination_device);
+        }
+    }
+    float3* reduced_forces = forces;
+    float3* reduced_torques = torques;
+    if (!same_device) {
+        reduced_forces = reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("owner_wrench_forces", bytes));
+        reduced_torques =
+            reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("owner_wrench_torques", bytes));
+    }
+
+    ReduceOwnerContactWrenches(reduced_forces, reduced_torques, ownerID, count, &granData,
+                               *solverScratchSpace.numContacts, streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    if (!same_device) {
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(forces, destination_device, reduced_forces, streamInfo.device, bytes));
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(torques, destination_device, reduced_torques, streamInfo.device, bytes));
+        solverScratchSpace.finishUsingTempVector("owner_wrench_forces");
+        solverScratchSpace.finishUsingTempVector("owner_wrench_torques");
+    }
 }
 
 void DEMDynamicThread::setOwnerAngVel(bodyID_t ownerID, const std::vector<float3>& angVel) {

@@ -30,6 +30,9 @@ enum class OwnerDataField {
     WILDCARD
 };
 
+/// Owner state fields supported by the GPU input path.
+enum class OwnerStateField { POSITION, VELOCITY, ANGULAR_VELOCITY_GLOBAL, ORIENTATION };
+
 /// Pack one consecutive owner range from DEME's internal SoA representation into the public AoS/scalar representation.
 void PackOwnerData(void* output,
                    OwnerDataField field,
@@ -43,6 +46,24 @@ void PackOwnerData(void* output,
 
 /// Return the size of one output element for a retrieval field.
 size_t OwnerDataElementSize(OwnerDataField field);
+
+/// Unpack one public AoS owner-state range directly into DEME's internal SoA representation.
+void UnpackOwnerState(const void* input,
+                      OwnerStateField field,
+                      bodyID_t owner_begin,
+                      size_t count,
+                      const DEMSimParams* sim_params,
+                      DEMDataDT* data,
+                      cudaStream_t stream);
+
+/// Reduce the current patch-contact records into one global-frame resultant wrench per consecutive owner.
+void ReduceOwnerContactWrenches(float3* forces,
+                                float3* torques,
+                                bodyID_t owner_begin,
+                                size_t count,
+                                const DEMDataDT* data,
+                                size_t num_contacts,
+                                cudaStream_t stream);
 
 }  // namespace deme
 

@@ -465,6 +465,12 @@ class DEMDynamicThread {
                               bodyID_t n,
                               OwnerDataField field,
                               unsigned int wildcard_index = 0);
+    /// Synchronously consume public-layout owner state from CUDA memory on dT's device.
+    void setOwnerDataFromDevice(bodyID_t ownerID,
+                                const void* source,
+                                size_t count,
+                                int source_device,
+                                OwnerStateField field);
     // Get the current auto-adjusted update freq.
     float getUpdateFreq() const;
 
@@ -564,6 +570,13 @@ class DEMDynamicThread {
                                          int destination_device,
                                          bool need_torque,
                                          bool torque_in_local);
+    /// Reduce patch contacts into one global resultant force and owner-position torque per requested owner.
+    void getOwnerContactWrenchToDevice(float3* forces,
+                                       float3* torques,
+                                       size_t capacity,
+                                       int destination_device,
+                                       bodyID_t ownerID,
+                                       bodyID_t count);
 
     /// Get owner of contact geometry (sphere, triangle, analytical entity).
     bodyID_t getGeoOwnerID(const bodyID_t& geo, const geoType_t& type) const;
@@ -735,6 +748,8 @@ class DEMDynamicThread {
 
     void writeSpheresAsCsv(std::ofstream& ptFile);
     void writeSpheresAsCsvFromHost(std::ofstream& ptFile);
+    void writeSpheresAsVtk(std::ofstream& ptFile);
+    void writeSpheresAsVtkFromHost(std::ofstream& ptFile);
     void writeClumpsAsCsv(std::ofstream& ptFile, unsigned int accuracy = 10);
     void writeClumpsAsCsvFromHost(std::ofstream& ptFile, unsigned int accuracy = 10);
     void writeContactsAsCsv(std::ofstream& ptFile, float force_thres = DEME_TINY_FLOAT);

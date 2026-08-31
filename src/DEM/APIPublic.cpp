@@ -6,6 +6,7 @@
 #include <core/ApiVersion.h>
 #include "API.h"
 #include "Defines.h"
+#include "utils/AnalyticalOutput.hpp"
 #include "utils/CombinedOwnerUtils.hpp"
 #include "utils/HostSideHelpers.hpp"
 #include "utils/MeshUtils.hpp"
@@ -219,6 +220,9 @@ void DEMSolver::SetOutputFormat(const std::string& format) {
         case ("BINARY"_):
             m_out_format = OUTPUT_FORMAT::BINARY;
             break;
+        case ("VTK"_):
+            m_out_format = OUTPUT_FORMAT::VTK;
+            break;
         default:
             DEME_ERROR("Instruction %s is unknown in SetOutputFormat call.", format.c_str());
     }
@@ -302,6 +306,65 @@ void DEMSolver::SetOutputContent(const std::vector<std::string>& content) {
         }
     }
 }
+
+void DEMSolver::SetMeshOutputContent(const std::vector<std::string>& content) {
+    m_mesh_out_content = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::XYZ);
+    for (const auto& field : content) {
+        const std::string upper_field = str_to_upper(field);
+        switch (hash_charr(upper_field.c_str())) {
+            case ("XYZ"_):
+                break;
+            case ("QUAT"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::QUAT);
+                break;
+            case ("ABSV"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABSV);
+                break;
+            case ("VEL"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::VEL);
+                break;
+            case ("ANG_VEL"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_VEL);
+                break;
+            case ("ABS_ACC"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABS_ACC);
+                break;
+            case ("ACC"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ACC);
+                break;
+            case ("ANG_ACC"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ANG_ACC);
+                break;
+            case ("FAMILY"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::FAMILY);
+                break;
+            case ("MAT"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MAT);
+                break;
+            case ("OWNER_WILDCARD"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER_WILDCARD);
+                break;
+            case ("GEO_WILDCARD"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD);
+                break;
+            case ("OWNER"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER);
+                break;
+            case ("MESH_ID"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::MESH_ID);
+                break;
+            case ("TRI_ID"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::TRI_ID);
+                break;
+            case ("PATCH_ID"_):
+                m_mesh_out_content |= static_cast<unsigned int>(MESH_OUTPUT_CONTENT::PATCH_ID);
+                break;
+            default:
+                DEME_ERROR("Instruction %s is unknown in SetMeshOutputContent call.", field.c_str());
+        }
+    }
+}
+
 void DEMSolver::SetContactOutputContent(const std::vector<std::string>& content) {
     std::vector<std::string> u_content(content.size());
     for (unsigned int i = 0; i < content.size(); i++) {
@@ -703,6 +766,17 @@ void DEMSolver::GetOwnerAngAccGlobalToDevice(float3* destination,
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->getOwnerDataToDevice(destination, capacity, destination_device, ownerID, n,
                              OwnerDataField::CONTACT_ANGULAR_ACCELERATION_GLOBAL);
+}
+
+void DEMSolver::GetOwnerContactWrenchToDevice(float3* force_destination,
+                                              float3* torque_destination,
+                                              size_t capacity,
+                                              int destination_device,
+                                              bodyID_t ownerID,
+                                              bodyID_t count) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerContactWrenchToDevice(force_destination, torque_destination, capacity, destination_device, ownerID,
+                                      count);
 }
 
 void DEMSolver::GetOwnerFamilyToDevice(unsigned int* destination,
@@ -1112,6 +1186,29 @@ void DEMSolver::SetOwnerVelocity(bodyID_t ownerID, const std::vector<float3>& ve
 void DEMSolver::SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ) {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerOriQ(ownerID, oriQ);
+}
+void DEMSolver::SetOwnerPositionFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count) {
+    assertSysInit("SetOwnerPositionFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::POSITION);
+}
+void DEMSolver::SetOwnerOriQFromDevice(bodyID_t ownerID, const float4* source, int source_device, size_t count) {
+    assertSysInit("SetOwnerOriQFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::ORIENTATION);
+}
+void DEMSolver::SetOwnerVelocityFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count) {
+    assertSysInit("SetOwnerVelocityFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::VELOCITY);
+}
+void DEMSolver::SetOwnerAngVelGlobalFromDevice(bodyID_t ownerID,
+                                               const float3* source,
+                                               int source_device,
+                                               size_t count) {
+    assertSysInit("SetOwnerAngVelGlobalFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::ANGULAR_VELOCITY_GLOBAL);
 }
 void DEMSolver::SetOwnerFamily(bodyID_t ownerID, unsigned int fam, bodyID_t n) {
     if (fam > std::numeric_limits<family_t>::max()) {
@@ -3050,9 +3147,68 @@ void DEMSolver::WriteSphereFile(const std::string& outfilename) const {
             });
             break;
         }
+        case (OUTPUT_FORMAT::VTK): {
+            dT->migrateFamilyToHost();
+            dT->migrateClumpPosInfoToHost();
+            dT->migrateClumpHighOrderInfoToHost();
+            dT->migrateOwnerWildcardToHost();
+            dT->migrateSphGeoWildcardToHost();
+            m_output_thread = std::thread([this, outfilename]() {
+                std::ofstream ptFile(outfilename, std::ios::out);
+                dT->writeSpheresAsVtkFromHost(ptFile);
+            });
+            break;
+        }
         default:
             DEME_ERROR(std::string("Sphere output file format is unknown. Please set it via SetOutputFormat."));
     }
+}
+
+void DEMSolver::WriteAnalyticalFile(const std::string& outfilename, unsigned int circumferential_resolution) const {
+    if (circumferential_resolution < 3) {
+        DEME_ERROR("WriteAnalyticalFile circumferential resolution must be at least 3, not %u.",
+                   circumferential_resolution);
+    }
+
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    WaitForPendingOutput();
+    dT->migrateFamilyToHost();
+    dT->migrateClumpPosInfoToHost();
+
+    // Snapshot current owner transforms before launching the asynchronous writer. Component definitions are setup-time
+    // data, while an analytical owner's pose can change on every dynamics step.
+    std::vector<AnalyticalOutputComponent> components;
+    components.reserve(m_anal_output_definitions.size());
+    for (size_t i = 0; i < m_anal_output_definitions.size(); i++) {
+        const auto& definition = m_anal_output_definitions[i];
+        const bodyID_t owner = dT->ownerAnalBody[i];
+        const family_t family = dT->familyID[owner];
+        if (dT->familiesNoOutput.find(family) != dT->familiesNoOutput.end()) {
+            continue;
+        }
+
+        float3 owner_pos;
+        voxelIDToPosition<float, voxelID_t, subVoxelPos_t>(
+            owner_pos.x, owner_pos.y, owner_pos.z, dT->voxelID[owner], dT->locX[owner], dT->locY[owner],
+            dT->locZ[owner], dT->simParams->nvXp2, dT->simParams->nvYp2, dT->simParams->voxelSize, dT->simParams->l);
+        owner_pos += make_float3(dT->simParams->LBFX, dT->simParams->LBFY, dT->simParams->LBFZ);
+        const float4 owner_ori = make_float4(dT->oriQx[owner], dT->oriQy[owner], dT->oriQz[owner], dT->oriQw[owner]);
+        float3 component_pos = definition.position;
+        applyFrameTransformLocalToGlobal(component_pos, owner_pos, owner_ori);
+        float3 component_axis = definition.axis;
+        applyOriQToVector3<float, float>(component_axis.x, component_axis.y, component_axis.z, dT->oriQw[owner],
+                                         dT->oriQx[owner], dT->oriQy[owner], dT->oriQz[owner]);
+        components.push_back({definition.type, component_pos, component_axis, definition.size_1, definition.size_2,
+                              definition.size_3, definition.normal_sign, owner, family});
+    }
+
+    const float3 domain_min = m_user_box_min;
+    const float3 domain_max = m_user_box_max;
+    m_output_thread = std::thread(
+        [outfilename, components = std::move(components), domain_min, domain_max, circumferential_resolution]() {
+            std::ofstream file(outfilename, std::ios::out);
+            writeAnalyticalAsVtk(file, components, domain_min, domain_max, circumferential_resolution);
+        });
 }
 
 void DEMSolver::WriteClumpFile(const std::string& outfilename, unsigned int accuracy) const {
@@ -3136,6 +3292,20 @@ void DEMSolver::WriteMeshFile(const std::string& outfilename) const {
         case (MESH_FORMAT::VTK): {
             dT->migrateFamilyToHost();
             dT->migrateClumpPosInfoToHost();
+            const unsigned int flags = dT->solverFlags.meshOutFlags;
+            const unsigned int high_order_flags = static_cast<unsigned int>(MESH_OUTPUT_CONTENT::ABSV) |
+                                                  MESH_OUTPUT_CONTENT::VEL | MESH_OUTPUT_CONTENT::ANG_VEL |
+                                                  MESH_OUTPUT_CONTENT::ABS_ACC | MESH_OUTPUT_CONTENT::ACC |
+                                                  MESH_OUTPUT_CONTENT::ANG_ACC;
+            if (flags & high_order_flags) {
+                dT->migrateClumpHighOrderInfoToHost();
+            }
+            if (flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::OWNER_WILDCARD)) {
+                dT->migrateOwnerWildcardToHost();
+            }
+            if (flags & static_cast<unsigned int>(MESH_OUTPUT_CONTENT::GEO_WILDCARD)) {
+                dT->migrateTriGeoWildcardToHost();
+            }
             m_output_thread = std::thread([this, outfilename]() {
                 std::ofstream ptFile(outfilename, std::ios::out);
                 dT->writeMeshesAsVtkFromHost(ptFile);

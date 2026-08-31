@@ -34,6 +34,7 @@ int main() {
     DEMSim.SetOutputFormat(OUTPUT_FORMAT::CSV);
     DEMSim.SetOutputContent(OUTPUT_CONTENT::ABSV);
     DEMSim.SetMeshOutputFormat(MESH_FORMAT::VTK);
+    DEMSim.SetMeshOutputContent(MESH_OUTPUT_CONTENT::ABSV | MESH_OUTPUT_CONTENT::OWNER);
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetMeshParticlesLowPoly(true);
     DEMSim.SetSimplePatchCombination(true);
@@ -151,9 +152,11 @@ int main() {
     std::chrono::high_resolution_clock::time_point start = std::chrono::high_resolution_clock::now();
     for (float t = 0; t < sim_end; t += frame_time) {
         std::cout << "Frame: " << currframe << std::endl;
-        char meshfilename[100], cnt_filename[100];
+        char analytical_filename[100], meshfilename[100], cnt_filename[100];
+        sprintf(analytical_filename, "DEMdemo_analytical_%04d.vtk", currframe);
         sprintf(meshfilename, "DEMdemo_mesh_%04d.vtk", currframe);
         sprintf(cnt_filename, "Contact_pairs_%04d.csv", currframe++);
+        DEMSim.WriteAnalyticalFile(out_dir / analytical_filename);
         DEMSim.WriteMeshFile(out_dir / meshfilename);
         // DEMSim.WriteContactFile(out_dir / cnt_filename);
 

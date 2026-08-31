@@ -89,6 +89,118 @@ __global__ void PackOwnerDataKernel(void* output,
     }
 }
 
+__global__ void UnpackOwnerStateKernel(const void* input,
+                                       OwnerStateField field,
+                                       bodyID_t owner_begin,
+                                       size_t count,
+                                       const DEMSimParams* sim_params,
+                                       DEMDataDT* data) {
+    const size_t input_index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (input_index >= count) {
+        return;
+    }
+    const bodyID_t owner = owner_begin + input_index;
+
+    switch (field) {
+        case OwnerStateField::POSITION: {
+            const float3 position = static_cast<const float3*>(input)[input_index];
+            const double x = static_cast<double>(position.x) - sim_params->LBFX;
+            const double y = static_cast<double>(position.y) - sim_params->LBFY;
+            const double z = static_cast<double>(position.z) - sim_params->LBFZ;
+            positionToVoxelID<voxelID_t, subVoxelPos_t, double>(
+                data->voxelID[owner], data->locX[owner], data->locY[owner], data->locZ[owner], x, y, z,
+                sim_params->nvXp2, sim_params->nvYp2, sim_params->voxelSize, sim_params->l);
+            break;
+        }
+        case OwnerStateField::VELOCITY: {
+            const float3 velocity = static_cast<const float3*>(input)[input_index];
+            data->vX[owner] = velocity.x;
+            data->vY[owner] = velocity.y;
+            data->vZ[owner] = velocity.z;
+            break;
+        }
+        case OwnerStateField::ANGULAR_VELOCITY_GLOBAL: {
+            float3 angular_velocity = static_cast<const float3*>(input)[input_index];
+            const float4 inverse_orientation =
+                make_float4(-data->oriQx[owner], -data->oriQy[owner], -data->oriQz[owner], data->oriQw[owner]);
+            applyOriQToVector3(angular_velocity, inverse_orientation);
+            data->omgBarX[owner] = angular_velocity.x;
+            data->omgBarY[owner] = angular_velocity.y;
+            data->omgBarZ[owner] = angular_velocity.z;
+            break;
+        }
+        case OwnerStateField::ORIENTATION: {
+            const float4 orientation = static_cast<const float4*>(input)[input_index];
+            data->oriQx[owner] = orientation.x;
+            data->oriQy[owner] = orientation.y;
+            data->oriQz[owner] = orientation.z;
+            data->oriQw[owner] = orientation.w;
+            break;
+        }
+    }
+}
+
+__device__ void AccumulateOwnerContactWrench(float3* forces,
+                                             float3* torques,
+                                             bodyID_t owner_begin,
+                                             size_t count,
+                                             const DEMDataDT* data,
+                                             bodyID_t owner,
+                                             const float3& force_a,
+                                             const float3& extra_torque_force_a,
+                                             float sign,
+                                             const float3& local_contact_point) {
+    if (owner < owner_begin || static_cast<size_t>(owner - owner_begin) >= count) {
+        return;
+    }
+    const size_t output = static_cast<size_t>(owner - owner_begin);
+    const float3 signed_force = force_a * sign;
+    float3 total_force_form = (force_a + extra_torque_force_a) * sign;
+    const float4 orientation =
+        make_float4(data->oriQx[owner], data->oriQy[owner], data->oriQz[owner], data->oriQw[owner]);
+    applyOriQToVector3(total_force_form, make_float4(-orientation.x, -orientation.y, -orientation.z, orientation.w));
+    float3 global_torque = cross(local_contact_point, total_force_form);
+    applyOriQToVector3(global_torque, orientation);
+
+    atomicAdd(&forces[output].x, signed_force.x);
+    atomicAdd(&forces[output].y, signed_force.y);
+    atomicAdd(&forces[output].z, signed_force.z);
+    atomicAdd(&torques[output].x, global_torque.x);
+    atomicAdd(&torques[output].y, global_torque.y);
+    atomicAdd(&torques[output].z, global_torque.z);
+}
+
+__global__ void ReduceOwnerContactWrenchesKernel(float3* forces,
+                                                 float3* torques,
+                                                 bodyID_t owner_begin,
+                                                 size_t count,
+                                                 const DEMDataDT* granData,
+                                                 size_t num_contacts) {
+    const size_t contact = blockIdx.x * blockDim.x + threadIdx.x;
+    if (contact >= num_contacts || !granData->contactTypePatch || !granData->idPatchA || !granData->idPatchB) {
+        return;
+    }
+    const contact_t contact_type = granData->contactTypePatch[contact];
+    if (contact_type == NOT_A_CONTACT) {
+        return;
+    }
+
+    const bodyID_t owner_a = DEME_GET_PATCH_OWNER_ID(granData->idPatchA[contact], decodeTypeA(contact_type));
+    const bodyID_t owner_b = DEME_GET_PATCH_OWNER_ID(granData->idPatchB[contact], decodeTypeB(contact_type));
+    const float3 force_a = granData->contactForces[contact];
+    const float3 extra_torque_force_a = granData->contactTorque_convToForce[contact];
+    if (length(force_a) + length(extra_torque_force_a) < DEME_TINY_FLOAT) {
+        return;
+    }
+
+    // contactTorque_convToForce is DEME's force-like representation of force-model-only torque. Using the same
+    // contact arm as forceToAcc yields r x force plus rolling-resistance (or other model-provided) torque.
+    AccumulateOwnerContactWrench(forces, torques, owner_begin, count, granData, owner_a, force_a, extra_torque_force_a,
+                                 1.f, granData->contactPointGeometryA[contact]);
+    AccumulateOwnerContactWrench(forces, torques, owner_begin, count, granData, owner_b, force_a, extra_torque_force_a,
+                                 -1.f, granData->contactPointGeometryB[contact]);
+}
+
 }  // namespace
 
 void PackOwnerData(void* output,
@@ -121,6 +233,43 @@ size_t OwnerDataElementSize(OwnerDataField field) {
         default:
             return sizeof(float3);
     }
+}
+
+void UnpackOwnerState(const void* input,
+                      OwnerStateField field,
+                      bodyID_t owner_begin,
+                      size_t count,
+                      const DEMSimParams* sim_params,
+                      DEMDataDT* data,
+                      cudaStream_t stream) {
+    if (count == 0) {
+        return;
+    }
+    const size_t blocks = (count + OWNER_DATA_RETRIEVAL_BLOCK_SIZE - 1) / OWNER_DATA_RETRIEVAL_BLOCK_SIZE;
+    UnpackOwnerStateKernel<<<blocks, OWNER_DATA_RETRIEVAL_BLOCK_SIZE, 0, stream>>>(input, field, owner_begin, count,
+                                                                                   sim_params, data);
+    DEME_GPU_DEBUG_SYNC(stream);
+}
+
+void ReduceOwnerContactWrenches(float3* forces,
+                                float3* torques,
+                                bodyID_t owner_begin,
+                                size_t count,
+                                const DEMDataDT* data,
+                                size_t num_contacts,
+                                cudaStream_t stream) {
+    if (count == 0) {
+        return;
+    }
+    DEME_GPU_CALL(cudaMemsetAsync(forces, 0, count * sizeof(float3), stream));
+    DEME_GPU_CALL(cudaMemsetAsync(torques, 0, count * sizeof(float3), stream));
+    if (num_contacts == 0) {
+        return;
+    }
+    const size_t blocks = (num_contacts + OWNER_DATA_RETRIEVAL_BLOCK_SIZE - 1) / OWNER_DATA_RETRIEVAL_BLOCK_SIZE;
+    ReduceOwnerContactWrenchesKernel<<<blocks, OWNER_DATA_RETRIEVAL_BLOCK_SIZE, 0, stream>>>(
+        forces, torques, owner_begin, count, data, num_contacts);
+    DEME_GPU_DEBUG_SYNC(stream);
 }
 
 }  // namespace deme
