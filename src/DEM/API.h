@@ -611,6 +611,14 @@ class DEMSolver {
                                       int destination_device,
                                       bodyID_t ownerID,
                                       bodyID_t n = 1) const;
+    /// Fill CUDA memory with one global contact force and global torque about each owner's position. Contact recording
+    /// must be enabled (the default). A zero count is a no-op.
+    void GetOwnerContactWrenchToDevice(float3* force_destination,
+                                       float3* torque_destination,
+                                       size_t capacity,
+                                       int destination_device,
+                                       bodyID_t ownerID,
+                                       bodyID_t count = 1) const;
     /// Fill caller-provided CUDA memory with owner family numbers as unsigned integers.
     void GetOwnerFamilyToDevice(unsigned int* destination,
                                 size_t capacity,
@@ -694,6 +702,14 @@ class DEMSolver {
     /// Set quaternion of consecutive owners starting from ownerID, based on input quaternion vector. N (the size of the
     /// input vector) elements will be modified.
     void SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ);
+    /// Synchronously set global positions for consecutive owners directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerPositionFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
+    /// Synchronously set public-order (x, y, z, w) orientations directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerOriQFromDevice(bodyID_t ownerID, const float4* source, int source_device, size_t count = 1);
+    /// Synchronously set global linear velocities directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerVelocityFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
+    /// Synchronously set global angular velocities directly from CUDA memory. A zero count is a no-op.
+    void SetOwnerAngVelGlobalFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
     /// @brief Set the family number of consecutive owners.
     /// @param ownerID The ID of the owner.
     /// @param fam Family number.

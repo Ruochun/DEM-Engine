@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "DEM/API.h"
+#include "core/ApiVersion.h"
 #include "core/utils/DataMigrationHelper.hpp"
 
 using namespace deme;
@@ -32,6 +33,57 @@ bool close(const float4& a, const float4& b) {
     return close(a.x, b.x) && close(a.y, b.y) && close(a.z, b.z) && close(a.w, b.w);
 }
 
+// The direct wrench reduction uses owner-local contact arms, while its reference below reconstructs those arms by
+// subtracting packed global float positions. Compare resultants with scale-aware tolerances so coordinate packing and
+// atomic accumulation order do not turn an algebraically equivalent result into a brittle test.
+bool closeWrenchComponent(float a, float b) {
+    constexpr float absolute_tolerance = 2e-4f;
+    constexpr float relative_tolerance = 2e-5f;
+    return std::abs(a - b) <= absolute_tolerance + relative_tolerance * std::max(std::abs(a), std::abs(b));
+}
+
+bool compareWrenchVectors(const std::vector<float3>& actual,
+                          const std::vector<float3>& expected,
+                          const std::string& label) {
+    if (actual.size() != expected.size()) {
+        std::cerr << "FAIL: " << label << " size mismatch." << std::endl;
+        return false;
+    }
+    for (size_t i = 0; i < actual.size(); i++) {
+        const float3& a = actual[i];
+        const float3& b = expected[i];
+        if (!closeWrenchComponent(a.x, b.x) || !closeWrenchComponent(a.y, b.y) || !closeWrenchComponent(a.z, b.z)) {
+            std::cerr << "FAIL: " << label << " differs at index " << i << ": actual=(" << a.x << ", " << a.y << ", "
+                      << a.z << "), expected=(" << b.x << ", " << b.y << ", " << b.z << ")." << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
+// Owner positions are stored as a voxel ID plus uint16 sub-voxel coordinates. A device set/get round trip therefore
+// has a domain-dependent quantization error even though the API input and output are float3 values.
+bool comparePositionVectors(const std::vector<float3>& actual,
+                            const std::vector<float3>& expected,
+                            const std::string& label) {
+    constexpr float position_tolerance = 2e-4f;
+    if (actual.size() != expected.size()) {
+        std::cerr << "FAIL: " << label << " size mismatch." << std::endl;
+        return false;
+    }
+    for (size_t i = 0; i < actual.size(); i++) {
+        const float3& a = actual[i];
+        const float3& b = expected[i];
+        if (std::abs(a.x - b.x) > position_tolerance || std::abs(a.y - b.y) > position_tolerance ||
+            std::abs(a.z - b.z) > position_tolerance) {
+            std::cerr << "FAIL: " << label << " differs at index " << i << ": actual=(" << a.x << ", " << a.y << ", "
+                      << a.z << "), expected=(" << b.x << ", " << b.y << ", " << b.z << ")." << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
 template <typename T>
 class TestDeviceBuffer {
   public:
@@ -48,6 +100,14 @@ class TestDeviceBuffer {
     T* data() { return m_pointer; }
     size_t size() const { return m_count; }
     int device() const { return m_device; }
+
+    void FromHost(const std::vector<T>& input) {
+        if (input.size() > m_count) {
+            DEME_ERROR("Test device input has %zu elements but its buffer holds only %zu.", input.size(), m_count);
+        }
+        ScopedCudaDevice scope(m_device);
+        DEME_GPU_CALL(cudaMemcpy(m_pointer, input.data(), input.size() * sizeof(T), cudaMemcpyHostToDevice));
+    }
 
     std::vector<T> ToHost(size_t count = 0) const {
         const size_t output_count = count == 0 ? m_count : count;
@@ -96,10 +156,18 @@ bool testFixedOwnerData(int visible_devices) {
     solver.SetGravitationalAcceleration(make_float3(0, 0, 0));
     solver.SetCDUpdateFreq(1);
 
-    auto force_model = solver.GetContactForceModel();
+    // Use a deterministic force-only torque contribution so the wrench comparison covers extra torque without
+    // depending on the Hertz model's collision-age gate for rolling resistance.
+    auto force_model = solver.DefineContactForceModel(R"(
+if (overlapDepth > 0.0) {
+    force = B2A * (1.0e3f * static_cast<float>(overlapDepth));
+    torque_only_force = make_float3(0.f, 17.f, 0.f);
+}
+)");
     force_model->SetPerOwnerWildcards({"retrieval_tag"});
-    auto material = solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}});
+    auto material = solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.02}});
     auto sphere = solver.LoadSphereType(2.5f, 0.5f, material);
+    sphere->SetMOI(make_float3(0.21f, 0.37f, 0.52f));
 
     const std::vector<float3> positions = {make_float3(1.0f, 1.0f, 1.0f), make_float3(1.8f, 1.0f, 1.0f),
                                            make_float3(4.0f, 2.0f, 1.5f)};
@@ -131,6 +199,48 @@ bool testFixedOwnerData(int visible_devices) {
     TestDeviceBuffer<float4> float4_output(count, 0);
     TestDeviceBuffer<float> float_output(count, 0);
     TestDeviceBuffer<unsigned int> uint_output(count, 0);
+
+    // Set all coupling state directly from CUDA memory, then round-trip it through the independent output kernels.
+    const std::vector<float3> prescribed_positions = {make_float3(1.1f, 1.2f, 1.3f), make_float3(1.85f, 1.1f, 1.0f),
+                                                      make_float3(4.1f, 2.2f, 1.7f)};
+    const std::vector<float3> prescribed_velocities = {make_float3(2, 3, 4), make_float3(-2, 1, 0.5f),
+                                                       make_float3(0.25f, -1, 2)};
+    const std::vector<float3> prescribed_global_angular_velocities = {
+        make_float3(0.5f, 1.5f, -2), make_float3(-1, 0.25f, 2.5f), make_float3(3, -2, 1)};
+    const std::vector<float4> prescribed_orientations = {make_float4(0, 0, 0, 1),
+                                                         make_float4(0, half_sqrt_two, 0, half_sqrt_two),
+                                                         make_float4(0.182574f, 0.365148f, 0.547723f, 0.730297f)};
+    TestDeviceBuffer<float3> float3_input(count, 0);
+    TestDeviceBuffer<float4> float4_input(count, 0);
+    float3_input.FromHost(prescribed_positions);
+    tracker->SetPositionsFromDevice(float3_input.data(), 0);
+    float4_input.FromHost(prescribed_orientations);
+    tracker->SetOrientationQuaternionsFromDevice(float4_input.data(), 0);
+    float3_input.FromHost(prescribed_velocities);
+    tracker->SetVelocitiesFromDevice(float3_input.data(), 0);
+    float3_input.FromHost(prescribed_global_angular_velocities);
+    tracker->SetAngularVelocitiesGlobalFromDevice(float3_input.data(), 0);
+
+    solver.GetOwnerPositionToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(float3_output.ToHost(), prescribed_positions, "device-input positions"))
+        return false;
+    solver.GetOwnerOriQToDevice(float4_output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(float4_output.ToHost(), prescribed_orientations, "device-input orientations"))
+        return false;
+    solver.GetOwnerVelocityToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(float3_output.ToHost(), prescribed_velocities, "device-input velocities"))
+        return false;
+    solver.GetOwnerAngVelGlobalToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(float3_output.ToHost(), prescribed_global_angular_velocities,
+                        "device-input global angular velocities"))
+        return false;
+
+    // The common one-owner call uses the default count while retaining explicit pointer-device information.
+    float3_input.FromHost({prescribed_velocities.front()});
+    solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), float3_input.data(), 0);
+    solver.GetOwnerVelocityToDevice(float3_output.data(), count, 0, tracker->GetOwnerID());
+    if (!compareVectors(float3_output.ToHost(1), {prescribed_velocities.front()}, "default one-owner exchange"))
+        return false;
 
     tracker->PositionsToDevice(float3_output.data(), count, 0);
     if (!compareVectors(float3_output.ToHost(), tracker->Positions(), "positions"))
@@ -183,6 +293,8 @@ bool testFixedOwnerData(int visible_devices) {
         tracker->PositionsToDevice(float3_output.data(), count, 0);
     }
 
+    // These calls intentionally throw. Suppress their expected logger output so a passing test does not look broken.
+    solver.SetVerbosity("QUIET");
     bool capacity_rejected = false;
     try {
         tracker->PositionsToDevice(float3_output.data(), count - 1, 0);
@@ -206,6 +318,28 @@ bool testFixedOwnerData(int visible_devices) {
         return false;
     }
 
+    bool null_input_rejected = false;
+    try {
+        solver.SetOwnerPositionFromDevice(tracker->GetOwnerID(), nullptr, 0);
+    } catch (const SolverException&) {
+        null_input_rejected = true;
+    }
+    if (!null_input_rejected) {
+        std::cerr << "FAIL: null CUDA owner-state input was not rejected." << std::endl;
+        return false;
+    }
+
+    bool input_range_rejected = false;
+    try {
+        solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(2), float3_input.data(), 0, 2);
+    } catch (const SolverException&) {
+        input_range_rejected = true;
+    }
+    if (!input_range_rejected) {
+        std::cerr << "FAIL: out-of-range CUDA owner-state input was not rejected." << std::endl;
+        return false;
+    }
+
     if (visible_devices >= 2) {
         TestDeviceBuffer<float3> peer_output(count, 1);
         tracker->PositionsToDevice(peer_output.data(), count, 1);
@@ -222,7 +356,19 @@ bool testFixedOwnerData(int visible_devices) {
             std::cerr << "FAIL: mismatched pointer device declaration was not rejected." << std::endl;
             return false;
         }
+
+        bool wrong_source_device_rejected = false;
+        try {
+            solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_output.data(), 1, count);
+        } catch (const SolverException&) {
+            wrong_source_device_rejected = true;
+        }
+        if (!wrong_source_device_rejected) {
+            std::cerr << "FAIL: non-dT CUDA owner-state source was not rejected." << std::endl;
+            return false;
+        }
     }
+    solver.SetVerbosity("ERROR");
 
     const size_t contact_capacity = solver.GetNumContacts();
     if (contact_capacity == 0) {
@@ -261,6 +407,48 @@ bool testFixedOwnerData(int visible_devices) {
         return false;
     }
 
+    // Independently reconstruct each owner's resultant from the existing per-contact API.
+    TestDeviceBuffer<float3> wrench_forces(count, 0);
+    TestDeviceBuffer<float3> wrench_torques(count, 0);
+    tracker->ContactWrenchesToDevice(wrench_forces.data(), wrench_torques.data(), count, 0);
+    std::vector<float3> reference_forces(count, make_float3(0));
+    std::vector<float3> reference_torques(count, make_float3(0));
+    bool observed_extra_torque = false;
+    const auto owner_positions = tracker->Positions();
+    for (size_t owner = 0; owner < count; owner++) {
+        std::vector<float3> owner_points;
+        std::vector<float3> owner_forces;
+        std::vector<float3> owner_extra_torques;
+        tracker->GetContactForcesAndGlobalTorque(owner_points, owner_forces, owner_extra_torques, owner);
+        for (size_t contact = 0; contact < owner_forces.size(); contact++) {
+            observed_extra_torque = observed_extra_torque || length(owner_extra_torques[contact]) > kTolerance;
+            reference_forces[owner] += owner_forces[contact];
+            reference_torques[owner] += cross(owner_points[contact] - owner_positions[owner], owner_forces[contact]) +
+                                        owner_extra_torques[contact];
+        }
+    }
+    if (!observed_extra_torque) {
+        std::cerr << "FAIL: wrench reference scenario did not exercise force-model extra torque." << std::endl;
+        return false;
+    }
+    if (!compareWrenchVectors(wrench_forces.ToHost(), reference_forces, "reduced owner contact forces") ||
+        !compareWrenchVectors(wrench_torques.ToHost(), reference_torques, "reduced owner contact torques")) {
+        return false;
+    }
+
+    bool wrench_capacity_rejected = false;
+    solver.SetVerbosity("QUIET");
+    try {
+        tracker->ContactWrenchesToDevice(wrench_forces.data(), wrench_torques.data(), count - 1, 0);
+    } catch (const SolverException&) {
+        wrench_capacity_rejected = true;
+    }
+    solver.SetVerbosity("ERROR");
+    if (!wrench_capacity_rejected) {
+        std::cerr << "FAIL: insufficient owner-wrench capacity was not rejected." << std::endl;
+        return false;
+    }
+
     return true;
 }
 
@@ -284,6 +472,91 @@ bool testNonJitifiedMassData() {
            compareVectors(moments.ToHost(), tracker->MOIs(), "non-jitified moments of inertia");
 }
 
+bool testExternallyMovedFixedMeshes() {
+    DEMSolver solver(1);
+    solver.SetVerbosity("ERROR");
+    // This scenario uses positive coordinates through x = 6. Use explicit bounds instead of the centered [-4, 4]
+    // domain produced by the dimension-only overload, since positions outside the domain cannot be voxel-encoded.
+    solver.InstructBoxDomainDimension({0.f, 8.f}, {0.f, 8.f}, {0.f, 8.f});
+    solver.SetGravitationalAcceleration(make_float3(0));
+    solver.SetMeshUniversalContact(true);
+    solver.SetCDUpdateFreq(1);
+    solver.SetInitBinNumTarget(10);
+    solver.SetErrorOutAvgContacts(10000);
+    solver.SetErrorOutVelocity(1e6f);
+
+    auto material = solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}});
+    std::vector<std::shared_ptr<DEMMesh>> meshes;
+    const auto cube_path = (GET_DATA_PATH() / "mesh/cube.obj").string();
+    for (unsigned int i = 0; i < 3; i++) {
+        auto mesh = solver.AddWavefrontMeshObject(cube_path, material);
+        mesh->SetMass(1.f);
+        mesh->SetMOI(make_float3(1.f));
+        mesh->SetInitPos(make_float3(2.f + 2.f * i, 2.f, 2.f));
+        mesh->SetFamily(20 + i);
+        solver.SetFamilyFixed(20 + i);
+        meshes.push_back(mesh);
+    }
+    auto first_tracker = solver.Track(meshes.front());
+
+    constexpr size_t owner_count = 3;
+    solver.SetTimeStepSize(1e-5);
+    solver.Initialize();
+    const bodyID_t first_owner = first_tracker->GetOwnerID();
+    TestDeviceBuffer<float3> device_input(owner_count, 0);
+    TestDeviceBuffer<float3> device_positions(owner_count, 0);
+    TestDeviceBuffer<float3> device_velocities(owner_count, 0);
+    TestDeviceBuffer<float3> device_forces(owner_count, 0);
+    TestDeviceBuffer<float3> device_torques(owner_count, 0);
+    std::vector<float3> prescribed_positions(owner_count);
+    const std::vector<float> moving_owner_x = {3.02f, 3.01f, 3.00f, 2.99f};
+    for (float x : moving_owner_x) {
+        prescribed_positions = {make_float3(2.f, 2.f, 2.f), make_float3(x, 2.f, 2.f), make_float3(6.f, 2.f, 2.f)};
+        device_input.FromHost(prescribed_positions);
+        solver.SetOwnerPositionFromDevice(first_owner, device_input.data(), 0, owner_count);
+        const std::vector<float3> prescribed_velocities = {make_float3(0), make_float3(-1000.f, 0, 0), make_float3(0)};
+        device_velocities.FromHost(prescribed_velocities);
+        solver.SetOwnerVelocityFromDevice(first_owner, device_velocities.data(), 0, owner_count);
+        solver.DoDynamicsThenSync(1e-5);
+
+        // A fixed family must retain the just-prescribed pose rather than dynamically integrating its supplied speed.
+        solver.GetOwnerPositionToDevice(device_positions.data(), owner_count, 0, first_owner, owner_count);
+        if (!comparePositionVectors(device_positions.ToHost(), prescribed_positions,
+                                    "fixed-mesh prescribed positions")) {
+            return false;
+        }
+        solver.GetOwnerContactWrenchToDevice(device_forces.data(), device_torques.data(), owner_count, 0, first_owner,
+                                             owner_count);
+        const auto step_forces = device_forces.ToHost();
+        if (x > 3.005f && (length(step_forces[0]) > kTolerance || length(step_forces[1]) > kTolerance)) {
+            std::cerr << "FAIL: separated externally moved meshes produced a contact reaction." << std::endl;
+            return false;
+        }
+    }
+
+    solver.GetOwnerContactWrenchToDevice(device_forces.data(), device_torques.data(), owner_count, 0, first_owner,
+                                         owner_count);
+    const auto forces = device_forces.ToHost();
+    const auto torques = device_torques.ToHost();
+    for (size_t i = 0; i < owner_count; i++) {
+        if (!std::isfinite(forces[i].x) || !std::isfinite(forces[i].y) || !std::isfinite(forces[i].z) ||
+            !std::isfinite(torques[i].x) || !std::isfinite(torques[i].y) || !std::isfinite(torques[i].z)) {
+            std::cerr << "FAIL: fixed-mesh contact wrench contains a non-finite value." << std::endl;
+            return false;
+        }
+    }
+    if (length(forces[0]) <= kTolerance || length(forces[1]) <= kTolerance || dot(forces[0], forces[1]) >= 0.f) {
+        std::cerr << "FAIL: externally overlapped fixed meshes did not produce opposing contact reactions."
+                  << std::endl;
+        return false;
+    }
+    if (length(forces[2]) > kTolerance || length(torques[2]) > kTolerance) {
+        std::cerr << "FAIL: fixed mesh without contact did not receive a zero wrench." << std::endl;
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 int main() {
@@ -304,6 +577,9 @@ int main() {
     if (!testNonJitifiedMassData()) {
         return 1;
     }
-    std::cout << "PASS: tracker device-data retrieval matches host APIs." << std::endl;
+    if (!testExternallyMovedFixedMeshes()) {
+        return 1;
+    }
+    std::cout << "PASS: GPU owner-state exchange and contact-wrench retrieval match reference behavior." << std::endl;
     return 0;
 }

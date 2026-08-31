@@ -768,6 +768,17 @@ void DEMSolver::GetOwnerAngAccGlobalToDevice(float3* destination,
                              OwnerDataField::CONTACT_ANGULAR_ACCELERATION_GLOBAL);
 }
 
+void DEMSolver::GetOwnerContactWrenchToDevice(float3* force_destination,
+                                              float3* torque_destination,
+                                              size_t capacity,
+                                              int destination_device,
+                                              bodyID_t ownerID,
+                                              bodyID_t count) const {
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->getOwnerContactWrenchToDevice(force_destination, torque_destination, capacity, destination_device, ownerID,
+                                      count);
+}
+
 void DEMSolver::GetOwnerFamilyToDevice(unsigned int* destination,
                                        size_t capacity,
                                        int destination_device,
@@ -1175,6 +1186,29 @@ void DEMSolver::SetOwnerVelocity(bodyID_t ownerID, const std::vector<float3>& ve
 void DEMSolver::SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ) {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerOriQ(ownerID, oriQ);
+}
+void DEMSolver::SetOwnerPositionFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count) {
+    assertSysInit("SetOwnerPositionFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::POSITION);
+}
+void DEMSolver::SetOwnerOriQFromDevice(bodyID_t ownerID, const float4* source, int source_device, size_t count) {
+    assertSysInit("SetOwnerOriQFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::ORIENTATION);
+}
+void DEMSolver::SetOwnerVelocityFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count) {
+    assertSysInit("SetOwnerVelocityFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::VELOCITY);
+}
+void DEMSolver::SetOwnerAngVelGlobalFromDevice(bodyID_t ownerID,
+                                               const float3* source,
+                                               int source_device,
+                                               size_t count) {
+    assertSysInit("SetOwnerAngVelGlobalFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::ANGULAR_VELOCITY_GLOBAL);
 }
 void DEMSolver::SetOwnerFamily(bodyID_t ownerID, unsigned int fam, bodyID_t n) {
     if (fam > std::numeric_limits<family_t>::max()) {

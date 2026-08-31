@@ -4497,6 +4497,93 @@ void DEMDynamicThread::getOwnerDataToDevice(void* destination,
     solverScratchSpace.finishUsingTempVector(scratch_name);
 }
 
+void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
+                                              const void* source,
+                                              size_t count,
+                                              int source_device,
+                                              OwnerStateField field) {
+    if (ownerID > simParams->nOwnerBodies || count > simParams->nOwnerBodies - ownerID) {
+        DEME_ERROR("Owner device update range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
+                   (size_t)(ownerID + count), (size_t)simParams->nOwnerBodies);
+    }
+    if (count == 0) {
+        return;
+    }
+    if (source_device != streamInfo.device) {
+        DEME_ERROR(
+            "Owner device updates currently require source device %d (the dynamic-worker device), but device "
+            "%d was requested.",
+            streamInfo.device, source_device);
+    }
+
+    const size_t element_size = field == OwnerStateField::ORIENTATION ? sizeof(float4) : sizeof(float3);
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(source, count * element_size, source_device));
+    ScopedCudaDevice device_scope(streamInfo.device);
+    UnpackOwnerState(source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+
+    // Position, orientation, and velocity all affect either geometry or the conservative contact margin seen by kT.
+    pendingCriticalUpdate = true;
+}
+
+void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
+                                                     float3* torques,
+                                                     size_t capacity,
+                                                     int destination_device,
+                                                     bodyID_t ownerID,
+                                                     bodyID_t count) {
+    if (ownerID > simParams->nOwnerBodies || count > simParams->nOwnerBodies - ownerID) {
+        DEME_ERROR("Owner contact-wrench range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
+                   (size_t)(ownerID + count), (size_t)simParams->nOwnerBodies);
+    }
+    if (capacity < count) {
+        DEME_ERROR("Owner contact-wrench retrieval needs capacity for %zu owners, but the destination has %zu.",
+                   (size_t)count, capacity);
+    }
+
+    const size_t bytes = static_cast<size_t>(count) * sizeof(float3);
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(forces, bytes, destination_device));
+    DEME_GPU_CALL(device_data::ValidateOutputPointer(torques, bytes, destination_device));
+    if (count == 0) {
+        return;
+    }
+    if (solverFlags.useNoContactRecord) {
+        DEME_ERROR("Owner contact-wrench retrieval requires contact recording; do not enable SetNoForceRecord().");
+    }
+
+    ScopedCudaDevice device_scope(streamInfo.device);
+    const bool same_device = destination_device == streamInfo.device;
+    if (!same_device) {
+        int peer_access = 0;
+        DEME_GPU_CALL(cudaDeviceCanAccessPeer(&peer_access, destination_device, streamInfo.device));
+        if (!peer_access) {
+            DEME_ERROR(
+                "Owner contact-wrench retrieval from device %d to device %d requires CUDA peer access; host "
+                "staging is not permitted for this GPU-only API.",
+                streamInfo.device, destination_device);
+        }
+    }
+    float3* reduced_forces = forces;
+    float3* reduced_torques = torques;
+    if (!same_device) {
+        reduced_forces = reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("owner_wrench_forces", bytes));
+        reduced_torques =
+            reinterpret_cast<float3*>(solverScratchSpace.allocateTempVector("owner_wrench_torques", bytes));
+    }
+
+    ReduceOwnerContactWrenches(reduced_forces, reduced_torques, ownerID, count, &granData,
+                               *solverScratchSpace.numContacts, streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    if (!same_device) {
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(forces, destination_device, reduced_forces, streamInfo.device, bytes));
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(torques, destination_device, reduced_torques, streamInfo.device, bytes));
+        solverScratchSpace.finishUsingTempVector("owner_wrench_forces");
+        solverScratchSpace.finishUsingTempVector("owner_wrench_torques");
+    }
+}
+
 void DEMDynamicThread::setOwnerAngVel(bodyID_t ownerID, const std::vector<float3>& angVel) {
     omgBarX.setVal(streamInfo.stream, RealTupleVectorToXComponentVector<float, float3>(angVel), ownerID);
     omgBarY.setVal(streamInfo.stream, RealTupleVectorToYComponentVector<float, float3>(angVel), ownerID);
