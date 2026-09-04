@@ -656,8 +656,8 @@ class DEMSolver {
     /// @param force_destination Writable CUDA memory for `count` float3 resultant forces.
     /// @param torque_destination Writable CUDA memory for `count` float3 resultant torques.
     /// @param capacity Available elements in each destination buffer; must be at least `count`.
-    /// @param destination_device Logical CUDA device owning both destination buffers. Cross-device output requires
-    /// direct CUDA peer access; this API does not use host staging.
+    /// @param destination_device Logical CUDA device owning both destination buffers. CUDA selects the available
+    /// inter-device transfer route for cross-device output.
     /// @param ownerID First owner in the consecutive range.
     /// @param count Number of owners to reduce. A zero count is a no-op.
     void GetOwnerContactWrenchToDevice(float3* force_destination,
@@ -755,7 +755,10 @@ class DEMSolver {
     /// Set quaternion of consecutive owners starting from ownerID. Finite, nonzero inputs are normalized before being
     /// stored; invalid quaternions are rejected. N (the size of the input vector) elements will be modified.
     void SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ);
-    /// Synchronously set global positions for consecutive owners directly from CUDA memory. A zero count is a no-op.
+    /// Synchronously set global positions for consecutive owners directly from CUDA memory. The source may belong to
+    /// any logical CUDA device accessible to this process; remote input is copied to dT before unpacking. A zero count
+    /// is a no-op.
+    /// @param source_device Logical CUDA device owning `source`.
     /// @param validate If true, validate the owner range and CUDA pointer metadata. Disable only when the caller
     /// guarantees those preconditions and needs to avoid validation overhead.
     void SetOwnerPositionFromDevice(bodyID_t ownerID,
@@ -819,7 +822,7 @@ class DEMSolver {
     /// consumed after one step. The call is synchronous, so `source` may be reused when it returns.
     /// @param ownerID First owner in the consecutive range.
     /// @param source CUDA memory containing `count` float3 global-frame accelerations.
-    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param source_device Logical CUDA device owning `source`; remote input is copied to dT before unpacking.
     /// @param count Number of consecutive owners. A zero count is a no-op.
     /// @param validate If true, validate the owner range and CUDA pointer metadata. Disable only when the caller
     /// guarantees those preconditions and needs to avoid validation overhead.
@@ -836,7 +839,7 @@ class DEMSolver {
     /// returns.
     /// @param ownerID First owner in the consecutive range.
     /// @param source CUDA memory containing `count` float3 local-frame angular accelerations.
-    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param source_device Logical CUDA device owning `source`; remote input is copied to dT before unpacking.
     /// @param count Number of consecutive owners. A zero count is a no-op.
     /// @param validate See AddOwnerNextStepAccFromDevice.
     void AddOwnerNextStepAngAccFromDevice(bodyID_t ownerID,

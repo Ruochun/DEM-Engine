@@ -4200,15 +4200,18 @@ size_t DEMDynamicThread::getOwnerContactForcesToDevice(const std::vector<bodyID_
     solverScratchSpace.syncDualStructDeviceToHost("device_contact_count");
     const size_t useful_count = *host_count;
 
+    cudaError_t transfer_status = cudaSuccess;
     if (!same_device && useful_count > 0) {
         const size_t useful_bytes = useful_count * sizeof(float3);
-        DEME_GPU_CALL(
-            ownerDataTransferBuffer.Copy(points, destination_device, packed_points, streamInfo.device, useful_bytes));
-        DEME_GPU_CALL(
-            ownerDataTransferBuffer.Copy(forces, destination_device, packed_forces, streamInfo.device, useful_bytes));
-        if (need_torque) {
-            DEME_GPU_CALL(ownerDataTransferBuffer.Copy(torques, destination_device, packed_torques, streamInfo.device,
-                                                       useful_bytes));
+        transfer_status =
+            ownerDataTransferBuffer.Copy(points, destination_device, packed_points, streamInfo.device, useful_bytes);
+        if (transfer_status == cudaSuccess) {
+            transfer_status = ownerDataTransferBuffer.Copy(forces, destination_device, packed_forces, streamInfo.device,
+                                                           useful_bytes);
+        }
+        if (transfer_status == cudaSuccess && need_torque) {
+            transfer_status = ownerDataTransferBuffer.Copy(torques, destination_device, packed_torques,
+                                                           streamInfo.device, useful_bytes);
         }
     }
 
@@ -4221,6 +4224,7 @@ size_t DEMDynamicThread::getOwnerContactForcesToDevice(const std::vector<bodyID_
     }
     solverScratchSpace.finishUsingDualArray("device_contact_owner_ids");
     solverScratchSpace.finishUsingDualStruct("device_contact_count");
+    DEME_GPU_CALL(transfer_status);
     return useful_count;
 }
 
@@ -4490,14 +4494,16 @@ void DEMDynamicThread::getOwnerDataToDevice(void* destination,
         return;
     }
 
-    // Cross-device output is packed once on dT's GPU, then copied through the generic peer/staging transfer utility.
+    // Cross-device output is packed once on dT's GPU, then CUDA selects the available inter-device transfer route.
     const std::string scratch_name = "owner_device_retrieval";
     void* packed = solverScratchSpace.allocateTempVector(scratch_name, bytes);
     PackOwnerData(packed, field, ownerID, n, &simParams, &granData, solverFlags.useMassJitify, wildcard_index,
                   streamInfo.stream);
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
-    DEME_GPU_CALL(ownerDataTransferBuffer.Copy(destination, destination_device, packed, streamInfo.device, bytes));
+    const cudaError_t transfer_status =
+        ownerDataTransferBuffer.Copy(destination, destination_device, packed, streamInfo.device, bytes);
     solverScratchSpace.finishUsingTempVector(scratch_name);
+    DEME_GPU_CALL(transfer_status);
 }
 
 void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
@@ -4513,18 +4519,25 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
     if (count == 0) {
         return;
     }
-    if (source_device != streamInfo.device) {
-        DEME_ERROR(
-            "Owner device updates currently require source device %d (the dynamic-worker device), but device "
-            "%d was requested.",
-            streamInfo.device, source_device);
-    }
-
     const size_t element_size = field == OwnerStateField::ORIENTATION ? sizeof(float4) : sizeof(float3);
+    const size_t bytes = count * element_size;
     if (validate) {
-        DEME_GPU_CALL(device_data::ValidateOutputPointer(source, count * element_size, source_device));
+        DEME_GPU_CALL(device_data::ValidateOutputPointer(source, bytes, source_device));
     }
     ScopedCudaDevice device_scope(streamInfo.device);
+    const bool same_device = source_device == streamInfo.device;
+    constexpr const char* scratch_name = "owner_device_input";
+    const void* unpack_source = source;
+    if (!same_device) {
+        void* local_source = solverScratchSpace.allocateTempVector(scratch_name, bytes);
+        const cudaError_t transfer_status =
+            ownerDataTransferBuffer.Copy(local_source, streamInfo.device, source, source_device, bytes);
+        if (transfer_status != cudaSuccess) {
+            solverScratchSpace.finishUsingTempVector(scratch_name);
+            DEME_GPU_CALL(transfer_status);
+        }
+        unpack_source = local_source;
+    }
     if (validate && field == OwnerStateField::ORIENTATION) {
         const std::string validation_name = "owner_orientation_validation";
         solverScratchSpace.allocateDualStruct(validation_name);
@@ -4532,18 +4545,25 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
         *host_invalid = 0;
         solverScratchSpace.syncDualStructHostToDevice(validation_name);
         ValidateOwnerOrientations(
-            static_cast<const float4*>(source), count,
+            static_cast<const float4*>(unpack_source), count,
             reinterpret_cast<unsigned int*>(solverScratchSpace.getDualStructDevice(validation_name)),
             streamInfo.stream);
         solverScratchSpace.syncDualStructDeviceToHost(validation_name);
         const bool invalid = *host_invalid != 0;
         solverScratchSpace.finishUsingDualStruct(validation_name);
         if (invalid) {
+            if (!same_device) {
+                solverScratchSpace.finishUsingTempVector(scratch_name);
+            }
             DEME_ERROR("Owner orientation updates require finite, nonzero-length quaternions.");
         }
     }
-    UnpackOwnerState(source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
-    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    UnpackOwnerState(unpack_source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
+    const cudaError_t sync_status = cudaStreamSynchronize(streamInfo.stream);
+    if (!same_device) {
+        solverScratchSpace.finishUsingTempVector(scratch_name);
+    }
+    DEME_GPU_CALL(sync_status);
 }
 
 void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
@@ -4573,16 +4593,6 @@ void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
 
     ScopedCudaDevice device_scope(streamInfo.device);
     const bool same_device = destination_device == streamInfo.device;
-    if (!same_device) {
-        int peer_access = 0;
-        DEME_GPU_CALL(cudaDeviceCanAccessPeer(&peer_access, destination_device, streamInfo.device));
-        if (!peer_access) {
-            DEME_ERROR(
-                "Owner contact-wrench retrieval from device %d to device %d requires CUDA peer access; host "
-                "staging is not permitted for this GPU-only API.",
-                streamInfo.device, destination_device);
-        }
-    }
     float3* reduced_forces = forces;
     float3* reduced_torques = torques;
     if (!same_device) {
@@ -4595,12 +4605,15 @@ void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
                                *solverScratchSpace.numContacts, streamInfo.stream);
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
     if (!same_device) {
-        DEME_GPU_CALL(
-            ownerDataTransferBuffer.Copy(forces, destination_device, reduced_forces, streamInfo.device, bytes));
-        DEME_GPU_CALL(
-            ownerDataTransferBuffer.Copy(torques, destination_device, reduced_torques, streamInfo.device, bytes));
+        cudaError_t transfer_status =
+            ownerDataTransferBuffer.Copy(forces, destination_device, reduced_forces, streamInfo.device, bytes);
+        if (transfer_status == cudaSuccess) {
+            transfer_status =
+                ownerDataTransferBuffer.Copy(torques, destination_device, reduced_torques, streamInfo.device, bytes);
+        }
         solverScratchSpace.finishUsingTempVector("owner_wrench_forces");
         solverScratchSpace.finishUsingTempVector("owner_wrench_torques");
+        DEME_GPU_CALL(transfer_status);
     }
 }
 

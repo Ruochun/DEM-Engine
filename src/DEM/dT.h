@@ -478,7 +478,7 @@ class DEMDynamicThread {
     /// @param ownerID First owner in the consecutive range.
     /// @param source Caller-owned CUDA source on dT's device.
     /// @param count Number of owner values to consume.
-    /// @param source_device Logical device owning `source`; it must be dT's device even without validation.
+    /// @param source_device Logical device owning `source`. Remote input is copied to dT before unpacking.
     /// @param field State field to unpack. Next-step acceleration fields also set their one-step preservation flags.
     /// @param validate Whether to validate the range, pointer metadata, and orientation validity. Orientation values
     /// are normalized during unpacking regardless of this flag.

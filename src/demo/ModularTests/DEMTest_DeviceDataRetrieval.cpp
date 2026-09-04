@@ -391,14 +391,23 @@ if (overlapDepth > 0.0) {
             return false;
         }
 
+        const std::vector<float3> remote_velocities = {make_float3(3, -2, 1), make_float3(-4, 5, -6),
+                                                       make_float3(7, 8, -9)};
+        TestDeviceBuffer<float3> peer_input(count, 1);
+        peer_input.FromHost(remote_velocities);
+        solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_input.data(), 1, count);
+        solver.GetOwnerVelocityToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
+        if (!compareVectors(float3_output.ToHost(), remote_velocities, "cross-device velocity input"))
+            return false;
+
         bool wrong_source_device_rejected = false;
         try {
-            solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_output.data(), 1, count);
+            solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_input.data(), 0, count);
         } catch (const SolverException&) {
             wrong_source_device_rejected = true;
         }
         if (!wrong_source_device_rejected) {
-            std::cerr << "FAIL: non-dT CUDA owner-state source was not rejected." << std::endl;
+            std::cerr << "FAIL: mismatched CUDA owner-state source-device declaration was not rejected." << std::endl;
             return false;
         }
     }
@@ -486,6 +495,18 @@ if (overlapDepth > 0.0) {
     if (!compareWrenchVectors(solver_wrench_forces, host_wrench_forces, "solver/tracker owner contact forces") ||
         !compareWrenchVectors(solver_wrench_torques, host_wrench_torques, "solver/tracker owner contact torques")) {
         return false;
+    }
+
+    if (visible_devices >= 2) {
+        TestDeviceBuffer<float3> peer_wrench_forces(count, 1);
+        TestDeviceBuffer<float3> peer_wrench_torques(count, 1);
+        tracker->ContactWrenchesToDevice(peer_wrench_forces.data(), peer_wrench_torques.data(), count, 1);
+        if (!compareWrenchVectors(peer_wrench_forces.ToHost(), reference_forces,
+                                  "cross-device reduced owner contact forces") ||
+            !compareWrenchVectors(peer_wrench_torques.ToHost(), reference_torques,
+                                  "cross-device reduced owner contact torques")) {
+            return false;
+        }
     }
 
     bool wrench_capacity_rejected = false;

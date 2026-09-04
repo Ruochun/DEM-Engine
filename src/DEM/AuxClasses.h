@@ -278,7 +278,8 @@ class DEMTracker {
     /// global-frame contact-force resultants. Torques are global-frame moments about each owner's current DEME position
     /// and include force-generated moments plus force-model-only torque. Owners without recorded contact receive a zero
     /// wrench. This reads current dT force records without triggering contact detection or force evaluation. Contact
-    /// recording must remain enabled. The call is synchronous; cross-device output requires direct CUDA peer access.
+    /// recording must remain enabled. The call is synchronous; CUDA selects the available inter-device transfer route
+    /// for cross-device output.
     /// @param force_destination Writable CUDA memory for one float3 force per tracked owner.
     /// @param torque_destination Writable CUDA memory for one float3 torque per tracked owner.
     /// @param capacity Available elements in each destination buffer; must cover every tracked owner.
@@ -354,7 +355,7 @@ class DEMTracker {
     /// acceleration is accumulated on top during the next force/integration step, gravity is applied separately, and
     /// the queued contribution is consumed after one step. The call is synchronous.
     /// @param source CUDA memory containing one float3 global-frame acceleration per tracked owner.
-    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param source_device Logical CUDA device owning `source`; remote input is copied to dT before unpacking.
     /// @param validate Whether to validate the owner range and CUDA pointer metadata.
     void AddAccFromDevice(const float3* source, int source_device, bool validate = true);
 
@@ -370,7 +371,7 @@ class DEMTracker {
     /// acceleration contribution. Contact angular acceleration is accumulated on top during the next force/integration
     /// step, and the queued contribution is consumed after one step. The call is synchronous.
     /// @param source CUDA memory containing one float3 local-frame angular acceleration per tracked owner.
-    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param source_device Logical CUDA device owning `source`; remote input is copied to dT before unpacking.
     /// @param validate Whether to validate the owner range and CUDA pointer metadata.
     void AddAngAccFromDevice(const float3* source, int source_device, bool validate = true);
 

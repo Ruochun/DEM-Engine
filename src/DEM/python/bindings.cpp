@@ -433,7 +433,7 @@ allocation and must keep it alive through the call.
                 tracker.SetPositionsFromDevice(reinterpret_cast<const float3*>(pointer), device, validate);
             },
             "Synchronously set every tracked global position from CUDA ``float3`` storage. The buffer must contain "
-            "one element per tracked owner, and ``device`` must be the dynamic-worker device.",
+            "one element per tracked owner; remote input is copied to the dynamic-worker device before unpacking.",
             py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "VelocitiesToDevice",
@@ -449,7 +449,8 @@ allocation and must keep it alive through the call.
                 tracker.SetVelocitiesFromDevice(reinterpret_cast<const float3*>(pointer), device, validate);
             },
             "Synchronously set every tracked global linear velocity from CUDA ``float3`` storage. The buffer must "
-            "contain one element per tracked owner, and ``device`` must be the dynamic-worker device.",
+            "contain one element per tracked owner; remote input is copied to the dynamic-worker device before "
+            "unpacking.",
             py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "AngularVelocitiesLocalToDevice",
@@ -465,7 +466,8 @@ allocation and must keep it alive through the call.
                 tracker.SetAngularVelocitiesFromDevice(reinterpret_cast<const float3*>(pointer), device, validate);
             },
             "Synchronously set every tracked local-frame angular velocity from CUDA ``float3`` storage. The buffer "
-            "must contain one element per tracked owner, and ``device`` must be the dynamic-worker device.",
+            "must contain one element per tracked owner; remote input is copied to the dynamic-worker device before "
+            "unpacking.",
             py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "AngularVelocitiesGlobalToDevice",
@@ -483,7 +485,8 @@ allocation and must keep it alive through the call.
             },
             "Synchronously set every tracked global angular velocity from CUDA ``float3`` storage. Each value is "
             "converted to the owner's local principal-axis frame using its orientation at call time. The buffer must "
-            "contain one element per tracked owner, and ``device`` must be the dynamic-worker device.",
+            "contain one element per tracked owner; remote input is copied to the dynamic-worker device before "
+            "unpacking.",
             py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "OrientationQuaternionsToDevice",
@@ -500,8 +503,8 @@ allocation and must keep it alive through the call.
             },
             "Synchronously set every tracked local-to-global quaternion from CUDA ``float4`` storage in ``(x, y, z, "
             "w)`` order. With validation enabled, non-finite and zero-length inputs are rejected; finite, nonzero "
-            "inputs are always normalized. The buffer must contain one element per tracked owner, and ``device`` "
-            "must be the dynamic-worker device.",
+            "inputs are always normalized. The buffer must contain one element per tracked owner; remote input is "
+            "copied to the dynamic-worker device before validation and unpacking.",
             py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "FamiliesToDevice",
@@ -579,9 +582,9 @@ Outputs preserve tracker owner order. Force and torque are global-frame resultan
 owner's current DEME position and includes force-generated moments and force-model-only torque. Owners without contact
 receive zero. ``force_destination`` and ``torque_destination`` are integer addresses of writable CUDA ``float3``
 storage. ``capacity`` is the element capacity of each buffer and must cover every tracked owner. Both buffers must
-belong to logical CUDA ``device``; cross-device output requires direct CUDA peer access and does not use host staging.
-The call is synchronous, so both buffers may be consumed when it returns. This reads current recorded dT forces and
-does not trigger contact detection or force evaluation. Contact recording must remain enabled.)doc",
+belong to logical CUDA ``device``; CUDA selects the available inter-device transfer route for remote output. The call
+is synchronous, so both buffers may be consumed when it returns. This reads current recorded dT forces and does not
+trigger contact detection or force evaluation. Contact recording must remain enabled.)doc",
             py::arg("force_destination"), py::arg("torque_destination"), py::arg("capacity"), py::arg("device"))
         .def(
             "OwnerWildcardValuesToDevice",
@@ -634,11 +637,12 @@ does not trigger contact detection or force evaluation. Contact recording must r
             },
             R"doc(Synchronously queue one global-frame linear acceleration per tracked owner from CUDA memory.
 
-``source`` is an integer address containing one CUDA ``float3`` per tracked owner in tracker order, and ``device``
-must be the dynamic-worker device. Values replace any previously queued next-step linear-acceleration contribution.
-Contact acceleration is accumulated on top during the next force/integration step, gravity is applied separately, and
-the queued contribution is consumed after one step. Pass ``validate=False`` only when the range and pointer metadata
-are known to be valid. The source buffer may be reused when this call returns.)doc",
+``source`` is an integer address containing one CUDA ``float3`` per tracked owner in tracker order. Remote input is
+copied from ``source_device`` to the dynamic-worker device before unpacking. Values replace any previously queued
+next-step linear-acceleration contribution. Contact acceleration is accumulated on top during the next
+force/integration step, gravity is applied separately, and the queued contribution is consumed after one step. Pass
+``validate=False`` only when the range and pointer metadata are known to be valid. The source buffer may be reused when
+this call returns.)doc",
             py::arg("source"), py::arg("source_device"), py::arg("validate") = true)
 
         .def("AddAngAcc", static_cast<void (deme::DEMTracker::*)(float3, size_t)>(&deme::DEMTracker::AddAngAcc),
@@ -658,11 +662,12 @@ are known to be valid. The source buffer may be reused when this call returns.)d
             },
             R"doc(Synchronously queue one local-frame angular acceleration per tracked owner from CUDA memory.
 
-``source`` is an integer address containing one CUDA ``float3`` per tracked owner in tracker order, and ``device``
-must be the dynamic-worker device. Values use each owner's local principal-axis frame and replace any previously
-queued next-step angular-acceleration contribution. Contact angular acceleration is accumulated on top during the next
-force/integration step, and the queued contribution is consumed after one step. Pass ``validate=False`` only when the
-range and pointer metadata are known to be valid. The source buffer may be reused when this call returns.)doc",
+``source`` is an integer address containing one CUDA ``float3`` per tracked owner in tracker order. Remote input is
+copied from ``source_device`` to the dynamic-worker device before unpacking. Values use each owner's local principal-
+axis frame and replace any previously queued next-step angular-acceleration contribution. Contact angular acceleration
+is accumulated on top during the next force/integration step, and the queued contribution is consumed after one step.
+Pass ``validate=False`` only when the range and pointer metadata are known to be valid. The source buffer may be reused
+when this call returns.)doc",
             py::arg("source"), py::arg("source_device"), py::arg("validate") = true)
 
         .def("SetFamily", static_cast<void (deme::DEMTracker::*)(unsigned int)>(&deme::DEMTracker::SetFamily),
@@ -920,8 +925,8 @@ valid. IDs use the numbering visible to this process, including the effects of
             },
             R"doc(Synchronously set consecutive owner positions from ``count`` CUDA ``float3`` elements.
 
-Positions are global-frame values. The source must be CUDA-accessible memory on the solver's dynamic-worker device;
-when this call returns the source buffer may be reused.)doc",
+Positions are global-frame values. ``source_device`` identifies the CUDA-accessible source allocation; remote input is
+copied to the dynamic-worker device before unpacking. When this call returns the source buffer may be reused.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -932,10 +937,10 @@ when this call returns the source buffer may be reused.)doc",
             },
             R"doc(Synchronously set consecutive owner orientations from ``count`` CUDA ``float4`` elements.
 
-Quaternion elements use public DEME ordering ``(x, y, z, w)``. The source must be CUDA-accessible memory on the
-solver's dynamic-worker device. With ``validate=True``, non-finite and zero-length quaternions are rejected. Every
-finite, nonzero quaternion is normalized before storage even when validation is disabled. When this call returns the
-source buffer may be reused.)doc",
+Quaternion elements use public DEME ordering ``(x, y, z, w)``. ``source_device`` identifies the CUDA-accessible source
+allocation; remote input is copied to the dynamic-worker device before validation and unpacking. With
+``validate=True``, non-finite and zero-length quaternions are rejected. Every finite, nonzero quaternion is normalized
+before storage even when validation is disabled. When this call returns the source buffer may be reused.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -947,8 +952,8 @@ source buffer may be reused.)doc",
             },
             R"doc(Synchronously set consecutive global linear velocities from ``count`` CUDA ``float3`` elements.
 
-The source must be CUDA-accessible memory on the solver's dynamic-worker device; when this call returns the source
-buffer may be reused.)doc",
+``source_device`` identifies the CUDA-accessible source allocation; remote input is copied to the dynamic-worker
+device before unpacking. When this call returns the source buffer may be reused.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -960,8 +965,9 @@ buffer may be reused.)doc",
             },
             R"doc(Synchronously set consecutive local-frame angular velocities from CUDA ``float3`` elements.
 
-This has the same frame semantics as ``SetOwnerAngVel``. The source must be CUDA-accessible memory on the solver's
-dynamic-worker device; when this call returns the source buffer may be reused.)doc",
+This has the same frame semantics as ``SetOwnerAngVel``. ``source_device`` identifies the CUDA-accessible source
+allocation; remote input is copied to the dynamic-worker device before unpacking. When this call returns the source
+buffer may be reused.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -973,9 +979,9 @@ dynamic-worker device; when this call returns the source buffer may be reused.)d
             },
             R"doc(Synchronously set consecutive global angular velocities from ``count`` CUDA ``float3`` elements.
 
-Each value is converted to the owner's local principal-axis frame using that owner's orientation at call time. The
-source must be CUDA-accessible memory on the solver's dynamic-worker device; when this call returns the source buffer
-may be reused.)doc",
+Each value is converted to the owner's local principal-axis frame using that owner's orientation at call time.
+``source_device`` identifies the CUDA-accessible source allocation; remote input is copied to the dynamic-worker
+device before unpacking. When this call returns the source buffer may be reused.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -987,11 +993,12 @@ may be reused.)doc",
             },
             R"doc(Synchronously queue global-frame linear accelerations for consecutive owners from CUDA memory.
 
-``source`` is an integer address containing ``count`` CUDA ``float3`` values, and ``source_device`` must be the
-dynamic-worker device. Values replace any previously queued next-step linear-acceleration contribution. Contact
-acceleration is accumulated on top during the next force/integration step, gravity is applied separately, and the
-queued contribution is consumed after one step. Pass ``validate=False`` only when the owner range and pointer metadata
-are known to be valid. A zero count is a no-op; otherwise the source buffer may be reused when this call returns.)doc",
+``source`` is an integer address containing ``count`` CUDA ``float3`` values. Remote input is copied from
+``source_device`` to the dynamic-worker device before unpacking. Values replace any previously queued next-step
+linear-acceleration contribution. Contact acceleration is accumulated on top during the next force/integration step,
+gravity is applied separately, and the queued contribution is consumed after one step. Pass ``validate=False`` only
+when the owner range and pointer metadata are known to be valid. A zero count is a no-op; otherwise the source buffer
+may be reused when this call returns.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -1003,12 +1010,12 @@ are known to be valid. A zero count is a no-op; otherwise the source buffer may 
             },
             R"doc(Synchronously queue local-frame angular accelerations for consecutive owners from CUDA memory.
 
-``source`` is an integer address containing ``count`` CUDA ``float3`` values, and ``source_device`` must be the
-dynamic-worker device. Values use each owner's local principal-axis frame and replace any previously queued next-step
-angular-acceleration contribution. Contact angular acceleration is accumulated on top during the next
-force/integration step, and the queued contribution is consumed after one step. Pass ``validate=False`` only when the
-owner range and pointer metadata are known to be valid. A zero count is a no-op; otherwise the source buffer may be
-reused when this call returns.)doc",
+``source`` is an integer address containing ``count`` CUDA ``float3`` values. Remote input is copied from
+``source_device`` to the dynamic-worker device before unpacking. Values use each owner's local principal-axis frame
+and replace any previously queued next-step angular-acceleration contribution. Contact angular acceleration is
+accumulated on top during the next force/integration step, and the queued contribution is consumed after one step. Pass
+``validate=False`` only when the owner range and pointer metadata are known to be valid. A zero count is a no-op;
+otherwise the source buffer may be reused when this call returns.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(
@@ -1165,9 +1172,9 @@ includes both force-generated moments and force-model-only torque such as rollin
 and ``torque_destination`` are integer addresses of writable CUDA ``float3`` storage. ``capacity`` and ``count`` are
 measured in owners, and ``first_owner_id`` selects the start of the range; owners without contact receive zero force
 and torque. This reads current dT force records and does not trigger contact detection or force evaluation. Both
-buffers belong to logical CUDA ``destination_device``; cross-device output requires direct CUDA peer access and does
-not use host staging. The call is synchronous, so both buffers may be consumed when it returns. Contact recording must
-remain enabled. A zero count is a no-op.)doc",
+buffers belong to logical CUDA ``destination_device``; CUDA selects the available inter-device transfer route for
+remote output. The call is synchronous, so both buffers may be consumed when it returns. Contact recording must remain
+enabled. A zero count is a no-op.)doc",
             py::arg("force_destination"), py::arg("torque_destination"), py::arg("capacity"),
             py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1)
         .def("GetTimeStepSize", &deme::DEMSolver::GetTimeStepSize, "Get the current time step size in simulation.")
