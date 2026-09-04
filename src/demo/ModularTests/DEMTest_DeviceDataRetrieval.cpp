@@ -391,14 +391,23 @@ if (overlapDepth > 0.0) {
             return false;
         }
 
+        const std::vector<float3> remote_velocities = {make_float3(3, -2, 1), make_float3(-4, 5, -6),
+                                                       make_float3(7, 8, -9)};
+        TestDeviceBuffer<float3> peer_input(count, 1);
+        peer_input.FromHost(remote_velocities);
+        solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_input.data(), 1, count);
+        solver.GetOwnerVelocityToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
+        if (!compareVectors(float3_output.ToHost(), remote_velocities, "cross-device velocity input"))
+            return false;
+
         bool wrong_source_device_rejected = false;
         try {
-            solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_output.data(), 1, count);
+            solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), peer_input.data(), 0, count);
         } catch (const SolverException&) {
             wrong_source_device_rejected = true;
         }
         if (!wrong_source_device_rejected) {
-            std::cerr << "FAIL: non-dT CUDA owner-state source was not rejected." << std::endl;
+            std::cerr << "FAIL: mismatched CUDA owner-state source-device declaration was not rejected." << std::endl;
             return false;
         }
     }
@@ -488,6 +497,18 @@ if (overlapDepth > 0.0) {
         return false;
     }
 
+    if (visible_devices >= 2) {
+        TestDeviceBuffer<float3> peer_wrench_forces(count, 1);
+        TestDeviceBuffer<float3> peer_wrench_torques(count, 1);
+        tracker->ContactWrenchesToDevice(peer_wrench_forces.data(), peer_wrench_torques.data(), count, 1);
+        if (!compareWrenchVectors(peer_wrench_forces.ToHost(), reference_forces,
+                                  "cross-device reduced owner contact forces") ||
+            !compareWrenchVectors(peer_wrench_torques.ToHost(), reference_torques,
+                                  "cross-device reduced owner contact torques")) {
+            return false;
+        }
+    }
+
     bool wrench_capacity_rejected = false;
     solver.SetVerbosity("QUIET");
     try {
@@ -502,6 +523,87 @@ if (overlapDepth > 0.0) {
     }
 
     return true;
+}
+
+bool testNextStepAccelerationInput() {
+    DEMSolver solver(1);
+    solver.SetVerbosity("ERROR");
+    solver.InstructBoxDomainDimension(8, 8, 8);
+    solver.SetGravitationalAcceleration(make_float3(0));
+    solver.SetCDUpdateFreq(1);
+    solver.SetInitBinNumTarget(10);
+
+    auto material = solver.LoadMaterial({{"E", 1e7}, {"nu", 0.3}, {"CoR", 0.2}, {"mu", 0.4}, {"Crr", 0.0}});
+    auto sphere = solver.LoadSphereType(2.f, 0.25f, material);
+    sphere->SetMOI(make_float3(0.3f, 0.4f, 0.5f));
+    auto batch = solver.AddClumps(sphere, std::vector<float3>{make_float3(-2, 0, 0), make_float3(2, 0, 0)});
+    auto tracker = solver.Track(batch);
+
+    constexpr float step_size = 1e-4f;
+    constexpr size_t count = 2;
+    solver.SetTimeStepSize(step_size);
+    solver.Initialize();
+
+    TestDeviceBuffer<float3> input(count, 0);
+    TestDeviceBuffer<float3> output(count, 0);
+    const std::vector<float3> first_linear = {make_float3(1, 2, 3), make_float3(-1, -2, -3)};
+    const std::vector<float3> queued_linear = {make_float3(4, -5, 6), make_float3(-7, 8, -9)};
+    const std::vector<float3> first_angular = {make_float3(0.5f, 1.f, 1.5f), make_float3(-0.5f, -1.f, -1.5f)};
+    const std::vector<float3> queued_angular = {make_float3(2, 3, 4), make_float3(-4, -3, -2)};
+
+    // Exercise both solver and tracker entry points. A later submission replaces the already queued contribution,
+    // matching the established host methods despite their historical "Add" name.
+    input.FromHost(first_linear);
+    solver.AddOwnerNextStepAccFromDevice(tracker->GetOwnerID(), input.data(), 0, count);
+    input.FromHost(queued_linear);
+    tracker->AddAccFromDevice(input.data(), 0, false);
+    solver.GetOwnerAccToDevice(output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(output.ToHost(), queued_linear, "queued device linear acceleration"))
+        return false;
+
+    input.FromHost(first_angular);
+    tracker->AddAngAccFromDevice(input.data(), 0);
+    input.FromHost(queued_angular);
+    solver.AddOwnerNextStepAngAccFromDevice(tracker->GetOwnerID(), input.data(), 0, count, false);
+    solver.GetOwnerAngAccLocalToDevice(output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(output.ToHost(), queued_angular, "queued device local angular acceleration"))
+        return false;
+
+    // Zero-count calls must not inspect the pointer or alter the already queued values.
+    solver.AddOwnerNextStepAccFromDevice(tracker->GetOwnerID(), nullptr, 0, 0);
+
+    solver.SetVerbosity("QUIET");
+    bool range_rejected = false;
+    try {
+        solver.AddOwnerNextStepAccFromDevice(tracker->GetOwnerID(1), input.data(), 0, count);
+    } catch (const SolverException&) {
+        range_rejected = true;
+    }
+    solver.SetVerbosity("ERROR");
+    if (!range_rejected) {
+        std::cerr << "FAIL: out-of-range CUDA next-step acceleration input was not rejected." << std::endl;
+        return false;
+    }
+
+    solver.DoDynamicsThenSync(step_size);
+    std::vector<float3> expected_velocity(count);
+    std::vector<float3> expected_angular_velocity(count);
+    for (size_t i = 0; i < count; i++) {
+        expected_velocity[i] = queued_linear[i] * step_size;
+        expected_angular_velocity[i] = queued_angular[i] * step_size;
+    }
+    if (!compareVectors(tracker->Velocities(), expected_velocity, "next-step linear velocity response") ||
+        !compareVectors(tracker->AngularVelocitiesLocal(), expected_angular_velocity,
+                        "next-step angular velocity response")) {
+        return false;
+    }
+
+    // The preservation flags are consumed by the first force preparation, so a second step must not apply the same
+    // acceleration again when there is no contact, gravity, or family acceleration prescription.
+    solver.DoDynamicsThenSync(step_size);
+    return compareVectors(tracker->Velocities(), expected_velocity, "one-shot linear acceleration") &&
+           compareVectors(tracker->AngularVelocitiesLocal(), expected_angular_velocity,
+                          "one-shot angular acceleration");
 }
 
 bool testNonJitifiedMassData() {
@@ -626,6 +728,9 @@ int main() {
     }
 
     if (!testFixedOwnerData(visible_devices)) {
+        return 1;
+    }
+    if (!testNextStepAccelerationInput()) {
         return 1;
     }
     if (!testNonJitifiedMassData()) {

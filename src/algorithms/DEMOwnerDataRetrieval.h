@@ -31,7 +31,15 @@ enum class OwnerDataField {
 };
 
 /// Owner state fields supported by the GPU input path.
-enum class OwnerStateField { POSITION, VELOCITY, ANGULAR_VELOCITY_LOCAL, ANGULAR_VELOCITY_GLOBAL, ORIENTATION };
+enum class OwnerStateField {
+    POSITION,
+    VELOCITY,
+    ANGULAR_VELOCITY_LOCAL,
+    ANGULAR_VELOCITY_GLOBAL,
+    ORIENTATION,
+    NEXT_STEP_ACCELERATION,
+    NEXT_STEP_ANGULAR_ACCELERATION_LOCAL
+};
 
 /// Pack one consecutive owner range from DEME's internal SoA representation into the public AoS/scalar representation.
 void PackOwnerData(void* output,

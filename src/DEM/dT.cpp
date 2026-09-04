@@ -4490,7 +4490,7 @@ void DEMDynamicThread::getOwnerDataToDevice(void* destination,
         return;
     }
 
-    // Cross-device output is packed once on dT's GPU, then copied through the generic peer/staging transfer utility.
+    // Cross-device output is packed once on dT's GPU, then CUDA selects the available inter-device transfer route.
     const std::string scratch_name = "owner_device_retrieval";
     void* packed = solverScratchSpace.allocateTempVector(scratch_name, bytes);
     PackOwnerData(packed, field, ownerID, n, &simParams, &granData, solverFlags.useMassJitify, wildcard_index,
@@ -4513,18 +4513,20 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
     if (count == 0) {
         return;
     }
-    if (source_device != streamInfo.device) {
-        DEME_ERROR(
-            "Owner device updates currently require source device %d (the dynamic-worker device), but device "
-            "%d was requested.",
-            streamInfo.device, source_device);
-    }
-
     const size_t element_size = field == OwnerStateField::ORIENTATION ? sizeof(float4) : sizeof(float3);
+    const size_t bytes = count * element_size;
     if (validate) {
-        DEME_GPU_CALL(device_data::ValidateOutputPointer(source, count * element_size, source_device));
+        DEME_GPU_CALL(device_data::ValidateOutputPointer(source, bytes, source_device));
     }
     ScopedCudaDevice device_scope(streamInfo.device);
+    const bool same_device = source_device == streamInfo.device;
+    constexpr const char* scratch_name = "owner_device_input";
+    const void* unpack_source = source;
+    if (!same_device) {
+        void* local_source = solverScratchSpace.allocateTempVector(scratch_name, bytes);
+        DEME_GPU_CALL(ownerDataTransferBuffer.Copy(local_source, streamInfo.device, source, source_device, bytes));
+        unpack_source = local_source;
+    }
     if (validate && field == OwnerStateField::ORIENTATION) {
         const std::string validation_name = "owner_orientation_validation";
         solverScratchSpace.allocateDualStruct(validation_name);
@@ -4532,18 +4534,24 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
         *host_invalid = 0;
         solverScratchSpace.syncDualStructHostToDevice(validation_name);
         ValidateOwnerOrientations(
-            static_cast<const float4*>(source), count,
+            static_cast<const float4*>(unpack_source), count,
             reinterpret_cast<unsigned int*>(solverScratchSpace.getDualStructDevice(validation_name)),
             streamInfo.stream);
         solverScratchSpace.syncDualStructDeviceToHost(validation_name);
         const bool invalid = *host_invalid != 0;
         solverScratchSpace.finishUsingDualStruct(validation_name);
         if (invalid) {
+            if (!same_device) {
+                solverScratchSpace.finishUsingTempVector(scratch_name);
+            }
             DEME_ERROR("Owner orientation updates require finite, nonzero-length quaternions.");
         }
     }
-    UnpackOwnerState(source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
+    UnpackOwnerState(unpack_source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
+    if (!same_device) {
+        solverScratchSpace.finishUsingTempVector(scratch_name);
+    }
 }
 
 void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
@@ -4573,16 +4581,6 @@ void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
 
     ScopedCudaDevice device_scope(streamInfo.device);
     const bool same_device = destination_device == streamInfo.device;
-    if (!same_device) {
-        int peer_access = 0;
-        DEME_GPU_CALL(cudaDeviceCanAccessPeer(&peer_access, destination_device, streamInfo.device));
-        if (!peer_access) {
-            DEME_ERROR(
-                "Owner contact-wrench retrieval from device %d to device %d requires CUDA peer access; host "
-                "staging is not permitted for this GPU-only API.",
-                streamInfo.device, destination_device);
-        }
-    }
     float3* reduced_forces = forces;
     float3* reduced_torques = torques;
     if (!same_device) {
