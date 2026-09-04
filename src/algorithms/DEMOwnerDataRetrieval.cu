@@ -14,6 +14,19 @@ namespace {
 
 constexpr unsigned int OWNER_DATA_RETRIEVAL_BLOCK_SIZE = 256;
 
+__global__ void ValidateOwnerOrientationsKernel(const float4* input, size_t count, unsigned int* invalid) {
+    const size_t index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= count) {
+        return;
+    }
+    const float4 q = input[index];
+    const double norm_squared = static_cast<double>(q.x) * q.x + static_cast<double>(q.y) * q.y +
+                                static_cast<double>(q.z) * q.z + static_cast<double>(q.w) * q.w;
+    if (!isfinite(norm_squared) || norm_squared == 0.0) {
+        atomicExch(invalid, 1u);
+    }
+}
+
 __global__ void PackOwnerDataKernel(void* output,
                                     OwnerDataField field,
                                     bodyID_t owner_begin,
@@ -119,6 +132,13 @@ __global__ void UnpackOwnerStateKernel(const void* input,
             data->vZ[owner] = velocity.z;
             break;
         }
+        case OwnerStateField::ANGULAR_VELOCITY_LOCAL: {
+            const float3 angular_velocity = static_cast<const float3*>(input)[input_index];
+            data->omgBarX[owner] = angular_velocity.x;
+            data->omgBarY[owner] = angular_velocity.y;
+            data->omgBarZ[owner] = angular_velocity.z;
+            break;
+        }
         case OwnerStateField::ANGULAR_VELOCITY_GLOBAL: {
             float3 angular_velocity = static_cast<const float3*>(input)[input_index];
             const float4 inverse_orientation =
@@ -131,10 +151,15 @@ __global__ void UnpackOwnerStateKernel(const void* input,
         }
         case OwnerStateField::ORIENTATION: {
             const float4 orientation = static_cast<const float4*>(input)[input_index];
-            data->oriQx[owner] = orientation.x;
-            data->oriQy[owner] = orientation.y;
-            data->oriQz[owner] = orientation.z;
-            data->oriQw[owner] = orientation.w;
+            const double norm_squared = static_cast<double>(orientation.x) * orientation.x +
+                                        static_cast<double>(orientation.y) * orientation.y +
+                                        static_cast<double>(orientation.z) * orientation.z +
+                                        static_cast<double>(orientation.w) * orientation.w;
+            const float inverse_norm = static_cast<float>(1.0 / sqrt(norm_squared));
+            data->oriQx[owner] = orientation.x * inverse_norm;
+            data->oriQy[owner] = orientation.y * inverse_norm;
+            data->oriQz[owner] = orientation.z * inverse_norm;
+            data->oriQw[owner] = orientation.w * inverse_norm;
             break;
         }
     }
@@ -233,6 +258,15 @@ size_t OwnerDataElementSize(OwnerDataField field) {
         default:
             return sizeof(float3);
     }
+}
+
+void ValidateOwnerOrientations(const float4* input, size_t count, unsigned int* invalid, cudaStream_t stream) {
+    if (count == 0) {
+        return;
+    }
+    const size_t blocks = (count + OWNER_DATA_RETRIEVAL_BLOCK_SIZE - 1) / OWNER_DATA_RETRIEVAL_BLOCK_SIZE;
+    ValidateOwnerOrientationsKernel<<<blocks, OWNER_DATA_RETRIEVAL_BLOCK_SIZE, 0, stream>>>(input, count, invalid);
+    DEME_GPU_DEBUG_SYNC(stream);
 }
 
 void UnpackOwnerState(const void* input,

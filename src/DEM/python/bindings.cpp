@@ -320,6 +320,10 @@ Create trackers with ``DEMSolver.Track`` during setup. Most state queries and
 updates require the solver to be initialized and synchronized. ``offset``
 selects an owner within the tracked collection, starting at zero. Keep the
 parent solver alive while using a tracker.
+
+Fixed-size CUDA exchange methods validate ranges, capacities, and pointer metadata by default. Pass
+``validate=False`` only when those preconditions are guaranteed and avoiding validation overhead matters. Required
+device routing and documented transformations, including quaternion normalization, still apply.
 )doc")
         .def(py::init<deme::DEMSolver*>(), py::arg("solver"),
              "Create a tracker associated with ``solver``. Prefer ``DEMSolver.Track`` so the tracked owner range is "
@@ -411,8 +415,8 @@ parent solver alive while using a tracker.
              "Get the owner wildcard values for all the owners entities tracked by this tracker.", py::arg("name"))
         .def(
             "PositionsToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.PositionsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.PositionsToDevice(reinterpret_cast<float3*>(pointer), capacity, device, validate);
             },
             R"doc(
 Synchronously copy all tracked global positions to caller-owned CUDA memory.
@@ -422,138 +426,173 @@ storage on logical CUDA ``device``. ``capacity`` is measured in ``float3``
 elements and must cover every owner in this tracker. The caller owns the
 allocation and must keep it alive through the call.
 )doc",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "SetPositionsFromDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device) {
-                tracker.SetPositionsFromDevice(reinterpret_cast<const float3*>(pointer), device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device, bool validate) {
+                tracker.SetPositionsFromDevice(reinterpret_cast<const float3*>(pointer), device, validate);
             },
             "Synchronously set every tracked global position from CUDA ``float3`` storage. The buffer must contain "
             "one element per tracked owner, and ``device`` must be the dynamic-worker device.",
-            py::arg("pointer"), py::arg("device"))
+            py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "VelocitiesToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.VelocitiesToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.VelocitiesToDevice(reinterpret_cast<float3*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked global linear velocities to caller-owned CUDA ``float3`` storage. "
             "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "SetVelocitiesFromDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device) {
-                tracker.SetVelocitiesFromDevice(reinterpret_cast<const float3*>(pointer), device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device, bool validate) {
+                tracker.SetVelocitiesFromDevice(reinterpret_cast<const float3*>(pointer), device, validate);
             },
             "Synchronously set every tracked global linear velocity from CUDA ``float3`` storage. The buffer must "
             "contain one element per tracked owner, and ``device`` must be the dynamic-worker device.",
-            py::arg("pointer"), py::arg("device"))
+            py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "AngularVelocitiesLocalToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.AngularVelocitiesLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.AngularVelocitiesLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked local-frame angular velocities to caller-owned CUDA ``float3`` storage. "
             "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
+        .def(
+            "SetAngularVelocitiesFromDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device, bool validate) {
+                tracker.SetAngularVelocitiesFromDevice(reinterpret_cast<const float3*>(pointer), device, validate);
+            },
+            "Synchronously set every tracked local-frame angular velocity from CUDA ``float3`` storage. The buffer "
+            "must contain one element per tracked owner, and ``device`` must be the dynamic-worker device.",
+            py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "AngularVelocitiesGlobalToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.AngularVelocitiesGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.AngularVelocitiesGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked global-frame angular velocities to caller-owned CUDA ``float3`` storage. "
             "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "SetAngularVelocitiesGlobalFromDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device) {
-                tracker.SetAngularVelocitiesGlobalFromDevice(reinterpret_cast<const float3*>(pointer), device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device, bool validate) {
+                tracker.SetAngularVelocitiesGlobalFromDevice(reinterpret_cast<const float3*>(pointer), device,
+                                                             validate);
             },
-            "Synchronously set every tracked global angular velocity from CUDA ``float3`` storage. The buffer must "
+            "Synchronously set every tracked global angular velocity from CUDA ``float3`` storage. Each value is "
+            "converted to the owner's local principal-axis frame using its orientation at call time. The buffer must "
             "contain one element per tracked owner, and ``device`` must be the dynamic-worker device.",
-            py::arg("pointer"), py::arg("device"))
+            py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "OrientationQuaternionsToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.OrientationQuaternionsToDevice(reinterpret_cast<float4*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.OrientationQuaternionsToDevice(reinterpret_cast<float4*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked local-to-global quaternions to caller-owned CUDA ``float4`` storage in "
             "``(x, y, z, w)`` order. ``capacity`` is in elements.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "SetOrientationQuaternionsFromDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device) {
-                tracker.SetOrientationQuaternionsFromDevice(reinterpret_cast<const float4*>(pointer), device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, int device, bool validate) {
+                tracker.SetOrientationQuaternionsFromDevice(reinterpret_cast<const float4*>(pointer), device, validate);
             },
             "Synchronously set every tracked local-to-global quaternion from CUDA ``float4`` storage in ``(x, y, z, "
-            "w)`` order. The buffer must contain one element per tracked owner, and ``device`` must be the "
-            "dynamic-worker device.",
-            py::arg("pointer"), py::arg("device"))
+            "w)`` order. With validation enabled, non-finite and zero-length inputs are rejected; finite, nonzero "
+            "inputs are always normalized. The buffer must contain one element per tracked owner, and ``device`` "
+            "must be the dynamic-worker device.",
+            py::arg("pointer"), py::arg("device"), py::arg("validate") = true)
         .def(
             "FamiliesToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.FamiliesToDevice(reinterpret_cast<unsigned int*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.FamiliesToDevice(reinterpret_cast<unsigned int*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked family numbers to caller-owned CUDA ``uint32`` storage. ``capacity`` is "
             "in elements; ``device`` is the allocation's logical CUDA device.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "MassesToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.MassesToDevice(reinterpret_cast<float*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.MassesToDevice(reinterpret_cast<float*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked masses to caller-owned CUDA ``float32`` storage. ``capacity`` is in "
             "elements; ``device`` is the allocation's logical CUDA device.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "MOIsToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.MOIsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.MOIsToDevice(reinterpret_cast<float3*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked principal moments of inertia to caller-owned CUDA ``float3`` storage. "
             "``capacity`` is in elements; ``device`` is the allocation's logical CUDA device.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "ContactAccelerationsToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.ContactAccelerationsToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.ContactAccelerationsToDevice(reinterpret_cast<float3*>(pointer), capacity, device, validate);
             },
             "Synchronously copy all tracked global-frame contact accelerations to caller-owned CUDA ``float3`` "
             "storage. Gravity and other non-contact acceleration are excluded.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "ContactAngularAccelerationsLocalToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.ContactAngularAccelerationsLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.ContactAngularAccelerationsLocalToDevice(reinterpret_cast<float3*>(pointer), capacity, device,
+                                                                 validate);
             },
             "Synchronously copy all tracked local-frame contact angular accelerations to caller-owned CUDA "
             "``float3`` storage.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
         .def(
             "ContactAngularAccelerationsGlobalToDevice",
-            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device) {
-                tracker.ContactAngularAccelerationsGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, std::uintptr_t pointer, size_t capacity, int device, bool validate) {
+                tracker.ContactAngularAccelerationsGlobalToDevice(reinterpret_cast<float3*>(pointer), capacity, device,
+                                                                  validate);
             },
             "Synchronously copy all tracked global-frame contact angular accelerations to caller-owned CUDA "
             "``float3`` storage.",
-            py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
+        .def(
+            "ContactWrenches",
+            [](deme::DEMTracker& tracker) {
+                std::vector<float3> forces;
+                std::vector<float3> torques;
+                tracker.ContactWrenches(forces, torques);
+                return py::make_tuple(forces, torques);
+            },
+            R"doc(Return ``(forces, torques)`` with one reduced contact wrench per tracked owner.
+
+Both tuple elements preserve tracker owner order and contain ``float3`` values in the global frame. Torque is measured
+about each owner's current DEME position and includes both force-generated moments and force-model-only torque. Owners
+without recorded contact receive zero. This reads current dT force records without triggering contact detection or
+force evaluation, so callers must advance/synchronize the simulation as needed. Contact recording must remain enabled.)doc")
         .def(
             "ContactWrenchesToDevice",
             [](deme::DEMTracker& tracker, std::uintptr_t forces, std::uintptr_t torques, size_t capacity, int device) {
                 tracker.ContactWrenchesToDevice(reinterpret_cast<float3*>(forces), reinterpret_cast<float3*>(torques),
                                                 capacity, device);
             },
-            "Synchronously write one global-frame resultant force and torque per tracked owner to CUDA ``float3`` "
-            "buffers. Torque is measured about DEME's owner position; capacity is measured in owners.",
+            R"doc(Synchronously write one reduced contact wrench per tracked owner to CUDA ``float3`` buffers.
+
+Outputs preserve tracker owner order. Force and torque are global-frame resultants; torque is measured about each
+owner's current DEME position and includes force-generated moments and force-model-only torque. Owners without contact
+receive zero. ``force_destination`` and ``torque_destination`` are integer addresses of writable CUDA ``float3``
+storage. ``capacity`` is the element capacity of each buffer and must cover every tracked owner. Both buffers must
+belong to logical CUDA ``device``; cross-device output requires direct CUDA peer access and does not use host staging.
+The call is synchronous, so both buffers may be consumed when it returns. This reads current recorded dT forces and
+does not trigger contact detection or force evaluation. Contact recording must remain enabled.)doc",
             py::arg("force_destination"), py::arg("torque_destination"), py::arg("capacity"), py::arg("device"))
         .def(
             "OwnerWildcardValuesToDevice",
-            [](deme::DEMTracker& tracker, const std::string& name, std::uintptr_t pointer, size_t capacity,
-               int device) {
-                tracker.OwnerWildcardValuesToDevice(name, reinterpret_cast<float*>(pointer), capacity, device);
+            [](deme::DEMTracker& tracker, const std::string& name, std::uintptr_t pointer, size_t capacity, int device,
+               bool validate) {
+                tracker.OwnerWildcardValuesToDevice(name, reinterpret_cast<float*>(pointer), capacity, device,
+                                                    validate);
             },
             "Synchronously copy the named ``float32`` owner wildcard for every tracked owner to caller-owned CUDA "
             "storage. ``capacity`` is in owner elements.",
-            py::arg("name"), py::arg("pointer"), py::arg("capacity"), py::arg("device"))
+            py::arg("name"), py::arg("pointer"), py::arg("capacity"), py::arg("device"), py::arg("validate") = true)
 
         .def("SetPos", static_cast<void (deme::DEMTracker::*)(float3, size_t)>(&deme::DEMTracker::SetPos),
              "Set the position of this tracked object.", py::arg("pos"), py::arg("offset") = 0)
@@ -742,6 +781,10 @@ Configure materials, geometry, particles, solver options, and trackers before
 calling ``Initialize``. Device placement is fixed at construction. Keep this
 object alive while using any solver-owned material, template, tracker, or
 inspector handle.
+
+Fixed-size owner CUDA exchange methods validate ranges, capacities, and pointer metadata by default. Pass
+``validate=False`` only when those preconditions are guaranteed and avoiding validation overhead matters. Required
+device routing and documented transformations still apply.
 )doc")
         .def(py::init<unsigned int>(), py::arg("nGPUs") = 2,
              R"doc(
@@ -844,100 +887,210 @@ valid. IDs use the numbering visible to this process, including the effects of
              "Get the number of kT-reported potential contact pairs.")
         .def(
             "SetOwnerPositionFromDevice",
-            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count) {
-                self.SetOwnerPositionFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count);
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.SetOwnerPositionFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count,
+                                                validate);
             },
             R"doc(Synchronously set consecutive owner positions from ``count`` CUDA ``float3`` elements.
 
 Positions are global-frame values. The source must be CUDA-accessible memory on the solver's dynamic-worker device;
 when this call returns the source buffer may be reused.)doc",
-            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1)
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
         .def(
             "SetOwnerOriQFromDevice",
-            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count) {
-                self.SetOwnerOriQFromDevice(owner_id, reinterpret_cast<const float4*>(source), device, count);
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.SetOwnerOriQFromDevice(owner_id, reinterpret_cast<const float4*>(source), device, count, validate);
             },
             R"doc(Synchronously set consecutive owner orientations from ``count`` CUDA ``float4`` elements.
 
 Quaternion elements use public DEME ordering ``(x, y, z, w)``. The source must be CUDA-accessible memory on the
-solver's dynamic-worker device; when this call returns the source buffer may be reused.)doc",
-            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1)
+solver's dynamic-worker device. With ``validate=True``, non-finite and zero-length quaternions are rejected. Every
+finite, nonzero quaternion is normalized before storage even when validation is disabled. When this call returns the
+source buffer may be reused.)doc",
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
         .def(
             "SetOwnerVelocityFromDevice",
-            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count) {
-                self.SetOwnerVelocityFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count);
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.SetOwnerVelocityFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count,
+                                                validate);
             },
             R"doc(Synchronously set consecutive global linear velocities from ``count`` CUDA ``float3`` elements.
 
 The source must be CUDA-accessible memory on the solver's dynamic-worker device; when this call returns the source
 buffer may be reused.)doc",
-            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1)
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
+        .def(
+            "SetOwnerAngVelFromDevice",
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.SetOwnerAngVelFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count,
+                                              validate);
+            },
+            R"doc(Synchronously set consecutive local-frame angular velocities from CUDA ``float3`` elements.
+
+This has the same frame semantics as ``SetOwnerAngVel``. The source must be CUDA-accessible memory on the solver's
+dynamic-worker device; when this call returns the source buffer may be reused.)doc",
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
         .def(
             "SetOwnerAngVelGlobalFromDevice",
-            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count) {
-                self.SetOwnerAngVelGlobalFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count);
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.SetOwnerAngVelGlobalFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count,
+                                                    validate);
             },
             R"doc(Synchronously set consecutive global angular velocities from ``count`` CUDA ``float3`` elements.
 
-The source must be CUDA-accessible memory on the solver's dynamic-worker device; when this call returns the source
-buffer may be reused.)doc",
-            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1)
+Each value is converted to the owner's local principal-axis frame using that owner's orientation at call time. The
+source must be CUDA-accessible memory on the solver's dynamic-worker device; when this call returns the source buffer
+may be reused.)doc",
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
         .def(
             "GetOwnerPositionToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
-               deme::bodyID_t owner_id, deme::bodyID_t count) {
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
                 self.GetOwnerPositionToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id,
-                                              count);
+                                              count, validate);
             },
             "Synchronously write consecutive global owner positions as CUDA float3 elements.", py::arg("destination"),
-            py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1)
+            py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1,
+            py::arg("validate") = true)
         .def(
             "GetOwnerOriQToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
-               deme::bodyID_t owner_id, deme::bodyID_t count) {
-                self.GetOwnerOriQToDevice(reinterpret_cast<float4*>(destination), capacity, device, owner_id, count);
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerOriQToDevice(reinterpret_cast<float4*>(destination), capacity, device, owner_id, count,
+                                          validate);
             },
             "Synchronously write consecutive owner quaternions as CUDA float4 elements in (x, y, z, w) order.",
             py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
-            py::arg("count") = 1)
+            py::arg("count") = 1, py::arg("validate") = true)
+        .def(
+            "GetOwnerAngVelLocalToDevice",
+            [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerAngVelLocalToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id,
+                                                 count, validate);
+            },
+            "Synchronously write consecutive local principal-axis-frame owner angular velocities as CUDA float3 "
+            "elements.",
+            py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
+            py::arg("count") = 1, py::arg("validate") = true)
         .def(
             "GetOwnerVelocityToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
-               deme::bodyID_t owner_id, deme::bodyID_t count) {
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
                 self.GetOwnerVelocityToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id,
-                                              count);
+                                              count, validate);
             },
             "Synchronously write consecutive global owner velocities as CUDA float3 elements.", py::arg("destination"),
-            py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1)
+            py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1,
+            py::arg("validate") = true)
         .def(
             "GetOwnerAngVelGlobalToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
-               deme::bodyID_t owner_id, deme::bodyID_t count) {
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
                 self.GetOwnerAngVelGlobalToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id,
-                                                  count);
+                                                  count, validate);
             },
             "Synchronously write consecutive global owner angular velocities as CUDA float3 elements.",
             py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
-            py::arg("count") = 1)
+            py::arg("count") = 1, py::arg("validate") = true)
         .def(
             "GetOwnerAccToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
-               deme::bodyID_t owner_id, deme::bodyID_t count) {
-                self.GetOwnerAccToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id, count);
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerAccToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id, count,
+                                         validate);
             },
             "Synchronously write consecutive global contact accelerations as CUDA float3 elements.",
             py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
-            py::arg("count") = 1)
+            py::arg("count") = 1, py::arg("validate") = true)
         .def(
             "GetOwnerAngAccGlobalToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
-               deme::bodyID_t owner_id, deme::bodyID_t count) {
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
                 self.GetOwnerAngAccGlobalToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id,
-                                                  count);
+                                                  count, validate);
             },
             "Synchronously write consecutive global contact angular accelerations as CUDA float3 elements.",
             py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
-            py::arg("count") = 1)
+            py::arg("count") = 1, py::arg("validate") = true)
+        .def(
+            "GetOwnerAngAccLocalToDevice",
+            [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerAngAccLocalToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id,
+                                                 count, validate);
+            },
+            "Synchronously write consecutive local principal-axis-frame contact angular accelerations as CUDA "
+            "float3 elements.",
+            py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
+            py::arg("count") = 1, py::arg("validate") = true)
+        .def(
+            "GetOwnerFamilyToDevice",
+            [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerFamilyToDevice(reinterpret_cast<unsigned int*>(destination), capacity, device, owner_id,
+                                            count, validate);
+            },
+            "Synchronously write consecutive owner family numbers as CUDA uint32 elements.", py::arg("destination"),
+            py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1,
+            py::arg("validate") = true)
+        .def(
+            "GetOwnerMassToDevice",
+            [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerMassToDevice(reinterpret_cast<float*>(destination), capacity, device, owner_id, count,
+                                          validate);
+            },
+            "Synchronously write consecutive owner masses as CUDA float elements.", py::arg("destination"),
+            py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1,
+            py::arg("validate") = true)
+        .def(
+            "GetOwnerMOIToDevice",
+            [](const deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
+               deme::bodyID_t owner_id, deme::bodyID_t count, bool validate) {
+                self.GetOwnerMOIToDevice(reinterpret_cast<float3*>(destination), capacity, device, owner_id, count,
+                                         validate);
+            },
+            "Synchronously write consecutive owner principal moments of inertia as CUDA float3 elements.",
+            py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
+            py::arg("count") = 1, py::arg("validate") = true)
+        .def(
+            "GetOwnerWildcardValueToDevice",
+            [](deme::DEMSolver& self, std::uintptr_t destination, size_t capacity, int device,
+               deme::bodyID_t owner_id, const std::string& name, deme::bodyID_t count, bool validate) {
+                self.GetOwnerWildcardValueToDevice(reinterpret_cast<float*>(destination), capacity, device, owner_id,
+                                                   name, count, validate);
+            },
+            "Synchronously write one named owner wildcard for consecutive owners as CUDA float elements.",
+            py::arg("destination"), py::arg("capacity"), py::arg("destination_device"), py::arg("first_owner_id"),
+            py::arg("name"), py::arg("count") = 1, py::arg("validate") = true)
+        .def(
+            "GetOwnerContactWrench",
+            [](const deme::DEMSolver& self, deme::bodyID_t owner_id, deme::bodyID_t count) {
+                std::vector<float3> forces;
+                std::vector<float3> torques;
+                self.GetOwnerContactWrench(forces, torques, owner_id, count);
+                return py::make_tuple(forces, torques);
+            },
+            R"doc(Return one reduced contact wrench per consecutive owner.
+
+The returned tuple is ``(forces, torques)``; each vector is resized to ``count`` and follows consecutive owner order.
+Force and torque are global-frame resultants, and torque is measured about DEME's current owner position. Torque
+includes both force-generated moments and force-model-only torque such as rolling resistance. Owners without recorded
+contact receive zero force and torque. This reads current dT force records and does not trigger contact detection or
+force evaluation. ``first_owner_id`` selects the first owner in the range. Contact recording must remain enabled. A
+zero count returns two empty vectors.)doc",
+            py::arg("first_owner_id"), py::arg("count") = 1)
         .def(
             "GetOwnerContactWrenchToDevice",
             [](const deme::DEMSolver& self, std::uintptr_t forces, std::uintptr_t torques, size_t capacity, int device,
@@ -948,9 +1101,14 @@ buffer may be reused.)doc",
             },
             R"doc(Synchronously write one reduced contact wrench per consecutive owner to CUDA ``float3`` buffers.
 
-Force and torque are global-frame resultants, and torque is measured about DEME's current owner position. ``capacity``
-and ``count`` are measured in owners; owners without contact receive zero force and torque. Contact recording must
-remain enabled, which is the default.)doc",
+Force and torque are global-frame resultants, and torque is measured about DEME's current owner position. Torque
+includes both force-generated moments and force-model-only torque such as rolling resistance. ``force_destination``
+and ``torque_destination`` are integer addresses of writable CUDA ``float3`` storage. ``capacity`` and ``count`` are
+measured in owners, and ``first_owner_id`` selects the start of the range; owners without contact receive zero force
+and torque. This reads current dT force records and does not trigger contact detection or force evaluation. Both
+buffers belong to logical CUDA ``destination_device``; cross-device output requires direct CUDA peer access and does
+not use host staging. The call is synchronous, so both buffers may be consumed when it returns. Contact recording must
+remain enabled. A zero count is a no-op.)doc",
             py::arg("force_destination"), py::arg("torque_destination"), py::arg("capacity"),
             py::arg("destination_device"), py::arg("first_owner_id"), py::arg("count") = 1)
         .def("GetTimeStepSize", &deme::DEMSolver::GetTimeStepSize, "Get the current time step size in simulation.")

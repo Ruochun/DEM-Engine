@@ -97,7 +97,12 @@ class DEMInspector {
     void ReleaseData();
 };
 
-// A struct to get or set tracked owner entities, mainly for co-simulation
+/// A helper for querying or modifying tracked owners, mainly for co-simulation.
+///
+/// Fixed-size `ToDevice` and `FromDevice` methods validate owner ranges, capacities, and CUDA pointer metadata by
+/// default. Their trailing `validate` argument may be set to false when the caller guarantees those preconditions and
+/// needs to avoid validation overhead. Required device-routing constraints and the documented data transformations,
+/// including quaternion normalization, still apply when validation is disabled.
 class DEMTracker {
   private:
     void assertMesh(const std::string& name);
@@ -128,9 +133,9 @@ class DEMTracker {
     std::vector<float3> Positions();
     std::vector<std::vector<float>> GetPositions();
     /// Fill CUDA-accessible memory with all tracked positions. Capacity is measured in float3 elements.
-    void PositionsToDevice(float3* destination, size_t capacity, int destination_device);
+    void PositionsToDevice(float3* destination, size_t capacity, int destination_device, bool validate = true);
     /// Synchronously set all tracked global positions from CUDA memory.
-    void SetPositionsFromDevice(const float3* source, int source_device);
+    void SetPositionsFromDevice(const float3* source, int source_device, bool validate = true);
 
     /// Get the angular velocity of this tracked object in its own local coordinate system. Applying OriQ to it would
     /// give you the ang vel in global frame.
@@ -141,7 +146,12 @@ class DEMTracker {
     std::vector<float3> AngularVelocitiesLocal();
     std::vector<std::vector<float>> GetAngularVelocitiesLocal();
     /// Fill CUDA-accessible memory with all tracked local-frame angular velocities.
-    void AngularVelocitiesLocalToDevice(float3* destination, size_t capacity, int destination_device);
+    void AngularVelocitiesLocalToDevice(float3* destination,
+                                        size_t capacity,
+                                        int destination_device,
+                                        bool validate = true);
+    /// Synchronously set all tracked local-frame angular velocities from CUDA memory.
+    void SetAngularVelocitiesFromDevice(const float3* source, int source_device, bool validate = true);
 
     /// Get the angular velocity of this tracked object in global coordinate system.
     float3 AngVelGlobal(size_t offset = 0);
@@ -150,9 +160,12 @@ class DEMTracker {
     std::vector<float3> AngularVelocitiesGlobal();
     std::vector<std::vector<float>> GetAngularVelocitiesGlobal();
     /// Fill CUDA-accessible memory with all tracked global-frame angular velocities.
-    void AngularVelocitiesGlobalToDevice(float3* destination, size_t capacity, int destination_device);
+    void AngularVelocitiesGlobalToDevice(float3* destination,
+                                         size_t capacity,
+                                         int destination_device,
+                                         bool validate = true);
     /// Synchronously set all tracked global angular velocities from CUDA memory.
-    void SetAngularVelocitiesGlobalFromDevice(const float3* source, int source_device);
+    void SetAngularVelocitiesGlobalFromDevice(const float3* source, int source_device, bool validate = true);
 
     /// Get the velocity of this tracked object in global frame.
     float3 Vel(size_t offset = 0);
@@ -161,9 +174,9 @@ class DEMTracker {
     std::vector<float3> Velocities();
     std::vector<std::vector<float>> GetVelocities();
     /// Fill CUDA-accessible memory with all tracked global-frame velocities.
-    void VelocitiesToDevice(float3* destination, size_t capacity, int destination_device);
+    void VelocitiesToDevice(float3* destination, size_t capacity, int destination_device, bool validate = true);
     /// Synchronously set all tracked global linear velocities from CUDA memory.
-    void SetVelocitiesFromDevice(const float3* source, int source_device);
+    void SetVelocitiesFromDevice(const float3* source, int source_device, bool validate = true);
 
     /// Get the quaternion that represents the orientation of this tracked object's own coordinate system.
     float4 OriQ(size_t offset = 0);
@@ -178,9 +191,12 @@ class DEMTracker {
     /// then it is saying our ordering here is (e1, e2, e3, e0).
     std::vector<std::vector<float>> GetOrientationQuaternions();
     /// Fill CUDA-accessible memory with all tracked public-order (x, y, z, w) quaternions.
-    void OrientationQuaternionsToDevice(float4* destination, size_t capacity, int destination_device);
-    /// Synchronously set all tracked public-order (x, y, z, w) quaternions from CUDA memory.
-    void SetOrientationQuaternionsFromDevice(const float4* source, int source_device);
+    void OrientationQuaternionsToDevice(float4* destination,
+                                        size_t capacity,
+                                        int destination_device,
+                                        bool validate = true);
+    /// Synchronously set and normalize all tracked public-order (x, y, z, w) quaternions from CUDA memory.
+    void SetOrientationQuaternionsFromDevice(const float4* source, int source_device, bool validate = true);
 
     /// @brief Get the family number of the tracked object.
     /// @param offset The offset of the entites to get family number out of.
@@ -190,7 +206,7 @@ class DEMTracker {
     /// @return The family numbers as a vector.
     std::vector<unsigned int> GetFamilies();
     /// Fill CUDA-accessible memory with all tracked family numbers as unsigned integers.
-    void FamiliesToDevice(unsigned int* destination, size_t capacity, int destination_device);
+    void FamiliesToDevice(unsigned int* destination, size_t capacity, int destination_device, bool validate = true);
 
     /// @brief Get the clumps that are in contact with this tracked owner as a vector.
     /// @details No bulk version that gets the contacting clumps for all the entities tracked by this tracker. This is
@@ -212,7 +228,10 @@ class DEMTracker {
     std::vector<float3> ContactAccelerations();
     std::vector<std::vector<float>> GetContactAccelerations();
     /// Fill CUDA-accessible memory with all tracked global-frame contact accelerations.
-    void ContactAccelerationsToDevice(float3* destination, size_t capacity, int destination_device);
+    void ContactAccelerationsToDevice(float3* destination,
+                                      size_t capacity,
+                                      int destination_device,
+                                      bool validate = true);
 
     /// @brief Get the a portion of the angular acceleration of this tracked object, that is the result of its contact
     /// with other simulation entities. The acceleration is in this object's local frame.
@@ -225,7 +244,10 @@ class DEMTracker {
     std::vector<float3> ContactAngularAccelerationsLocal();
     std::vector<std::vector<float>> GetContactAngularAccelerationsLocal();
     /// Fill CUDA-accessible memory with all tracked local-frame contact angular accelerations.
-    void ContactAngularAccelerationsLocalToDevice(float3* destination, size_t capacity, int destination_device);
+    void ContactAngularAccelerationsLocalToDevice(float3* destination,
+                                                  size_t capacity,
+                                                  int destination_device,
+                                                  bool validate = true);
 
     /// @brief Get the a portion of the angular acceleration of this tracked object, that is the result of its contact
     /// with other simulation entities. The acceleration is in this object's global frame.
@@ -238,8 +260,29 @@ class DEMTracker {
     std::vector<float3> ContactAngularAccelerationsGlobal();
     std::vector<std::vector<float>> GetContactAngularAccelerationsGlobal();
     /// Fill CUDA-accessible memory with all tracked global-frame contact angular accelerations.
-    void ContactAngularAccelerationsGlobalToDevice(float3* destination, size_t capacity, int destination_device);
-    /// Fill CUDA memory with one global resultant force and owner-position torque per tracked owner.
+    void ContactAngularAccelerationsGlobalToDevice(float3* destination,
+                                                   size_t capacity,
+                                                   int destination_device,
+                                                   bool validate = true);
+    /// @brief Get one reduced contact wrench for every owner tracked by this tracker.
+    /// @details Forces are global-frame contact-force resultants. Torques are global-frame moments about each owner's
+    /// current DEME position and include force-generated moments plus force-model-only torque such as rolling
+    /// resistance. The vectors preserve tracker owner order and contain zero for owners without recorded contact. This
+    /// reads the current dT force records without triggering contact detection or force evaluation. Contact recording
+    /// must remain enabled (the default).
+    /// @param forces Output resultant forces, resized to the number of tracked owners.
+    /// @param torques Output resultant torques, resized to the number of tracked owners.
+    void ContactWrenches(std::vector<float3>& forces, std::vector<float3>& torques);
+    /// @brief Write one reduced contact wrench per tracked owner directly to CUDA memory.
+    /// @details This is the device-output counterpart of ContactWrenches and preserves tracker owner order. Forces are
+    /// global-frame contact-force resultants. Torques are global-frame moments about each owner's current DEME position
+    /// and include force-generated moments plus force-model-only torque. Owners without recorded contact receive a zero
+    /// wrench. This reads current dT force records without triggering contact detection or force evaluation. Contact
+    /// recording must remain enabled. The call is synchronous; cross-device output requires direct CUDA peer access.
+    /// @param force_destination Writable CUDA memory for one float3 force per tracked owner.
+    /// @param torque_destination Writable CUDA memory for one float3 torque per tracked owner.
+    /// @param capacity Available elements in each destination buffer; must cover every tracked owner.
+    /// @param destination_device Logical CUDA device owning both destination buffers.
     void ContactWrenchesToDevice(float3* force_destination,
                                  float3* torque_destination,
                                  size_t capacity,
@@ -253,7 +296,7 @@ class DEMTracker {
     /// @return Masses as a vector.
     std::vector<float> Masses();
     /// Fill CUDA-accessible memory with all tracked masses.
-    void MassesToDevice(float* destination, size_t capacity, int destination_device);
+    void MassesToDevice(float* destination, size_t capacity, int destination_device, bool validate = true);
     /// @brief Get the moment of inertia (in principal axis frame) of the tracked object.
     /// @param offset The offset to this entites. If first entites, input 0.
     /// @return The moment of inertia (in principal axis frame).
@@ -264,7 +307,7 @@ class DEMTracker {
     std::vector<float3> MOIs();
     std::vector<std::vector<float>> GetMOIs();
     /// Fill CUDA-accessible memory with all tracked principal moments of inertia.
-    void MOIsToDevice(float3* destination, size_t capacity, int destination_device);
+    void MOIsToDevice(float3* destination, size_t capacity, int destination_device, bool validate = true);
 
     /// Get the owner's wildcard value.
     float GetOwnerWildcardValue(const std::string& name, size_t offset = 0);
@@ -276,7 +319,8 @@ class DEMTracker {
     void OwnerWildcardValuesToDevice(const std::string& name,
                                      float* destination,
                                      size_t capacity,
-                                     int destination_device);
+                                     int destination_device,
+                                     bool validate = true);
 
     /// @brief Set the position of this tracked object.
     void SetPos(float3 pos, size_t offset = 0);

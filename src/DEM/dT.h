@@ -457,20 +457,37 @@ class DEMDynamicThread {
     std::vector<float3> getOwnerAngAcc(bodyID_t ownerID, bodyID_t n = 1);
     /// Get this owner's family number, for n consecutive items.
     std::vector<unsigned int> getOwnerFamily(bodyID_t ownerID, bodyID_t n = 1);
-    /// Pack a consecutive owner range and synchronously fill caller-provided CUDA-accessible memory.
+    /// @brief Pack a consecutive owner range and synchronously fill caller-provided CUDA-accessible memory.
+    /// @param destination Caller-owned CUDA destination.
+    /// @param capacity Destination capacity in output elements.
+    /// @param destination_device Logical device owning `destination`.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param n Number of owners to pack.
+    /// @param field Stored field to pack.
+    /// @param wildcard_index Wildcard slot used only when `field` is WILDCARD.
+    /// @param validate Whether to validate ranges, capacity, and CUDA pointer metadata.
     void getOwnerDataToDevice(void* destination,
                               size_t capacity,
                               int destination_device,
                               bodyID_t ownerID,
                               bodyID_t n,
                               OwnerDataField field,
-                              unsigned int wildcard_index = 0);
-    /// Synchronously consume public-layout owner state from CUDA memory on dT's device.
+                              unsigned int wildcard_index = 0,
+                              bool validate = true);
+    /// @brief Synchronously consume public-layout owner state from CUDA memory on dT's device.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param source Caller-owned CUDA source on dT's device.
+    /// @param count Number of owner values to consume.
+    /// @param source_device Logical device owning `source`; it must be dT's device even without validation.
+    /// @param field State field to unpack.
+    /// @param validate Whether to validate the range, pointer metadata, and orientation validity. Orientation values
+    /// are normalized during unpacking regardless of this flag.
     void setOwnerDataFromDevice(bodyID_t ownerID,
                                 const void* source,
                                 size_t count,
                                 int source_device,
-                                OwnerStateField field);
+                                OwnerStateField field,
+                                bool validate = true);
     // Get the current auto-adjusted update freq.
     float getUpdateFreq() const;
 
@@ -570,13 +587,28 @@ class DEMDynamicThread {
                                          int destination_device,
                                          bool need_torque,
                                          bool torque_in_local);
-    /// Reduce patch contacts into one global resultant force and owner-position torque per requested owner.
+    /// @brief Reduce patch contacts into device-resident global resultant wrenches for consecutive owners.
+    /// @param forces Writable CUDA destination for one resultant force per owner.
+    /// @param torques Writable CUDA destination for one owner-position resultant torque per owner.
+    /// @param capacity Element capacity shared by both destination buffers.
+    /// @param destination_device Logical CUDA device owning both destinations.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param count Number of owners to reduce.
     void getOwnerContactWrenchToDevice(float3* forces,
                                        float3* torques,
                                        size_t capacity,
                                        int destination_device,
                                        bodyID_t ownerID,
                                        bodyID_t count);
+    /// @brief Reduce patch contacts into host vectors containing one global resultant wrench per requested owner.
+    /// @param forces Output vector resized to `count` global resultant forces.
+    /// @param torques Output vector resized to `count` global owner-position resultant torques.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param count Number of owners to reduce.
+    void getOwnerContactWrench(std::vector<float3>& forces,
+                               std::vector<float3>& torques,
+                               bodyID_t ownerID,
+                               bodyID_t count);
 
     /// Get owner of contact geometry (sphere, triangle, analytical entity).
     bodyID_t getGeoOwnerID(const bodyID_t& geo, const geoType_t& type) const;
