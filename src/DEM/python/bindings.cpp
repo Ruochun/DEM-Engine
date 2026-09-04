@@ -627,6 +627,19 @@ does not trigger contact detection or force evaluation. Contact recording must r
              "Add an extra acc to consecutive tracked objects, (only) for the next time step. Note if the user intends "
              "to add a persistent external force, then using family prescription is the better method.",
              py::arg("acc"))
+        .def(
+            "AddAccFromDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t source, int device, bool validate) {
+                tracker.AddAccFromDevice(reinterpret_cast<const float3*>(source), device, validate);
+            },
+            R"doc(Synchronously queue one global-frame linear acceleration per tracked owner from CUDA memory.
+
+``source`` is an integer address containing one CUDA ``float3`` per tracked owner in tracker order, and ``device``
+must be the dynamic-worker device. Values replace any previously queued next-step linear-acceleration contribution.
+Contact acceleration is accumulated on top during the next force/integration step, gravity is applied separately, and
+the queued contribution is consumed after one step. Pass ``validate=False`` only when the range and pointer metadata
+are known to be valid. The source buffer may be reused when this call returns.)doc",
+            py::arg("source"), py::arg("source_device"), py::arg("validate") = true)
 
         .def("AddAngAcc", static_cast<void (deme::DEMTracker::*)(float3, size_t)>(&deme::DEMTracker::AddAngAcc),
              "Add an extra angular acceleration to the tracked body, for the next time step. Note if the user intends "
@@ -638,6 +651,19 @@ does not trigger contact detection or force evaluation. Contact recording must r
              "the user intends to add a persistent external torque, then using family prescription is the better "
              "method.",
              py::arg("angAcc"))
+        .def(
+            "AddAngAccFromDevice",
+            [](deme::DEMTracker& tracker, std::uintptr_t source, int device, bool validate) {
+                tracker.AddAngAccFromDevice(reinterpret_cast<const float3*>(source), device, validate);
+            },
+            R"doc(Synchronously queue one local-frame angular acceleration per tracked owner from CUDA memory.
+
+``source`` is an integer address containing one CUDA ``float3`` per tracked owner in tracker order, and ``device``
+must be the dynamic-worker device. Values use each owner's local principal-axis frame and replace any previously
+queued next-step angular-acceleration contribution. Contact angular acceleration is accumulated on top during the next
+force/integration step, and the queued contribution is consumed after one step. Pass ``validate=False`` only when the
+range and pointer metadata are known to be valid. The source buffer may be reused when this call returns.)doc",
+            py::arg("source"), py::arg("source_device"), py::arg("validate") = true)
 
         .def("SetFamily", static_cast<void (deme::DEMTracker::*)(unsigned int)>(&deme::DEMTracker::SetFamily),
              "Change the family numbers of all the entities tracked by this tracker.", py::arg("fam_num"))
@@ -950,6 +976,39 @@ dynamic-worker device; when this call returns the source buffer may be reused.)d
 Each value is converted to the owner's local principal-axis frame using that owner's orientation at call time. The
 source must be CUDA-accessible memory on the solver's dynamic-worker device; when this call returns the source buffer
 may be reused.)doc",
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
+        .def(
+            "AddOwnerNextStepAccFromDevice",
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.AddOwnerNextStepAccFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count,
+                                                   validate);
+            },
+            R"doc(Synchronously queue global-frame linear accelerations for consecutive owners from CUDA memory.
+
+``source`` is an integer address containing ``count`` CUDA ``float3`` values, and ``source_device`` must be the
+dynamic-worker device. Values replace any previously queued next-step linear-acceleration contribution. Contact
+acceleration is accumulated on top during the next force/integration step, gravity is applied separately, and the
+queued contribution is consumed after one step. Pass ``validate=False`` only when the owner range and pointer metadata
+are known to be valid. A zero count is a no-op; otherwise the source buffer may be reused when this call returns.)doc",
+            py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
+            py::arg("validate") = true)
+        .def(
+            "AddOwnerNextStepAngAccFromDevice",
+            [](deme::DEMSolver& self, deme::bodyID_t owner_id, std::uintptr_t source, int device, size_t count,
+               bool validate) {
+                self.AddOwnerNextStepAngAccFromDevice(owner_id, reinterpret_cast<const float3*>(source), device, count,
+                                                      validate);
+            },
+            R"doc(Synchronously queue local-frame angular accelerations for consecutive owners from CUDA memory.
+
+``source`` is an integer address containing ``count`` CUDA ``float3`` values, and ``source_device`` must be the
+dynamic-worker device. Values use each owner's local principal-axis frame and replace any previously queued next-step
+angular-acceleration contribution. Contact angular acceleration is accumulated on top during the next
+force/integration step, and the queued contribution is consumed after one step. Pass ``validate=False`` only when the
+owner range and pointer metadata are known to be valid. A zero count is a no-op; otherwise the source buffer may be
+reused when this call returns.)doc",
             py::arg("owner_id"), py::arg("source"), py::arg("source_device"), py::arg("count") = 1,
             py::arg("validate") = true)
         .def(

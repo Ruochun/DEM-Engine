@@ -348,6 +348,15 @@ class DEMTracker {
     /// Add an extra acc to n consecutive tracked objects, (only) for the next time step. Note if the user intends to
     /// add a persistent external force, then using family prescription is the better method.
     void AddAcc(const std::vector<float3>& acc);
+    /// @brief Queue one global-frame linear acceleration per tracked owner directly from CUDA memory.
+    /// @details This is the device-input counterpart of the vector AddAcc overload. Values preserve tracker owner
+    /// order and replace any previously queued next-step linear-acceleration contribution for those owners. Contact
+    /// acceleration is accumulated on top during the next force/integration step, gravity is applied separately, and
+    /// the queued contribution is consumed after one step. The call is synchronous.
+    /// @param source CUDA memory containing one float3 global-frame acceleration per tracked owner.
+    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param validate Whether to validate the owner range and CUDA pointer metadata.
+    void AddAccFromDevice(const float3* source, int source_device, bool validate = true);
 
     /// Add an extra angular acceleration to the tracked body, (only) for the next time step. Note if the user intends
     /// to add a persistent external torque, then using family prescription is the better method.
@@ -355,6 +364,15 @@ class DEMTracker {
     /// Add an extra angular acceleration to n consecutive tracked objects, (only) for the next time step. Note if the
     /// user intends to add a persistent external torque, then using family prescription is the better method.
     void AddAngAcc(const std::vector<float3>& angAcc);
+    /// @brief Queue one local-frame angular acceleration per tracked owner directly from CUDA memory.
+    /// @details This is the device-input counterpart of the vector AddAngAcc overload. Values preserve tracker owner
+    /// order, use each owner's local principal-axis frame, and replace any previously queued next-step angular-
+    /// acceleration contribution. Contact angular acceleration is accumulated on top during the next force/integration
+    /// step, and the queued contribution is consumed after one step. The call is synchronous.
+    /// @param source CUDA memory containing one float3 local-frame angular acceleration per tracked owner.
+    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param validate Whether to validate the owner range and CUDA pointer metadata.
+    void AddAngAccFromDevice(const float3* source, int source_device, bool validate = true);
 
     /// @brief Change the family numbers of all the entities tracked by this tracker.
     /// @param fam_num Family number to change to.

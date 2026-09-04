@@ -788,6 +788,9 @@ void DEMTracker::AddAcc(const std::vector<float3>& acc) {
     assertOwnerSize(acc.size(), "AddAcc");
     sys->AddOwnerNextStepAcc(obj->ownerID, acc);
 }
+void DEMTracker::AddAccFromDevice(const float3* source, int source_device, bool validate) {
+    sys->AddOwnerNextStepAccFromDevice(obj->ownerID, source, source_device, obj->nSpanOwners, validate);
+}
 
 void DEMTracker::AddAngAcc(float3 angAcc, size_t offset) {
     assertOwnerOffsetValid(offset, "AddAngAcc");
@@ -796,6 +799,9 @@ void DEMTracker::AddAngAcc(float3 angAcc, size_t offset) {
 void DEMTracker::AddAngAcc(const std::vector<float3>& angAcc) {
     assertOwnerSize(angAcc.size(), "AddAngAcc");
     sys->AddOwnerNextStepAngAcc(obj->ownerID, angAcc);
+}
+void DEMTracker::AddAngAccFromDevice(const float3* source, int source_device, bool validate) {
+    sys->AddOwnerNextStepAngAccFromDevice(obj->ownerID, source, source_device, obj->nSpanOwners, validate);
 }
 
 void DEMTracker::SetPos(float3 pos, size_t offset) {

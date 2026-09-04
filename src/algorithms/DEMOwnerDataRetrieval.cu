@@ -162,6 +162,22 @@ __global__ void UnpackOwnerStateKernel(const void* input,
             data->oriQw[owner] = orientation.w * inverse_norm;
             break;
         }
+        case OwnerStateField::NEXT_STEP_ACCELERATION: {
+            const float3 acceleration = static_cast<const float3*>(input)[input_index];
+            data->aX[owner] = acceleration.x;
+            data->aY[owner] = acceleration.y;
+            data->aZ[owner] = acceleration.z;
+            data->accSpecified[owner] = 1;
+            break;
+        }
+        case OwnerStateField::NEXT_STEP_ANGULAR_ACCELERATION_LOCAL: {
+            const float3 angular_acceleration = static_cast<const float3*>(input)[input_index];
+            data->alphaX[owner] = angular_acceleration.x;
+            data->alphaY[owner] = angular_acceleration.y;
+            data->alphaZ[owner] = angular_acceleration.z;
+            data->angAccSpecified[owner] = 1;
+            break;
+        }
     }
 }
 

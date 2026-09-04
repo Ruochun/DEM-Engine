@@ -1195,6 +1195,26 @@ void DEMSolver::AddOwnerNextStepAngAcc(bodyID_t ownerID, const std::vector<float
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->addOwnerNextStepAngAcc(ownerID, angAcc);
 }
+void DEMSolver::AddOwnerNextStepAccFromDevice(bodyID_t ownerID,
+                                              const float3* source,
+                                              int source_device,
+                                              size_t count,
+                                              bool validate) {
+    assertSysInit("AddOwnerNextStepAccFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device, OwnerStateField::NEXT_STEP_ACCELERATION,
+                               validate);
+}
+void DEMSolver::AddOwnerNextStepAngAccFromDevice(bodyID_t ownerID,
+                                                 const float3* source,
+                                                 int source_device,
+                                                 size_t count,
+                                                 bool validate) {
+    assertSysInit("AddOwnerNextStepAngAccFromDevice");
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->setOwnerDataFromDevice(ownerID, source, count, source_device,
+                               OwnerStateField::NEXT_STEP_ANGULAR_ACCELERATION_LOCAL, validate);
+}
 void DEMSolver::SetOwnerPosition(bodyID_t ownerID, const std::vector<float3>& pos) {
     ScopedCudaDevice device_scope(dT->streamInfo.device);
     dT->setOwnerPos(ownerID, pos);

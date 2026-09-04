@@ -812,6 +812,39 @@ class DEMSolver {
     /// on its values.
     void AddOwnerNextStepAngAcc(bodyID_t ownerID, const std::vector<float3>& angAcc);
 
+    /// @brief Queue global-frame linear accelerations for consecutive owners directly from CUDA memory.
+    /// @details This is the device-input counterpart of AddOwnerNextStepAcc. It replaces any previously queued
+    /// next-step linear-acceleration contribution for the selected owners. During the next force/integration step,
+    /// contact acceleration is accumulated on top and gravity is applied separately. The queued contribution is
+    /// consumed after one step. The call is synchronous, so `source` may be reused when it returns.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param source CUDA memory containing `count` float3 global-frame accelerations.
+    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param count Number of consecutive owners. A zero count is a no-op.
+    /// @param validate If true, validate the owner range and CUDA pointer metadata. Disable only when the caller
+    /// guarantees those preconditions and needs to avoid validation overhead.
+    void AddOwnerNextStepAccFromDevice(bodyID_t ownerID,
+                                       const float3* source,
+                                       int source_device,
+                                       size_t count = 1,
+                                       bool validate = true);
+    /// @brief Queue local-frame angular accelerations for consecutive owners directly from CUDA memory.
+    /// @details This is the device-input counterpart of AddOwnerNextStepAngAcc and uses each owner's local principal-
+    /// axis frame. It replaces any previously queued next-step angular-acceleration contribution for the selected
+    /// owners. Contact angular acceleration is accumulated on top during the next force/integration step, and the
+    /// queued contribution is consumed after that step. The call is synchronous, so `source` may be reused when it
+    /// returns.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param source CUDA memory containing `count` float3 local-frame angular accelerations.
+    /// @param source_device Logical CUDA device owning `source`; currently this must be dT's device.
+    /// @param count Number of consecutive owners. A zero count is a no-op.
+    /// @param validate See AddOwnerNextStepAccFromDevice.
+    void AddOwnerNextStepAngAccFromDevice(bodyID_t ownerID,
+                                          const float3* source,
+                                          int source_device,
+                                          size_t count = 1,
+                                          bool validate = true);
+
     /// @brief Rewrite the relative positions of the flattened triangle soup.
     void SetTriNodeRelPos(size_t owner, size_t triID, const std::vector<float3>& new_nodes);
     /// @brief Update the relative positions of the flattened triangle soup.
