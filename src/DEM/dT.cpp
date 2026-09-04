@@ -4200,18 +4200,15 @@ size_t DEMDynamicThread::getOwnerContactForcesToDevice(const std::vector<bodyID_
     solverScratchSpace.syncDualStructDeviceToHost("device_contact_count");
     const size_t useful_count = *host_count;
 
-    cudaError_t transfer_status = cudaSuccess;
     if (!same_device && useful_count > 0) {
         const size_t useful_bytes = useful_count * sizeof(float3);
-        transfer_status =
-            ownerDataTransferBuffer.Copy(points, destination_device, packed_points, streamInfo.device, useful_bytes);
-        if (transfer_status == cudaSuccess) {
-            transfer_status = ownerDataTransferBuffer.Copy(forces, destination_device, packed_forces, streamInfo.device,
-                                                           useful_bytes);
-        }
-        if (transfer_status == cudaSuccess && need_torque) {
-            transfer_status = ownerDataTransferBuffer.Copy(torques, destination_device, packed_torques,
-                                                           streamInfo.device, useful_bytes);
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(points, destination_device, packed_points, streamInfo.device, useful_bytes));
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(forces, destination_device, packed_forces, streamInfo.device, useful_bytes));
+        if (need_torque) {
+            DEME_GPU_CALL(ownerDataTransferBuffer.Copy(torques, destination_device, packed_torques, streamInfo.device,
+                                                       useful_bytes));
         }
     }
 
@@ -4224,7 +4221,6 @@ size_t DEMDynamicThread::getOwnerContactForcesToDevice(const std::vector<bodyID_
     }
     solverScratchSpace.finishUsingDualArray("device_contact_owner_ids");
     solverScratchSpace.finishUsingDualStruct("device_contact_count");
-    DEME_GPU_CALL(transfer_status);
     return useful_count;
 }
 
@@ -4500,10 +4496,8 @@ void DEMDynamicThread::getOwnerDataToDevice(void* destination,
     PackOwnerData(packed, field, ownerID, n, &simParams, &granData, solverFlags.useMassJitify, wildcard_index,
                   streamInfo.stream);
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
-    const cudaError_t transfer_status =
-        ownerDataTransferBuffer.Copy(destination, destination_device, packed, streamInfo.device, bytes);
+    DEME_GPU_CALL(ownerDataTransferBuffer.Copy(destination, destination_device, packed, streamInfo.device, bytes));
     solverScratchSpace.finishUsingTempVector(scratch_name);
-    DEME_GPU_CALL(transfer_status);
 }
 
 void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
@@ -4530,12 +4524,7 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
     const void* unpack_source = source;
     if (!same_device) {
         void* local_source = solverScratchSpace.allocateTempVector(scratch_name, bytes);
-        const cudaError_t transfer_status =
-            ownerDataTransferBuffer.Copy(local_source, streamInfo.device, source, source_device, bytes);
-        if (transfer_status != cudaSuccess) {
-            solverScratchSpace.finishUsingTempVector(scratch_name);
-            DEME_GPU_CALL(transfer_status);
-        }
+        DEME_GPU_CALL(ownerDataTransferBuffer.Copy(local_source, streamInfo.device, source, source_device, bytes));
         unpack_source = local_source;
     }
     if (validate && field == OwnerStateField::ORIENTATION) {
@@ -4559,11 +4548,10 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
         }
     }
     UnpackOwnerState(unpack_source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
-    const cudaError_t sync_status = cudaStreamSynchronize(streamInfo.stream);
+    DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
     if (!same_device) {
         solverScratchSpace.finishUsingTempVector(scratch_name);
     }
-    DEME_GPU_CALL(sync_status);
 }
 
 void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
@@ -4605,15 +4593,12 @@ void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
                                *solverScratchSpace.numContacts, streamInfo.stream);
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
     if (!same_device) {
-        cudaError_t transfer_status =
-            ownerDataTransferBuffer.Copy(forces, destination_device, reduced_forces, streamInfo.device, bytes);
-        if (transfer_status == cudaSuccess) {
-            transfer_status =
-                ownerDataTransferBuffer.Copy(torques, destination_device, reduced_torques, streamInfo.device, bytes);
-        }
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(forces, destination_device, reduced_forces, streamInfo.device, bytes));
+        DEME_GPU_CALL(
+            ownerDataTransferBuffer.Copy(torques, destination_device, reduced_torques, streamInfo.device, bytes));
         solverScratchSpace.finishUsingTempVector("owner_wrench_forces");
         solverScratchSpace.finishUsingTempVector("owner_wrench_torques");
-        DEME_GPU_CALL(transfer_status);
     }
 }
 
