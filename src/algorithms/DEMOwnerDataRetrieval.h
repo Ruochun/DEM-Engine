@@ -31,7 +31,7 @@ enum class OwnerDataField {
 };
 
 /// Owner state fields supported by the GPU input path.
-enum class OwnerStateField { POSITION, VELOCITY, ANGULAR_VELOCITY_GLOBAL, ORIENTATION };
+enum class OwnerStateField { POSITION, VELOCITY, ANGULAR_VELOCITY_LOCAL, ANGULAR_VELOCITY_GLOBAL, ORIENTATION };
 
 /// Pack one consecutive owner range from DEME's internal SoA representation into the public AoS/scalar representation.
 void PackOwnerData(void* output,
@@ -46,6 +46,9 @@ void PackOwnerData(void* output,
 
 /// Return the size of one output element for a retrieval field.
 size_t OwnerDataElementSize(OwnerDataField field);
+
+/// Check that every public-order quaternion is finite and has nonzero length before an owner-state update.
+void ValidateOwnerOrientations(const float4* input, size_t count, unsigned int* invalid, cudaStream_t stream);
 
 /// Unpack one public AoS owner-state range directly into DEME's internal SoA representation.
 void UnpackOwnerState(const void* input,

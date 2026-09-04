@@ -4463,18 +4463,21 @@ void DEMDynamicThread::getOwnerDataToDevice(void* destination,
                                             bodyID_t ownerID,
                                             bodyID_t n,
                                             OwnerDataField field,
-                                            unsigned int wildcard_index) {
-    if (ownerID > simParams->nOwnerBodies || n > simParams->nOwnerBodies - ownerID) {
+                                            unsigned int wildcard_index,
+                                            bool validate) {
+    if (validate && (ownerID > simParams->nOwnerBodies || n > simParams->nOwnerBodies - ownerID)) {
         DEME_ERROR("Owner device retrieval range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
                    (size_t)(ownerID + n), (size_t)simParams->nOwnerBodies);
     }
-    if (capacity < n) {
+    if (validate && capacity < n) {
         DEME_ERROR("Owner device retrieval needs capacity for %zu elements, but the destination has %zu.", (size_t)n,
                    capacity);
     }
 
     const size_t bytes = static_cast<size_t>(n) * OwnerDataElementSize(field);
-    DEME_GPU_CALL(device_data::ValidateOutputPointer(destination, bytes, destination_device));
+    if (validate) {
+        DEME_GPU_CALL(device_data::ValidateOutputPointer(destination, bytes, destination_device));
+    }
     if (n == 0) {
         return;
     }
@@ -4501,8 +4504,9 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
                                               const void* source,
                                               size_t count,
                                               int source_device,
-                                              OwnerStateField field) {
-    if (ownerID > simParams->nOwnerBodies || count > simParams->nOwnerBodies - ownerID) {
+                                              OwnerStateField field,
+                                              bool validate) {
+    if (validate && (ownerID > simParams->nOwnerBodies || count > simParams->nOwnerBodies - ownerID)) {
         DEME_ERROR("Owner device update range [%zu, %zu) exceeds the %zu owners in the simulation.", (size_t)ownerID,
                    (size_t)(ownerID + count), (size_t)simParams->nOwnerBodies);
     }
@@ -4517,13 +4521,29 @@ void DEMDynamicThread::setOwnerDataFromDevice(bodyID_t ownerID,
     }
 
     const size_t element_size = field == OwnerStateField::ORIENTATION ? sizeof(float4) : sizeof(float3);
-    DEME_GPU_CALL(device_data::ValidateOutputPointer(source, count * element_size, source_device));
+    if (validate) {
+        DEME_GPU_CALL(device_data::ValidateOutputPointer(source, count * element_size, source_device));
+    }
     ScopedCudaDevice device_scope(streamInfo.device);
+    if (validate && field == OwnerStateField::ORIENTATION) {
+        const std::string validation_name = "owner_orientation_validation";
+        solverScratchSpace.allocateDualStruct(validation_name);
+        size_t* host_invalid = solverScratchSpace.getDualStructHost(validation_name);
+        *host_invalid = 0;
+        solverScratchSpace.syncDualStructHostToDevice(validation_name);
+        ValidateOwnerOrientations(
+            static_cast<const float4*>(source), count,
+            reinterpret_cast<unsigned int*>(solverScratchSpace.getDualStructDevice(validation_name)),
+            streamInfo.stream);
+        solverScratchSpace.syncDualStructDeviceToHost(validation_name);
+        const bool invalid = *host_invalid != 0;
+        solverScratchSpace.finishUsingDualStruct(validation_name);
+        if (invalid) {
+            DEME_ERROR("Owner orientation updates require finite, nonzero-length quaternions.");
+        }
+    }
     UnpackOwnerState(source, field, ownerID, count, &simParams, &granData, streamInfo.stream);
     DEME_GPU_CALL(cudaStreamSynchronize(streamInfo.stream));
-
-    // Position, orientation, and velocity all affect either geometry or the conservative contact margin seen by kT.
-    pendingCriticalUpdate = true;
 }
 
 void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
@@ -4584,6 +4604,35 @@ void DEMDynamicThread::getOwnerContactWrenchToDevice(float3* forces,
     }
 }
 
+void DEMDynamicThread::getOwnerContactWrench(std::vector<float3>& forces,
+                                             std::vector<float3>& torques,
+                                             bodyID_t ownerID,
+                                             bodyID_t count) {
+    forces.resize(count);
+    torques.resize(count);
+    if (count == 0) {
+        return;
+    }
+
+    const std::string force_name = "owner_wrench_host_forces";
+    const std::string torque_name = "owner_wrench_host_torques";
+    solverScratchSpace.allocateDualArray(force_name, static_cast<size_t>(count) * sizeof(float3));
+    solverScratchSpace.allocateDualArray(torque_name, static_cast<size_t>(count) * sizeof(float3));
+    auto* device_forces = reinterpret_cast<float3*>(solverScratchSpace.getDualArrayDevice(force_name));
+    auto* device_torques = reinterpret_cast<float3*>(solverScratchSpace.getDualArrayDevice(torque_name));
+
+    // Reuse the device reduction so host and device APIs have identical filtering, frame, and accumulation semantics.
+    getOwnerContactWrenchToDevice(device_forces, device_torques, count, streamInfo.device, ownerID, count);
+    solverScratchSpace.syncDualArrayDeviceToHost(force_name);
+    solverScratchSpace.syncDualArrayDeviceToHost(torque_name);
+    const auto* host_forces = reinterpret_cast<const float3*>(solverScratchSpace.getDualArrayHost(force_name));
+    const auto* host_torques = reinterpret_cast<const float3*>(solverScratchSpace.getDualArrayHost(torque_name));
+    std::copy(host_forces, host_forces + count, forces.begin());
+    std::copy(host_torques, host_torques + count, torques.begin());
+    solverScratchSpace.finishUsingDualArray(force_name);
+    solverScratchSpace.finishUsingDualArray(torque_name);
+}
+
 void DEMDynamicThread::setOwnerAngVel(bodyID_t ownerID, const std::vector<float3>& angVel) {
     omgBarX.setVal(streamInfo.stream, RealTupleVectorToXComponentVector<float, float3>(angVel), ownerID);
     omgBarY.setVal(streamInfo.stream, RealTupleVectorToYComponentVector<float, float3>(angVel), ownerID);
@@ -4613,10 +4662,21 @@ void DEMDynamicThread::setOwnerPos(bodyID_t ownerID, const std::vector<float3>& 
 }
 
 void DEMDynamicThread::setOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ) {
-    oriQw.setVal(streamInfo.stream, RealTupleVectorToWComponentVector<float, float4>(oriQ), ownerID);
-    oriQx.setVal(streamInfo.stream, RealTupleVectorToXComponentVector<float, float4>(oriQ), ownerID);
-    oriQy.setVal(streamInfo.stream, RealTupleVectorToYComponentVector<float, float4>(oriQ), ownerID);
-    oriQz.setVal(streamInfo.stream, RealTupleVectorToZComponentVector<float, float4>(oriQ), ownerID);
+    std::vector<float4> normalized(oriQ.size());
+    for (size_t i = 0; i < oriQ.size(); i++) {
+        const double norm_squared =
+            static_cast<double>(oriQ[i].x) * oriQ[i].x + static_cast<double>(oriQ[i].y) * oriQ[i].y +
+            static_cast<double>(oriQ[i].z) * oriQ[i].z + static_cast<double>(oriQ[i].w) * oriQ[i].w;
+        if (!std::isfinite(norm_squared) || norm_squared == 0.0) {
+            DEME_ERROR("Owner orientation updates require finite, nonzero-length quaternions.");
+        }
+        const float inverse_norm = static_cast<float>(1.0 / std::sqrt(norm_squared));
+        normalized[i] = oriQ[i] * inverse_norm;
+    }
+    oriQw.setVal(streamInfo.stream, RealTupleVectorToWComponentVector<float, float4>(normalized), ownerID);
+    oriQx.setVal(streamInfo.stream, RealTupleVectorToXComponentVector<float, float4>(normalized), ownerID);
+    oriQy.setVal(streamInfo.stream, RealTupleVectorToYComponentVector<float, float4>(normalized), ownerID);
+    oriQz.setVal(streamInfo.stream, RealTupleVectorToZComponentVector<float, float4>(normalized), ownerID);
     syncMemoryTransfer();
 }
 

@@ -192,7 +192,6 @@ if (overlapDepth > 0.0) {
 
     solver.SetTimeStepSize(1e-5);
     solver.Initialize();
-    solver.DoDynamicsThenSync(1e-5);
 
     const size_t count = positions.size();
     TestDeviceBuffer<float3> float3_output(count, 0);
@@ -210,16 +209,18 @@ if (overlapDepth > 0.0) {
     const std::vector<float4> prescribed_orientations = {make_float4(0, 0, 0, 1),
                                                          make_float4(0, half_sqrt_two, 0, half_sqrt_two),
                                                          make_float4(0.182574f, 0.365148f, 0.547723f, 0.730297f)};
+    const std::vector<float4> unnormalized_orientations = {
+        prescribed_orientations[0] * 2.f, prescribed_orientations[1] * 3.f, prescribed_orientations[2] * 4.f};
     TestDeviceBuffer<float3> float3_input(count, 0);
     TestDeviceBuffer<float4> float4_input(count, 0);
     float3_input.FromHost(prescribed_positions);
-    tracker->SetPositionsFromDevice(float3_input.data(), 0);
-    float4_input.FromHost(prescribed_orientations);
-    tracker->SetOrientationQuaternionsFromDevice(float4_input.data(), 0);
+    tracker->SetPositionsFromDevice(float3_input.data(), 0, false);
+    float4_input.FromHost(unnormalized_orientations);
+    tracker->SetOrientationQuaternionsFromDevice(float4_input.data(), 0, false);
     float3_input.FromHost(prescribed_velocities);
-    tracker->SetVelocitiesFromDevice(float3_input.data(), 0);
+    tracker->SetVelocitiesFromDevice(float3_input.data(), 0, false);
     float3_input.FromHost(prescribed_global_angular_velocities);
-    tracker->SetAngularVelocitiesGlobalFromDevice(float3_input.data(), 0);
+    tracker->SetAngularVelocitiesGlobalFromDevice(float3_input.data(), 0, false);
 
     solver.GetOwnerPositionToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
     if (!compareVectors(float3_output.ToHost(), prescribed_positions, "device-input positions"))
@@ -235,6 +236,21 @@ if (overlapDepth > 0.0) {
                         "device-input global angular velocities"))
         return false;
 
+    // The local-frame flavor has the same physical interpretation as the original host SetOwnerAngVel API.
+    const std::vector<float3> prescribed_local_angular_velocities = {
+        make_float3(1.f, 2.f, 3.f), make_float3(-4.f, 5.f, -6.f), make_float3(0.25f, 0.5f, 0.75f)};
+    float3_input.FromHost(prescribed_local_angular_velocities);
+    tracker->SetAngularVelocitiesFromDevice(float3_input.data(), 0, false);
+    solver.GetOwnerAngVelLocalToDevice(float3_output.data(), count, 0, tracker->GetOwnerID(), count);
+    if (!compareVectors(float3_output.ToHost(), prescribed_local_angular_velocities,
+                        "device-input local angular velocities"))
+        return false;
+
+    // Host and device orientation setters both normalize valid quaternions before storing them.
+    solver.SetOwnerOriQ(tracker->GetOwnerID(), unnormalized_orientations);
+    if (!compareVectors(tracker->OrientationQuaternions(), prescribed_orientations, "host-normalized orientations"))
+        return false;
+
     // The common one-owner call uses the default count while retaining explicit pointer-device information.
     float3_input.FromHost({prescribed_velocities.front()});
     solver.SetOwnerVelocityFromDevice(tracker->GetOwnerID(), float3_input.data(), 0);
@@ -242,42 +258,42 @@ if (overlapDepth > 0.0) {
     if (!compareVectors(float3_output.ToHost(1), {prescribed_velocities.front()}, "default one-owner exchange"))
         return false;
 
-    tracker->PositionsToDevice(float3_output.data(), count, 0);
+    tracker->PositionsToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->Positions(), "positions"))
         return false;
-    tracker->VelocitiesToDevice(float3_output.data(), count, 0);
+    tracker->VelocitiesToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->Velocities(), "velocities"))
         return false;
-    tracker->AngularVelocitiesLocalToDevice(float3_output.data(), count, 0);
+    tracker->AngularVelocitiesLocalToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->AngularVelocitiesLocal(), "local angular velocities"))
         return false;
-    tracker->AngularVelocitiesGlobalToDevice(float3_output.data(), count, 0);
+    tracker->AngularVelocitiesGlobalToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->AngularVelocitiesGlobal(), "global angular velocities"))
         return false;
-    tracker->OrientationQuaternionsToDevice(float4_output.data(), count, 0);
+    tracker->OrientationQuaternionsToDevice(float4_output.data(), count, 0, false);
     if (!compareVectors(float4_output.ToHost(), tracker->OrientationQuaternions(), "orientations"))
         return false;
-    tracker->ContactAccelerationsToDevice(float3_output.data(), count, 0);
+    tracker->ContactAccelerationsToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->ContactAccelerations(), "contact accelerations"))
         return false;
-    tracker->ContactAngularAccelerationsLocalToDevice(float3_output.data(), count, 0);
+    tracker->ContactAngularAccelerationsLocalToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->ContactAngularAccelerationsLocal(),
                         "local contact angular accelerations"))
         return false;
-    tracker->ContactAngularAccelerationsGlobalToDevice(float3_output.data(), count, 0);
+    tracker->ContactAngularAccelerationsGlobalToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->ContactAngularAccelerationsGlobal(),
                         "global contact angular accelerations"))
         return false;
-    tracker->FamiliesToDevice(uint_output.data(), count, 0);
+    tracker->FamiliesToDevice(uint_output.data(), count, 0, false);
     if (!compareVectors(uint_output.ToHost(), tracker->GetFamilies(), "families"))
         return false;
-    tracker->MassesToDevice(float_output.data(), count, 0);
+    tracker->MassesToDevice(float_output.data(), count, 0, false);
     if (!compareVectors(float_output.ToHost(), tracker->Masses(), "masses"))
         return false;
-    tracker->MOIsToDevice(float3_output.data(), count, 0);
+    tracker->MOIsToDevice(float3_output.data(), count, 0, false);
     if (!compareVectors(float3_output.ToHost(), tracker->MOIs(), "moments of inertia"))
         return false;
-    tracker->OwnerWildcardValuesToDevice("retrieval_tag", float_output.data(), count, 0);
+    tracker->OwnerWildcardValuesToDevice("retrieval_tag", float_output.data(), count, 0, false);
     if (!compareVectors(float_output.ToHost(), tracker->GetOwnerWildcardValues("retrieval_tag"), "owner wildcards"))
         return false;
 
@@ -292,6 +308,12 @@ if (overlapDepth > 0.0) {
     for (int iteration = 0; iteration < 3; iteration++) {
         tracker->PositionsToDevice(float3_output.data(), count, 0);
     }
+
+    // Disabling validation trusts caller-provided metadata. The allocation really has `count` elements, so declaring
+    // zero capacity here safely verifies that the optional capacity check is bypassed.
+    tracker->PositionsToDevice(float3_output.data(), 0, 0, false);
+    if (!compareVectors(float3_output.ToHost(), tracker->Positions(), "unchecked positions"))
+        return false;
 
     // These calls intentionally throw. Suppress their expected logger output so a passing test does not look broken.
     solver.SetVerbosity("QUIET");
@@ -326,6 +348,18 @@ if (overlapDepth > 0.0) {
     }
     if (!null_input_rejected) {
         std::cerr << "FAIL: null CUDA owner-state input was not rejected." << std::endl;
+        return false;
+    }
+
+    bool zero_orientation_rejected = false;
+    try {
+        float4_input.FromHost({make_float4(0.f)});
+        solver.SetOwnerOriQFromDevice(tracker->GetOwnerID(), float4_input.data(), 0);
+    } catch (const SolverException&) {
+        zero_orientation_rejected = true;
+    }
+    if (!zero_orientation_rejected) {
+        std::cerr << "FAIL: zero-length CUDA owner orientation was not rejected." << std::endl;
         return false;
     }
 
@@ -370,6 +404,10 @@ if (overlapDepth > 0.0) {
     }
     solver.SetVerbosity("ERROR");
 
+    // Refresh contacts and forces only after all prescribed state is in place. Besides producing a coherent wrench
+    // snapshot, this lets the fixed-field exchange checks remain independent of contact-detection setup.
+    solver.RequestContactUpdate();
+    solver.DoDynamicsThenSync(1e-5);
     const size_t contact_capacity = solver.GetNumContacts();
     if (contact_capacity == 0) {
         std::cerr << "FAIL: contact-force retrieval scenario produced no contacts." << std::endl;
@@ -433,6 +471,20 @@ if (overlapDepth > 0.0) {
     }
     if (!compareWrenchVectors(wrench_forces.ToHost(), reference_forces, "reduced owner contact forces") ||
         !compareWrenchVectors(wrench_torques.ToHost(), reference_torques, "reduced owner contact torques")) {
+        return false;
+    }
+    std::vector<float3> host_wrench_forces;
+    std::vector<float3> host_wrench_torques;
+    tracker->ContactWrenches(host_wrench_forces, host_wrench_torques);
+    if (!compareWrenchVectors(host_wrench_forces, wrench_forces.ToHost(), "host/device owner contact forces") ||
+        !compareWrenchVectors(host_wrench_torques, wrench_torques.ToHost(), "host/device owner contact torques")) {
+        return false;
+    }
+    std::vector<float3> solver_wrench_forces;
+    std::vector<float3> solver_wrench_torques;
+    solver.GetOwnerContactWrench(solver_wrench_forces, solver_wrench_torques, tracker->GetOwnerID(), count);
+    if (!compareWrenchVectors(solver_wrench_forces, host_wrench_forces, "solver/tracker owner contact forces") ||
+        !compareWrenchVectors(solver_wrench_torques, host_wrench_torques, "solver/tracker owner contact torques")) {
         return false;
     }
 
@@ -517,6 +569,8 @@ bool testExternallyMovedFixedMeshes() {
         const std::vector<float3> prescribed_velocities = {make_float3(0), make_float3(-1000.f, 0, 0), make_float3(0)};
         device_velocities.FromHost(prescribed_velocities);
         solver.SetOwnerVelocityFromDevice(first_owner, device_velocities.data(), 0, owner_count);
+        // Owner setters match their host counterparts and do not implicitly alter dT/kT scheduling policy.
+        solver.RequestContactUpdate();
         solver.DoDynamicsThenSync(1e-5);
 
         // A fixed family must retain the just-prescribed pose rather than dynamically integrating its supplied speed.

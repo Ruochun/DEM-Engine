@@ -50,6 +50,10 @@ class DEMTracker;
 //////////////////////////////////////////////////////////////
 
 /// Main DEM-Engine solver.
+///
+/// Fixed-size owner `ToDevice` and `FromDevice` methods validate ranges, capacities, and CUDA pointer metadata by
+/// default. Their trailing `validate` argument may be disabled when the caller guarantees those preconditions and
+/// needs to avoid validation overhead. Required device routing and documented transformations still apply.
 class DEMSolver {
   public:
     /// Construct a solver using the requested number of visible CUDA devices. One GPU places both workers on device 0;
@@ -564,55 +568,98 @@ class DEMSolver {
     /// @return The family number.
     std::vector<unsigned int> GetOwnerFamily(bodyID_t ownerID, bodyID_t n = 1) const;
     /// Fill caller-provided CUDA memory with positions of consecutive owners. Capacity is measured in elements.
+    /// @param validate If true, validate the owner range, capacity, and CUDA pointer metadata. Disable only when the
+    /// caller guarantees those preconditions and needs to avoid validation overhead.
     void GetOwnerPositionToDevice(float3* destination,
                                   size_t capacity,
                                   int destination_device,
                                   bodyID_t ownerID,
-                                  bodyID_t n = 1) const;
+                                  bodyID_t n = 1,
+                                  bool validate = true) const;
     /// Fill caller-provided CUDA memory with velocities of consecutive owners.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerVelocityToDevice(float3* destination,
                                   size_t capacity,
                                   int destination_device,
                                   bodyID_t ownerID,
-                                  bodyID_t n = 1) const;
+                                  bodyID_t n = 1,
+                                  bool validate = true) const;
     /// Fill caller-provided CUDA memory with local-frame angular velocities of consecutive owners.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerAngVelLocalToDevice(float3* destination,
                                      size_t capacity,
                                      int destination_device,
                                      bodyID_t ownerID,
-                                     bodyID_t n = 1) const;
+                                     bodyID_t n = 1,
+                                     bool validate = true) const;
     /// Fill caller-provided CUDA memory with global-frame angular velocities of consecutive owners.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerAngVelGlobalToDevice(float3* destination,
                                       size_t capacity,
                                       int destination_device,
                                       bodyID_t ownerID,
-                                      bodyID_t n = 1) const;
+                                      bodyID_t n = 1,
+                                      bool validate = true) const;
     /// Fill caller-provided CUDA memory with public-order (x, y, z, w) orientation quaternions.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerOriQToDevice(float4* destination,
                               size_t capacity,
                               int destination_device,
                               bodyID_t ownerID,
-                              bodyID_t n = 1) const;
+                              bodyID_t n = 1,
+                              bool validate = true) const;
     /// Fill caller-provided CUDA memory with global-frame contact accelerations.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerAccToDevice(float3* destination,
                              size_t capacity,
                              int destination_device,
                              bodyID_t ownerID,
-                             bodyID_t n = 1) const;
+                             bodyID_t n = 1,
+                             bool validate = true) const;
     /// Fill caller-provided CUDA memory with local-frame contact angular accelerations.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerAngAccLocalToDevice(float3* destination,
                                      size_t capacity,
                                      int destination_device,
                                      bodyID_t ownerID,
-                                     bodyID_t n = 1) const;
+                                     bodyID_t n = 1,
+                                     bool validate = true) const;
     /// Fill caller-provided CUDA memory with global-frame contact angular accelerations.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerAngAccGlobalToDevice(float3* destination,
                                       size_t capacity,
                                       int destination_device,
                                       bodyID_t ownerID,
-                                      bodyID_t n = 1) const;
-    /// Fill CUDA memory with one global contact force and global torque about each owner's position. Contact recording
-    /// must be enabled (the default). A zero count is a no-op.
+                                      bodyID_t n = 1,
+                                      bool validate = true) const;
+    /// @brief Get one reduced contact wrench for each consecutive owner.
+    /// @details Each force is the global-frame sum of recorded contact forces on that owner. Each torque is the
+    /// corresponding global-frame moment about DEME's current owner position, including force-generated moments and
+    /// force-model-only torque such as rolling resistance. Owners without recorded contact receive a zero wrench.
+    /// This reads the current dT force records; it does not trigger contact detection or force evaluation. Contact
+    /// recording must remain enabled (the default).
+    /// @param forces Output global resultant forces, resized to `count`.
+    /// @param torques Output global resultant torques, resized to `count`.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param count Number of owners to reduce. A zero count clears both output vectors.
+    void GetOwnerContactWrench(std::vector<float3>& forces,
+                               std::vector<float3>& torques,
+                               bodyID_t ownerID,
+                               bodyID_t count = 1) const;
+    /// @brief Write one reduced contact wrench per consecutive owner directly to CUDA memory.
+    /// @details This is the device-output counterpart of GetOwnerContactWrench and uses the same reduction. Each force
+    /// is the global-frame sum of recorded contact forces on an owner. Each torque is the corresponding global-frame
+    /// moment about DEME's current owner position, including force-generated moments and force-model-only torque such
+    /// as rolling resistance. Owners without recorded contact receive a zero wrench. This reads the current dT force
+    /// records; it does not trigger contact detection or force evaluation. Contact recording must remain enabled (the
+    /// default). The call is synchronous, so both destination buffers may be consumed when it returns.
+    /// @param force_destination Writable CUDA memory for `count` float3 resultant forces.
+    /// @param torque_destination Writable CUDA memory for `count` float3 resultant torques.
+    /// @param capacity Available elements in each destination buffer; must be at least `count`.
+    /// @param destination_device Logical CUDA device owning both destination buffers. Cross-device output requires
+    /// direct CUDA peer access; this API does not use host staging.
+    /// @param ownerID First owner in the consecutive range.
+    /// @param count Number of owners to reduce. A zero count is a no-op.
     void GetOwnerContactWrenchToDevice(float3* force_destination,
                                        float3* torque_destination,
                                        size_t capacity,
@@ -620,11 +667,13 @@ class DEMSolver {
                                        bodyID_t ownerID,
                                        bodyID_t count = 1) const;
     /// Fill caller-provided CUDA memory with owner family numbers as unsigned integers.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerFamilyToDevice(unsigned int* destination,
                                 size_t capacity,
                                 int destination_device,
                                 bodyID_t ownerID,
-                                bodyID_t n = 1) const;
+                                bodyID_t n = 1,
+                                bool validate = true) const;
     /// @brief Handover helper: get all clump-owner center positions in one call.
     /// @return Position vector with one entry per clump owner, ordered by owner ID.
     std::vector<float3> GetClumpPositionsHandover() const;
@@ -678,17 +727,21 @@ class DEMSolver {
     /// @return The moment of inertia (in principal axis frame).
     std::vector<float3> GetOwnerMOI(bodyID_t ownerID, bodyID_t n = 1) const;
     /// Fill caller-provided CUDA memory with owner masses.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerMassToDevice(float* destination,
                               size_t capacity,
                               int destination_device,
                               bodyID_t ownerID,
-                              bodyID_t n = 1) const;
+                              bodyID_t n = 1,
+                              bool validate = true) const;
     /// Fill caller-provided CUDA memory with owner principal moments of inertia.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerMOIToDevice(float3* destination,
                              size_t capacity,
                              int destination_device,
                              bodyID_t ownerID,
-                             bodyID_t n = 1) const;
+                             bodyID_t n = 1,
+                             bool validate = true) const;
 
     /// @brief Set position of consecutive owners starting from ownerID, based on input position vector. N (the size of
     /// the input vector) elements will be modified.
@@ -699,17 +752,49 @@ class DEMSolver {
     /// Set velocity of consecutive owners starting from ownerID, based on input velocity vector. N (the size of the
     /// input vector) elements will be modified.
     void SetOwnerVelocity(bodyID_t ownerID, const std::vector<float3>& vel);
-    /// Set quaternion of consecutive owners starting from ownerID, based on input quaternion vector. N (the size of the
-    /// input vector) elements will be modified.
+    /// Set quaternion of consecutive owners starting from ownerID. Finite, nonzero inputs are normalized before being
+    /// stored; invalid quaternions are rejected. N (the size of the input vector) elements will be modified.
     void SetOwnerOriQ(bodyID_t ownerID, const std::vector<float4>& oriQ);
     /// Synchronously set global positions for consecutive owners directly from CUDA memory. A zero count is a no-op.
-    void SetOwnerPositionFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
-    /// Synchronously set public-order (x, y, z, w) orientations directly from CUDA memory. A zero count is a no-op.
-    void SetOwnerOriQFromDevice(bodyID_t ownerID, const float4* source, int source_device, size_t count = 1);
+    /// @param validate If true, validate the owner range and CUDA pointer metadata. Disable only when the caller
+    /// guarantees those preconditions and needs to avoid validation overhead.
+    void SetOwnerPositionFromDevice(bodyID_t ownerID,
+                                    const float3* source,
+                                    int source_device,
+                                    size_t count = 1,
+                                    bool validate = true);
+    /// Synchronously set public-order (x, y, z, w) orientations directly from CUDA memory. Inputs are normalized before
+    /// being stored; with validation enabled, non-finite and zero-length quaternions are rejected. A zero count is a
+    /// no-op.
+    /// @param validate See SetOwnerPositionFromDevice. When false, the extra validity-check kernel is skipped, but
+    /// quaternion normalization remains part of the setter's semantics.
+    void SetOwnerOriQFromDevice(bodyID_t ownerID,
+                                const float4* source,
+                                int source_device,
+                                size_t count = 1,
+                                bool validate = true);
     /// Synchronously set global linear velocities directly from CUDA memory. A zero count is a no-op.
-    void SetOwnerVelocityFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
-    /// Synchronously set global angular velocities directly from CUDA memory. A zero count is a no-op.
-    void SetOwnerAngVelGlobalFromDevice(bodyID_t ownerID, const float3* source, int source_device, size_t count = 1);
+    /// @param validate See SetOwnerPositionFromDevice.
+    void SetOwnerVelocityFromDevice(bodyID_t ownerID,
+                                    const float3* source,
+                                    int source_device,
+                                    size_t count = 1,
+                                    bool validate = true);
+    /// Synchronously set local-frame angular velocities directly from CUDA memory. A zero count is a no-op.
+    /// @param validate See SetOwnerPositionFromDevice.
+    void SetOwnerAngVelFromDevice(bodyID_t ownerID,
+                                  const float3* source,
+                                  int source_device,
+                                  size_t count = 1,
+                                  bool validate = true);
+    /// Synchronously set global angular velocities directly from CUDA memory. Conversion to DEME's local frame uses
+    /// each owner's orientation at the time of this call. A zero count is a no-op.
+    /// @param validate See SetOwnerPositionFromDevice.
+    void SetOwnerAngVelGlobalFromDevice(bodyID_t ownerID,
+                                        const float3* source,
+                                        int source_device,
+                                        size_t count = 1,
+                                        bool validate = true);
     /// @brief Set the family number of consecutive owners.
     /// @param ownerID The ID of the owner.
     /// @param fam Family number.
@@ -1435,12 +1520,14 @@ class DEMSolver {
     /// @return Value of this wildcard.
     std::vector<float> GetOwnerWildcardValue(bodyID_t ownerID, const std::string& name, bodyID_t n = 1);
     /// Fill caller-provided CUDA memory with one owner wildcard over a consecutive owner range.
+    /// @param validate See GetOwnerPositionToDevice.
     void GetOwnerWildcardValueToDevice(float* destination,
                                        size_t capacity,
                                        int destination_device,
                                        bodyID_t ownerID,
                                        const std::string& name,
-                                       bodyID_t n = 1);
+                                       bodyID_t n = 1,
+                                       bool validate = true);
     /// @brief Get the owner wildcard's values of all entities.
     std::vector<float> GetAllOwnerWildcardValue(const std::string& name);
     /// @brief Get the owner wildcard's values of all entities in family N.
