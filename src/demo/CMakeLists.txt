@@ -38,6 +38,7 @@ SET(DEMOS
 		DEMdemo_GRCPrep_Part1
 		DEMdemo_GRCPrep_Part2
 		DEMdemo_GRCPrep_Part3
+		DEMdemo_PlateSinkage
 		DEMdemo_ConePenetration
 		DEMdemo_Shake
 		DEMdemo_WheelDP
