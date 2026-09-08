@@ -13,6 +13,7 @@
 
 #include "DEM/API.h"
 #include "DEM/utils/Samplers.hpp"
+#include "utils/HopperComparison.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -24,11 +25,15 @@
 
 using namespace deme;
 
-int main(int argc, char* argv[]) {
-    const bool smoke_test = argc == 2 && std::string(argv[1]) == "--smoke-test";
-    if (argc > 1 && !smoke_test) {
-        std::cout << "Usage: DEMdemo_HopperSphereMeshedCylinder [--smoke-test]" << std::endl;
-        return std::string(argv[1]) == "--help" ? 0 : 1;
+// Keep argument/report failures visible as a nonzero process result for automated comparison runs.
+int runDemo(int argc, char* argv[]) {
+    const auto options = hopper::Options::Parse(argc, argv);
+    const bool smoke_test = options.smoke;
+    if (options.help) {
+        std::cout << "Usage: DEMdemo_HopperSphereMeshedCylinder [--smoke-test] [--geometry=default]\n"
+                     "  [--comparison-report] [--feng-diagnostics] [--output-dir PATH] [--no-frames] [--fixed-cd]\n"
+                     "Feng diagnostics retain default forces; the Feng force flavor is not implemented yet.\n";
+        return 0;
     }
     std::cout << "==== DEME demo/test: DEMdemo_HopperSphereMeshedCylinder ====" << std::endl;
 
@@ -45,6 +50,13 @@ int main(int argc, char* argv[]) {
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetMeshParticlesLowPoly(true);
     DEMSim.SetErrorOutAvgContacts(80);
+    DEMSim.SetMeshMeshFengDiagnostics(options.diagnostics);
+    // Fixed cadence and bins are opt-in for repeatability checks; normal demo scheduling is preserved by default.
+    if (options.fixedCD) {
+        DEMSim.SetCDUpdateFreq(10);
+        DEMSim.DisableAdaptiveUpdateFreq();
+        DEMSim.DisableAdaptiveBinSize();
+    }
 
     const size_t total_cylinders = smoke_test ? 24 : 5250;
     const size_t total_spheres = smoke_test ? 16 : 3500;
@@ -172,28 +184,45 @@ int main(int argc, char* argv[]) {
     std::cout << "Particles: " << total_cylinders << " meshed cylinders (" << cylinder_type->GetNumTriangles()
               << " triangles each), " << total_spheres << " analytical spheres" << std::endl;
 
-    auto out_dir = std::filesystem::current_path() / "DemoOutput_HopperSphereMeshedCylinder";
-    if (smoke_test) {
-        out_dir += "_smoke";
-    }
+    const auto out_dir = options.output;
     std::filesystem::create_directories(out_dir);
+    const unsigned int output_steps = static_cast<unsigned int>(std::llround(0.01 / step_size));
+    const double settling_time = smoke_test ? 0.16 : 0.70;
+    const double discharge_time = smoke_test ? 0.14 : 7.50;
+    std::unique_ptr<hopper::Report> report;
+    if (options.report) {
+        report = std::make_unique<hopper::Report>(DEMSim, options, gate_tracker->GetOwnerID(), total_spheres,
+                                                  total_cylinders, output_steps, settling_time, discharge_time,
+                                                  *mat_cylinders, *mat_flume);
+    }
+    const auto start = std::chrono::steady_clock::now();
+    auto wall_seconds = [&]() {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    };
     unsigned int frame = 0;
     double elapsed = 0;
     // Write matching CSV and VTK frames through every phase; the disabled plug is filtered from mesh output.
-    auto write_frame = [&]() {
+    auto write_frame = [&](const std::string& phase, bool force_sample, const char* snapshot = nullptr) {
         char sphere_file[100], mesh_file[100];
         std::snprintf(sphere_file, sizeof(sphere_file), "DEMdemo_spheres_%04u.csv", frame);
         std::snprintf(mesh_file, sizeof(mesh_file), "DEMdemo_mesh_%04u.vtk", frame);
-        DEMSim.WriteSphereFile(out_dir / sphere_file);
-        DEMSim.WriteMeshFile(out_dir / mesh_file);
+        if (options.frames) {
+            DEMSim.WriteSphereFile(out_dir / sphere_file);
+            DEMSim.WriteMeshFile(out_dir / mesh_file);
+        }
+        if (report) {
+            const double sample_time = DEMSim.GetSimTime();
+            report->State(DEMSim, sample_time, phase, wall_seconds(), snapshot);
+            if (force_sample)
+                report->Geometry(DEMSim, sample_time, phase);
+        }
         std::cout << "Frame " << frame++ << ": t = " << elapsed << " s, max speed = " << max_speed->GetValue()
                   << std::endl;
         // Report host and device memory at output intervals throughout settling and discharge.
         DEMSim.ShowMemStats();
     };
     // Advance each phase in integer step counts, with output at regular simulation-time intervals.
-    const unsigned int output_steps = static_cast<unsigned int>(std::llround(0.01 / step_size));
-    auto run_phase = [&](const char* name, unsigned int steps) {
+    auto run_phase = [&](const char* name, unsigned int steps, const char* phase) {
         std::cout << name << std::endl;
         while (steps > 0) {
             const auto chunk = std::min(steps, output_steps);
@@ -201,20 +230,23 @@ int main(int argc, char* argv[]) {
             DEMSim.DoDynamicsThenSync(duration);
             elapsed += duration;
             steps -= chunk;
-            write_frame();
+            write_frame(phase, true);
         }
     };
     auto steps_for = [&](double duration) { return static_cast<unsigned int>(std::llround(duration / step_size)); };
-    const auto start = std::chrono::high_resolution_clock::now();
-    write_frame();
-    run_phase("Settling spheres and cylinders", steps_for(smoke_test ? 0.16 : 0.70));
+    write_frame("initial", false, "initial.csv");
+    run_phase("Settling spheres and cylinders", steps_for(settling_time), "settling");
 
-    const auto discharge_steps = steps_for(smoke_test ? 0.14 : 7.50);
+    const auto discharge_steps = steps_for(discharge_time);
     // Settling ends synchronized. Switch the plug to its disabled family before any discharge step or output.
     DEMSim.ChangeFamily(closed_gate_family, disabled_gate_family);
-    write_frame();
-    run_phase("Discharging with the plug disabled", discharge_steps);
+    write_frame("gate_open", false);
+    run_phase("Discharging with the plug disabled", discharge_steps, "discharge");
     DEMSim.WaitForPendingOutput();
+    if (report) {
+        report->State(DEMSim, DEMSim.GetSimTime(), "final", wall_seconds(), "final.csv");
+        report->Finish();
+    }
 
     if (smoke_test) {
         // Check the representation, free cylinder motion, finite particle states, and stationary disabled plug.
@@ -234,10 +266,18 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
-    const std::chrono::duration<double> wall_time = std::chrono::high_resolution_clock::now() - start;
-    std::cout << "Simulated " << elapsed << " s in " << wall_time.count() << " s wall time" << std::endl;
+    std::cout << "Simulated " << elapsed << " s in " << wall_seconds() << " s wall time" << std::endl;
     DEMSim.ShowTimingStats();
     DEMSim.ShowMemStats();
     std::cout << "DEMdemo_HopperSphereMeshedCylinder exiting..." << std::endl;
     return 0;
+}
+
+int main(int argc, char* argv[]) {
+    try {
+        return runDemo(argc, argv);
+    } catch (const std::exception& error) {
+        std::cerr << "FAIL: " << error.what() << std::endl;
+        return 1;
+    }
 }
