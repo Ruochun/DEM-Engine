@@ -815,6 +815,29 @@ void DEMSolver::RequestContactUpdate() {
     dT->announceCritical();
 }
 
+// Diagnostics remain opt-in and never alter contact forces or history. Public calls follow the solver's idle-thread
+// contract; the explicit stream synchronization makes the returned snapshot safe for immediate host inspection.
+void DEMSolver::SetMeshMeshFengDiagnostics(bool enable) {
+    dT->meshMeshFengDiagnosticsEnabled = enable;
+    dT->meshMeshFengDiagnosticCount = 0;
+}
+
+std::vector<MeshMeshFengDiagnostic> DEMSolver::GetMeshMeshFengDiagnostics() {
+    assertSysInit("GetMeshMeshFengDiagnostics");
+    const size_t count = dT->meshMeshFengDiagnosticCount;
+    if (!dT->meshMeshFengDiagnosticsEnabled || count == 0) {
+        return {};
+    }
+    ScopedCudaDevice device_scope(dT->streamInfo.device);
+    dT->meshMeshFengDiagnostics.toHostAsync(dT->streamInfo.stream, 0, count);
+    DEME_GPU_CALL(cudaStreamSynchronize(dT->streamInfo.stream));
+    std::vector<MeshMeshFengDiagnostic> result(count);
+    for (size_t i = 0; i < count; ++i) {
+        result[i] = dT->meshMeshFengDiagnostics[i];
+    }
+    return result;
+}
+
 void DEMSolver::SetTrianglePVTrackingOwners(const std::vector<bodyID_t>& mesh_owner_ids) {
     assertSysInit("SetTrianglePVTrackingOwners");
     m_user_tri_pv_tracking_owners = mesh_owner_ids;

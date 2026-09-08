@@ -24,6 +24,7 @@
 #include "Structs.h"
 #include "AuxClasses.h"
 #include "utils/DynamicThreadHelpers.hpp"
+#include "utils/FengDiagnostics.h"
 
 namespace deme {
 
@@ -379,6 +380,12 @@ class DEMDynamicThread {
     SolverTimers timers = SolverTimers(timer_names);
 
   public:
+    // Optional snapshot from the latest mesh-mesh force batch. Count resets even on contact-free steps.
+    bool meshMeshFengDiagnosticsEnabled = false;
+    size_t meshMeshFengDiagnosticCount = 0;
+    DualArray<MeshMeshFengDiagnostic> meshMeshFengDiagnostics =
+        DualArray<MeshMeshFengDiagnostic>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+
     friend class DEMSolver;
     friend class DEMKinematicThread;
 

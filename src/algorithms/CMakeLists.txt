@@ -24,6 +24,7 @@ target_link_libraries(
 set(algorithms_interface
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMStaticDeviceSubroutines.h
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMOwnerDataRetrieval.h
+	${CMAKE_CURRENT_SOURCE_DIR}/DEMFengDiagnostics.h
 )
 
 ### INTERNAL HEADERS ONLY (.h, .hpp, or .cuh) ###
@@ -37,6 +38,7 @@ set(algorithms_sources
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMContactDetection.cu
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMCubWrappers.cu 
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMDynamicMisc.cu
+	${CMAKE_CURRENT_SOURCE_DIR}/DEMFengDiagnostics.cu
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMOwnerDataRetrieval.cu
 	${CMAKE_CURRENT_SOURCE_DIR}/DEMMiscKernels.cu
 )

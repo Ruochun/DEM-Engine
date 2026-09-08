@@ -1556,6 +1556,38 @@ enabled. A zero count is a no-op.)doc",
              py::arg("ownerID"), py::arg("n") = 1)
         .def("RequestContactUpdate", &deme::DEMSolver::RequestContactUpdate,
              "Request an immediate contact detection update.")
+        .def("SetMeshMeshFengDiagnostics", &deme::DEMSolver::SetMeshMeshFengDiagnostics,
+             "Enable boundary-geometry diagnostics while dynamics is idle; forces remain unchanged.",
+             py::arg("enable") = true)
+        .def("GetMeshMeshFengDiagnostics", [](deme::DEMSolver& solver) {
+            // Return dictionaries with double-precision vector tuples, avoiding a lossy float3 conversion.
+            py::list result;
+            for (const auto& r : solver.GetMeshMeshFengDiagnostics()) {
+                py::dict row;
+                row["patchContact"] = r.patchContact;
+                row["ownerA"] = r.ownerA;
+                row["ownerB"] = r.ownerB;
+                row["boundaryLength"] = r.boundaryLength;
+                row["segmentCount"] = r.segmentCount;
+                row["ambiguousPairCount"] = r.ambiguousPairCount;
+                row["legacyArea"] = r.legacyArea;
+                row["legacyPenetration"] = r.legacyPenetration;
+                row["fengArea"] = r.fengArea;
+                row["ownersWatertight"] = r.ownersWatertight;
+                row["closurePassed"] = r.closurePassed;
+                row["hasContactLine"] = r.hasContactLine;
+                row["referenceOrigin"] = py::make_tuple(r.referenceOrigin.x, r.referenceOrigin.y, r.referenceOrigin.z);
+                row["vectorArea"] = py::make_tuple(r.vectorArea.x, r.vectorArea.y, r.vectorArea.z);
+                row["geometricMoment"] = py::make_tuple(r.geometricMoment.x, r.geometricMoment.y, r.geometricMoment.z);
+                row["boundaryResidual"] = py::make_tuple(r.boundaryResidual.x, r.boundaryResidual.y, r.boundaryResidual.z);
+                row["legacyNormal"] = py::make_tuple(r.legacyNormal.x, r.legacyNormal.y, r.legacyNormal.z);
+                row["legacyContactPoint"] = py::make_tuple(r.legacyContactPoint.x, r.legacyContactPoint.y, r.legacyContactPoint.z);
+                row["fengNormal"] = py::make_tuple(r.fengNormal.x, r.fengNormal.y, r.fengNormal.z);
+                row["fengContactPoint"] = py::make_tuple(r.fengContactPoint.x, r.fengContactPoint.y, r.fengContactPoint.z);
+                result.append(row);
+            }
+            return result;
+        }, "Return the last pre-integration mesh-mesh diagnostic snapshot as dictionaries; synchronizes CUDA.")
         .def("SetTrianglePVTrackingOwners", &deme::DEMSolver::SetTrianglePVTrackingOwners,
              "Enable per-triangle P/V/PxV tracking for the specified mesh owners.")
         .def("DisableTrianglePVTracking", &deme::DEMSolver::DisableTrianglePVTracking,

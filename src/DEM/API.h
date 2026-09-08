@@ -679,6 +679,14 @@ class DEMSolver {
     std::vector<float3> GetClumpPositionsHandover() const;
     /// @brief Request an immediate contact detection update.
     void RequestContactUpdate();
+    /// Enable optional mesh-mesh intersection-boundary diagnostics (default off); forces remain unchanged.
+    /// Call while dynamics is idle. May be set before Initialize(). Disabling clears the visible snapshot.
+    void SetMeshMeshFengDiagnostics(bool enable = true);
+    /// Read the most recent force-evaluation snapshot, synchronizing its CUDA stream. Call after DoDynamics returns.
+    /// Empty before an enabled force evaluation, after disabling, or after a contact-free force step.
+    /// Values describe pre-integration geometry; closurePassed/hasContactLine do not certify boundary topology.
+    std::vector<MeshMeshFengDiagnostic> GetMeshMeshFengDiagnostics();
+
     /// @brief Enable per-triangle P/V/PxV tracking for the specified mesh owners.
     /// @details Owner IDs are simulation owner IDs; each selected owner must be a mesh owner.
     /// Tracking buffers are reset when this method is called.

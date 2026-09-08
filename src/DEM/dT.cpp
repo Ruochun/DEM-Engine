@@ -17,6 +17,7 @@
 #include <DEM/utils/DynamicThreadHelpers.hpp>
 #include <DEM/Defines.h>
 
+#include "algorithms/DEMFengDiagnostics.h"
 #include <algorithms/DEMStaticDeviceSubroutines.h>
 #include <kernel/DEMHelperKernels.cuh>
 
@@ -3159,6 +3160,16 @@ inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
                                      zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, finalAreas,
                                      finalNormals, finalPenetrations.data(), finalContactPoints, countPatch,
                                      streamInfo.stream);
+                // Stage 1: preserve the force inputs and capture boundary geometry on the same candidate topology.
+                if (meshMeshFengDiagnosticsEnabled && contact_type == TRIANGLE_TRIANGLE_CONTACT) {
+                    meshMeshFengDiagnostics.resizeHost(countPatch);
+                    meshMeshFengDiagnostics.resizeDevice(countPatch);
+                    computeMeshMeshFengDiagnostics(
+                        &simParams, &granData, keys, startOffsetPrimitive, countPrimitive, startOffsetPatch, countPatch,
+                        finalAreas, finalNormals, finalPenetrations.data(), finalContactPoints,
+                        meshMeshFengDiagnostics.device(), streamInfo.stream, solverScratchSpace);
+                    meshMeshFengDiagnosticCount = countPatch;
+                }
                 solverScratchSpace.finishUsingTempVector("zeroAreaNormals");
                 solverScratchSpace.finishUsingTempVector("zeroAreaPenetrations");
                 solverScratchSpace.finishUsingTempVector("zeroAreaContactPoints");
@@ -3231,6 +3242,7 @@ inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
 }
 
 void DEMDynamicThread::calculateForces() {
+    meshMeshFengDiagnosticCount = 0;
     // Reset force (acceleration) arrays for this time step
     size_t nContactPairs = *solverScratchSpace.numContacts;
     size_t nPrimitiveContactPairs = *solverScratchSpace.numPrimitiveContacts;
