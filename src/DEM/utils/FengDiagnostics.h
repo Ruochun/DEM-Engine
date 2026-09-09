@@ -9,8 +9,17 @@
 namespace deme {
 
 // One snapshot per current mesh-mesh patch contact, evaluated at the last force calculation (before integration).
-// These are diagnostic candidates, never force inputs. Closure is necessary but does NOT prove loop completeness,
-// consistent winding, or absence of duplicate segments. Patch indices are transient, not persistent history IDs.
+// The original line gates remain diagnostic. Force selection additionally validates solid shape, grouping and a
+// single boundary cycle. Patch indices are transient, not persistent history IDs.
+enum class FengFallback : unsigned int {
+    NONE = 0,
+    INACTIVE_LEGACY = 1,
+    UNSUPPORTED_SOLID = 2,
+    UNSUPPORTED_GROUPING = 3,
+    DIAGNOSTIC_GATE = 4,
+    BOUNDARY = 5,
+    NORMAL = 6
+};
 struct MeshMeshFengDiagnostic {
     contactPairs_t patchContact;
     bodyID_t ownerA, ownerB;
@@ -25,6 +34,11 @@ struct MeshMeshFengDiagnostic {
     bool ownersWatertight;
     bool closurePassed;
     bool hasContactLine;
+    bool ownersValidated;
+    bool boundaryValidated;
+    bool fengEligible;
+    bool usedFeng;
+    FengFallback fallbackReason;
 };
 
 }  // namespace deme

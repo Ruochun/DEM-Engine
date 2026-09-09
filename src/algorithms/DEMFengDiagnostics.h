@@ -6,7 +6,7 @@
 #include "DEM/utils/FengDiagnostics.h"
 
 namespace deme {
-// Read-only side path over the existing primitive candidates and patch keys. No force or history arrays are modified.
+// Capture boundary/legacy diagnostics and optionally select validated Feng geometry. Penetration/history are unchanged.
 void computeMeshMeshFengDiagnostics(DEMSimParams* params,
                                     DEMDataDT* data,
                                     contactPairs_t* patchKeys,
@@ -14,11 +14,13 @@ void computeMeshMeshFengDiagnostics(DEMSimParams* params,
                                     contactPairs_t primitiveCount,
                                     contactPairs_t patchStart,
                                     contactPairs_t patchCount,
-                                    const double* legacyAreas,
-                                    const float3* legacyNormals,
+                                    double* legacyAreas,
+                                    float3* legacyNormals,
                                     const double* legacyPenetrations,
-                                    const double3* legacyPoints,
+                                    double3* legacyPoints,
                                     MeshMeshFengDiagnostic* output,
+                                    bool useFeng,
+                                    bool simpleGrouping,
                                     cudaStream_t& stream,
                                     DEMSolverScratchData& scratch);
 }  // namespace deme

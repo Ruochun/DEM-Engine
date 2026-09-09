@@ -38,11 +38,14 @@ __global__ void contributions(DEMSimParams* params,
                               double3* s,
                               double3* g,
                               double3* residual,
-                              double3* statistics) {
+                              double3* statistics,
+                              double3* starts,
+                              double3* ends) {
     const contactPairs_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= count)
         return;
     s[i] = g[i] = residual[i] = statistics[i] = make_double3(0.0, 0.0, 0.0);
+    starts[i] = ends[i] = make_double3(0.0, 0.0, 0.0);
     const bodyID_t ta = data->idPrimitiveA[start + i], tb = data->idPrimitiveB[start + i];
     const double3 origin = ownerPosition(params, data, data->ownerTriMesh[ta]);
     const double3 offset = ownerPosition(params, data, data->ownerTriMesh[tb]) - origin;
@@ -51,6 +54,8 @@ __global__ void contributions(DEMSimParams* params,
     triangleVertices(data, tb, offset, b);
     const feng::Intersection result = feng::intersectionSegment(a, b, p, q);
     if (result == feng::Intersection::SEGMENT) {
+        starts[i] = p;
+        ends[i] = q;
         feng::contribution(p, q, s[i], g[i]);
         residual[i] = q - p;
         statistics[i] = make_double3(length(q - p), 1.0, 0.0);
@@ -71,11 +76,15 @@ __global__ void finalize(DEMSimParams* params,
                          const double3* g,
                          const double3* residual,
                          const double3* statistics,
-                         const double* areas,
-                         const float3* normals,
+                         double* areas,
+                         float3* normals,
                          const double* penetrations,
-                         const double3* points,
-                         MeshMeshFengDiagnostic* output) {
+                         double3* points,
+                         MeshMeshFengDiagnostic* output,
+                         const double3* starts,
+                         const double3* ends,
+                         bool useFeng,
+                         bool simpleGrouping) {
     const contactPairs_t i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= count)
         return;
@@ -111,6 +120,37 @@ __global__ void finalize(DEMSimParams* params,
         if (r.hasContactLine)
             r.fengContactPoint = localPoint + r.referenceOrigin;
     }
+    // A single mesh patch on each validated solid plus simple grouping keeps all owner-pair candidates together.
+    // The endpoint audit rejects incomplete chains and multiple loops; candidate completeness still relies on CD.
+    r.ownersValidated = data->ownerMeshFengValidated[r.ownerA] && data->ownerMeshFengValidated[r.ownerB];
+    r.fallbackReason = FengFallback::NONE;
+    if (!(r.legacyArea > 0 && r.legacyPenetration > 0))
+        r.fallbackReason = FengFallback::INACTIVE_LEGACY;
+    else if (!r.ownersValidated)
+        r.fallbackReason = FengFallback::UNSUPPORTED_SOLID;
+    else if (!simpleGrouping)
+        r.fallbackReason = FengFallback::UNSUPPORTED_GROUPING;
+    else if (!r.hasContactLine)
+        r.fallbackReason = FengFallback::DIAGNOSTIC_GATE;
+    else {
+        contactPairs_t end = i + 1;
+        while (end < count && data->geomToPatchMap[start + end] == key)
+            ++end;
+        r.boundaryValidated = feng::singleBoundary(starts + i, ends + i, end - i, r.boundaryLength);
+        if (!r.boundaryValidated)
+            r.fallbackReason = FengFallback::BOUNDARY;
+        else if (!(dot(r.fengNormal, to_double3(r.legacyNormal)) > 0.0))
+            r.fallbackReason = FengFallback::NORMAL;
+    }
+    r.fengEligible = r.fallbackReason == FengFallback::NONE;
+    r.usedFeng = useFeng && r.fengEligible;
+    if (r.usedFeng) {
+        // Replace all three geometry outputs together; never mix segment and projection contributions in a patch.
+        // The force kernel still consumes legacy penetration and transports the same friction-history variables.
+        areas[patch] = r.fengArea;
+        normals[patch] = to_float3(r.fengNormal);
+        points[patch] = r.fengContactPoint;
+    }
     output[patch] = r;
 }
 }  // namespace
@@ -123,11 +163,13 @@ void computeMeshMeshFengDiagnostics(DEMSimParams* params,
                                     contactPairs_t primitiveCount,
                                     contactPairs_t patchStart,
                                     contactPairs_t patchCount,
-                                    const double* legacyAreas,
-                                    const float3* legacyNormals,
+                                    double* legacyAreas,
+                                    float3* legacyNormals,
                                     const double* legacyPenetrations,
-                                    const double3* legacyPoints,
+                                    double3* legacyPoints,
                                     MeshMeshFengDiagnostic* output,
+                                    bool useFeng,
+                                    bool simpleGrouping,
                                     cudaStream_t& stream,
                                     DEMSolverScratchData& scratch) {
     if (!primitiveCount || !patchCount)
@@ -142,8 +184,11 @@ void computeMeshMeshFengDiagnostics(DEMSimParams* params,
         values[i] = reinterpret_cast<double3*>(scratch.allocateTempVector(names[i], primitiveCount * sizeof(double3)));
         totals[i] = reinterpret_cast<double3*>(scratch.allocateTempVector(sums[i], patchCount * sizeof(double3)));
     }
+    auto* starts =
+        reinterpret_cast<double3*>(scratch.allocateTempVector("fengStarts", primitiveCount * sizeof(double3)));
+    auto* ends = reinterpret_cast<double3*>(scratch.allocateTempVector("fengEnds", primitiveCount * sizeof(double3)));
     contributions<<<blocks, FENG_DIAGNOSTIC_BLOCK, 0, stream>>>(params, data, primitiveStart, primitiveCount, values[0],
-                                                                values[1], values[2], values[3]);
+                                                                values[1], values[2], values[3], starts, ends);
     DEME_GPU_CALL(cudaGetLastError());
     auto* keys = reinterpret_cast<contactPairs_t*>(
         scratch.allocateTempVector("fengKeys", primitiveCount * sizeof(contactPairs_t)));
@@ -153,14 +198,16 @@ void computeMeshMeshFengDiagnostics(DEMSimParams* params,
                                                    scratch.getDualStructDevice("fengNumKeys"), primitiveCount, stream,
                                                    scratch);
     }
-    finalize<<<blocks, FENG_DIAGNOSTIC_BLOCK, 0, stream>>>(params, data, primitiveStart, primitiveCount, patchStart,
-                                                           totals[0], totals[1], totals[2], totals[3], legacyAreas,
-                                                           legacyNormals, legacyPenetrations, legacyPoints, output);
+    finalize<<<blocks, FENG_DIAGNOSTIC_BLOCK, 0, stream>>>(
+        params, data, primitiveStart, primitiveCount, patchStart, totals[0], totals[1], totals[2], totals[3],
+        legacyAreas, legacyNormals, legacyPenetrations, legacyPoints, output, starts, ends, useFeng, simpleGrouping);
     DEME_GPU_CALL(cudaGetLastError());
     for (int i = 0; i < 4; ++i) {
         scratch.finishUsingTempVector(names[i]);
         scratch.finishUsingTempVector(sums[i]);
     }
+    scratch.finishUsingTempVector("fengStarts");
+    scratch.finishUsingTempVector("fengEnds");
     scratch.finishUsingTempVector("fengKeys");
     scratch.finishUsingDualStruct("fengNumKeys");
     DEME_GPU_DEBUG_SYNC(stream);

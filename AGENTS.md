@@ -69,6 +69,9 @@ DEM-Engine is a performance-sensitive CUDA/C++ DEM solver with a Chrono-like pub
 
 - Use focused builds first, for example `cmake --build build --target DEMTest_CombinedOwners -- -j1`, then broaden only if the touched surface warrants it.
 - Do not assume generated runtime data has refreshed after changing kernel source or force-model text. Clean rebuilds or copying generated assets may be required for some issues.
+- When changing shared CUDA data-layout headers, verify JIT cache invalidation as well as compilation. A cached
+  kernel compiled against an older pointer layout can silently read the wrong fields. `DEMTest_JitDataLayout`
+  checks that changing included data-header contents changes the cache key and the executed kernel.
 - Be careful with files under `build/`; they may contain generated outputs or local experiment artifacts and usually should not be edited.
 
 ## Git Hygiene

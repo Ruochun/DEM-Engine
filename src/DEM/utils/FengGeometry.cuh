@@ -12,6 +12,56 @@ namespace feng {
 // Ambiguous features are deliberately excluded: their multiplicity cannot be resolved from one triangle pair.
 enum class Intersection { NONE, SEGMENT, AMBIGUOUS };
 
+// Bound the quadratic endpoint audit. Larger candidate groups use the complete legacy patch unchanged.
+constexpr unsigned int MAX_BOUNDARY_CANDIDATES = 512;
+
+// Non-segments have identical zero endpoints. Require one predecessor and successor at every endpoint, then walk
+// the graph to ensure that ALL segments form one cycle. Unlike a residual sum, this rejects cancelling open chains,
+// duplicated loops, reversed edges, branching and multiple disconnected loops. It never stitches force histories.
+__host__ __device__ inline bool singleBoundary(const double3* starts,
+                                               const double3* ends,
+                                               unsigned int count,
+                                               double boundaryLength) {
+    if (count > MAX_BOUNDARY_CANDIDATES || !(boundaryLength > 0))
+        return false;
+    const double tolerance = 1e-8 * boundaryLength;
+    unsigned int first = count, segments = 0;
+    for (unsigned int i = 0; i < count; ++i) {
+        const double len = length(ends[i] - starts[i]);
+        if (len == 0)
+            continue;
+        if (!(len > tolerance))
+            return false;
+        if (first == count)
+            first = i;
+        ++segments;
+        unsigned int before = 0, after = 0;
+        for (unsigned int j = 0; j < count; ++j) {
+            if (j == i || length(ends[j] - starts[j]) == 0)
+                continue;
+            before += length(ends[j] - starts[i]) <= tolerance;
+            after += length(starts[j] - ends[i]) <= tolerance;
+        }
+        if (before != 1 || after != 1)
+            return false;
+    }
+    if (segments < 3)
+        return false;
+    unsigned int current = first;
+    for (unsigned int step = 0; step < segments; ++step) {
+        unsigned int next = count;
+        for (unsigned int j = 0; j < count; ++j)
+            if (j != current && length(ends[j] - starts[j]) > 0 && length(starts[j] - ends[current]) <= tolerance) {
+                next = j;
+                break;
+            }
+        if (next == count || (next == first && step + 1 != segments))
+            return false;
+        current = next;
+    }
+    return current == first;
+}
+
 // Intersect a triangle with a plane, retaining on-plane vertices once. Edge-on-plane cases are handled by the caller.
 __host__ __device__ inline int planeCut(const double3* v, const double* d, double tolerance, double3* points) {
     int count = 0;

@@ -1,5 +1,9 @@
 # Mesh–mesh intersection-boundary diagnostics
 
+This documents the original diagnostic phase. The subsequent [experimental force selector](FengMeshContactGeometry.md)
+adds stronger eligibility checks and optional whole-patch geometry replacement; the diagnostic switch alone still
+does not change force selection.
+
 The proposed geometry is applicable as an **experimental diagnostic**, but is not a safe unconditional replacement
 for DEME patch voting. This implements Stage 1 of the supplied `need.md`: evaluate both geometries on the same
 candidate/contact topology without changing forces, penetration, friction history, broad phase, or patch assignment.
@@ -56,7 +60,7 @@ The snapshot includes:
 and `|S| > 1e-12 * total_segment_length^2`. Failed gates leave candidate line outputs zero; raw sums remain visible.
 Neither flag certifies that the intersection boundary is complete, consistently wound, or free of duplicates.
 For example, two unrelated open chains can have cancelling endpoint displacements. A duplicated closed curve also
-passes the displacement check. There is deliberately no option to feed these diagnostic values into forces yet.
+passes the displacement check. The later force selector requires additional checks; neither of these flags alone authorizes replacement.
 
 Degenerate triangles, coplanar/near-parallel candidates, edge-on-plane ambiguities, point touches, and very short
 segments are excluded and counted as ambiguous. Separated planes/intervals contribute nothing. This conservative

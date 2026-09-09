@@ -1556,6 +1556,8 @@ enabled. A zero count is a no-op.)doc",
              py::arg("ownerID"), py::arg("n") = 1)
         .def("RequestContactUpdate", &deme::DEMSolver::RequestContactUpdate,
              "Request an immediate contact detection update.")
+        .def("SetMeshMeshContactGeometry", &deme::DEMSolver::SetMeshMeshContactGeometry,
+             "Select default or experimental feng mesh geometry before Initialize; unsupported patches fall back.")
         .def("SetMeshMeshFengDiagnostics", &deme::DEMSolver::SetMeshMeshFengDiagnostics,
              "Enable boundary-geometry diagnostics while dynamics is idle; forces remain unchanged.",
              py::arg("enable") = true)
@@ -1576,6 +1578,11 @@ enabled. A zero count is a no-op.)doc",
                 row["ownersWatertight"] = r.ownersWatertight;
                 row["closurePassed"] = r.closurePassed;
                 row["hasContactLine"] = r.hasContactLine;
+                row["ownersValidated"] = r.ownersValidated;
+                row["boundaryValidated"] = r.boundaryValidated;
+                row["fengEligible"] = r.fengEligible;
+                row["usedFeng"] = r.usedFeng;
+                row["fallbackReason"] = static_cast<unsigned int>(r.fallbackReason);
                 row["referenceOrigin"] = py::make_tuple(r.referenceOrigin.x, r.referenceOrigin.y, r.referenceOrigin.z);
                 row["vectorArea"] = py::make_tuple(r.vectorArea.x, r.vectorArea.y, r.vectorArea.z);
                 row["geometricMoment"] = py::make_tuple(r.geometricMoment.x, r.geometricMoment.y, r.geometricMoment.z);

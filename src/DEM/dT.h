@@ -304,6 +304,8 @@ class DEMDynamicThread {
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<notStupidBool_t> ownerMeshNeverWinner =
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<notStupidBool_t> ownerMeshFengValidated =
+        DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<notStupidBool_t> ownerMeshWatertight =
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float> ownerMeshShellHalfThickness = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
@@ -382,6 +384,7 @@ class DEMDynamicThread {
   public:
     // Optional snapshot from the latest mesh-mesh force batch. Count resets even on contact-free steps.
     bool meshMeshFengDiagnosticsEnabled = false;
+    bool meshMeshFengForcesEnabled = false;
     size_t meshMeshFengDiagnosticCount = 0;
     DualArray<MeshMeshFengDiagnostic> meshMeshFengDiagnostics =
         DualArray<MeshMeshFengDiagnostic>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);

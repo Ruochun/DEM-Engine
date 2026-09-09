@@ -468,6 +468,7 @@ struct DEMDataDT {
     notStupidBool_t* ownerMeshConvex = nullptr;
     notStupidBool_t* ownerMeshNeverWinner = nullptr;
     notStupidBool_t* ownerMeshWatertight = nullptr;
+    notStupidBool_t* ownerMeshFengValidated = nullptr;
     float* ownerMeshShellHalfThickness = nullptr;
     bodyID_t* triPatchID;
     // Map global triangle ID -> compact neighbor index (NULL_BODYID if neighbors are not stored).

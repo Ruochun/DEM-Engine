@@ -1,8 +1,11 @@
-# Hopper comparison: phase 2
+# Hopper comparison reports
+
+For the implemented force selector and two-flavor commands, see [Feng mesh geometry](FengMeshContactGeometry.md).
+The following phase-2 record describes the diagnostic-only baseline; the current demo also accepts `--geometry=feng`.
 
 This phase adds a reproducible measurement harness to `DEMdemo_HopperSphereMeshedCylinder`. It compares **default
 forces with diagnostics off/on** and measures how often the current Feng diagnostic gates pass in a real hopper.
-It does not implement or validate Feng forces. `--geometry=feng` returns an error before creating a solver.
+That phase did not implement or validate Feng forces. The force selector was added in the subsequent phase.
 
 ## Run and verify
 
@@ -135,7 +138,7 @@ whole-curve envelope described above was implemented while the simulations were 
 baseline variability; the completed artifacts were then rechecked with `--validate-only`. Both baseline variation
 and diagnostics-on deviations remain available in `verification.json`.
 
-## Gates for subsequent phases
+## Gates recorded at the end of phase 2
 
 - **Eligibility and fallback:** validate complete oriented boundaries and multiplicity for these meshes; add fixtures
   with deliberately missing/duplicated segments and incomplete patch grouping, and show correct whole-patch fallback.
@@ -145,5 +148,4 @@ and diagnostics-on deviations remain available in `verification.json`.
   statistics against repeatability and timestep studies. Report actual Feng usage alongside the physics, so agreement
   caused by universal fallback cannot be mistaken for validation.
 
-These gates extend the [Stage 1 geometry diagnostics](FengMeshContactDiagnostics.md); the implementation remains
-uncommitted until the user finishes testing or requests a commit.
+These gates extend the [Stage 1 geometry diagnostics](FengMeshContactDiagnostics.md); that reporting phase was committed as `ea74eef`.

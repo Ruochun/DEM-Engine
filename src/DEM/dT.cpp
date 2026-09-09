@@ -18,6 +18,7 @@
 #include <DEM/Defines.h>
 
 #include "algorithms/DEMFengDiagnostics.h"
+#include "DEM/utils/FengMeshValidation.hpp"
 #include <algorithms/DEMStaticDeviceSubroutines.h>
 #include <kernel/DEMHelperKernels.cuh>
 
@@ -103,6 +104,7 @@ void DEMDynamicThread::packDataPointers() {
     ownerAnalBody.bindDevicePointer(&(granData->ownerAnalBody));
     ownerMeshConvex.bindDevicePointer(&(granData->ownerMeshConvex));
     ownerMeshNeverWinner.bindDevicePointer(&(granData->ownerMeshNeverWinner));
+    ownerMeshFengValidated.bindDevicePointer(&(granData->ownerMeshFengValidated));
     ownerMeshWatertight.bindDevicePointer(&(granData->ownerMeshWatertight));
     ownerMeshShellHalfThickness.bindDevicePointer(&(granData->ownerMeshShellHalfThickness));
     triNeighborIndex.bindDevicePointer(&(granData->triNeighborIndex));
@@ -206,6 +208,7 @@ void DEMDynamicThread::migrateDataToDevice() {
     ownerAnalBody.toDeviceAsync(streamInfo.stream);
     ownerMeshConvex.toDeviceAsync(streamInfo.stream);
     ownerMeshNeverWinner.toDeviceAsync(streamInfo.stream);
+    ownerMeshFengValidated.toDeviceAsync(streamInfo.stream);
     ownerMeshWatertight.toDeviceAsync(streamInfo.stream);
     ownerMeshShellHalfThickness.toDeviceAsync(streamInfo.stream);
     triNeighborIndex.toDeviceAsync(streamInfo.stream);
@@ -505,6 +508,7 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
     DEME_DUAL_ARRAY_RESIZE(angAccSpecified, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshConvex, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshNeverWinner, nOwnerBodies, 0);
+    DEME_DUAL_ARRAY_RESIZE(ownerMeshFengValidated, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshWatertight, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshShellHalfThickness, nOwnerBodies, 0);
 
@@ -1044,6 +1048,7 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         ownerTypes[owner_id] = OWNER_T_MESH;
         ownerMeshConvex[owner_id] = input_mesh_obj_convex.at(i);
         ownerMeshNeverWinner[owner_id] = input_mesh_obj_never_winner.at(i);
+        ownerMeshFengValidated[owner_id] = feng::validatedSolid(*input_mesh_objs.at(i)) ? 1 : 0;
         ownerMeshWatertight[owner_id] = input_mesh_objs.at(i)->IsWatertight() ? 1 : 0;
         ownerMeshShellHalfThickness[owner_id] = std::max(input_mesh_objs.at(i)->GetShellHalfThickness(), 0.f);
 
@@ -3160,14 +3165,17 @@ inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
                                      zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, finalAreas,
                                      finalNormals, finalPenetrations.data(), finalContactPoints, countPatch,
                                      streamInfo.stream);
-                // Stage 1: preserve the force inputs and capture boundary geometry on the same candidate topology.
-                if (meshMeshFengDiagnosticsEnabled && contact_type == TRIANGLE_TRIANGLE_CONTACT) {
+                // Capture legacy geometry first; the optional Feng selector replaces the complete geometry tuple
+                // only after its boundary checks. Penetration and patch/history identities remain unchanged.
+                if ((meshMeshFengDiagnosticsEnabled || meshMeshFengForcesEnabled) &&
+                    contact_type == TRIANGLE_TRIANGLE_CONTACT) {
                     meshMeshFengDiagnostics.resizeHost(countPatch);
                     meshMeshFengDiagnostics.resizeDevice(countPatch);
                     computeMeshMeshFengDiagnostics(
                         &simParams, &granData, keys, startOffsetPrimitive, countPrimitive, startOffsetPatch, countPatch,
                         finalAreas, finalNormals, finalPenetrations.data(), finalContactPoints,
-                        meshMeshFengDiagnostics.device(), streamInfo.stream, solverScratchSpace);
+                        meshMeshFengDiagnostics.device(), meshMeshFengForcesEnabled,
+                        solverFlags.useSimplePatchCombination, streamInfo.stream, solverScratchSpace);
                     meshMeshFengDiagnosticCount = countPatch;
                 }
                 solverScratchSpace.finishUsingTempVector("zeroAreaNormals");
@@ -4702,6 +4710,10 @@ void DEMDynamicThread::setOwnerFamily(bodyID_t ownerID, family_t fam, bodyID_t n
 }
 
 void DEMDynamicThread::setTriNodeRelPos(size_t start, const std::vector<DEMTriangle>& triangles) {
+    // Deformation invalidates the rigid-solid certificate; subsequent Feng contacts fall back for this owner.
+    for (size_t i = 0; i < triangles.size(); ++i)
+        ownerMeshFengValidated[ownerTriMesh[start + i]] = 0;
+    ownerMeshFengValidated.toDeviceAsync(streamInfo.stream);
     for (size_t i = 0; i < triangles.size(); i++) {
         relPosNode1[start + i] = triangles[i].p1;
         relPosNode2[start + i] = triangles[i].p2;
@@ -4715,6 +4727,10 @@ void DEMDynamicThread::setTriNodeRelPos(size_t start, const std::vector<DEMTrian
 
 // It's true that this method is never used in either kT or dT
 void DEMDynamicThread::updateTriNodeRelPos(size_t start, const std::vector<DEMTriangle>& updates) {
+    // Deformation invalidates the rigid-solid certificate; subsequent Feng contacts fall back for this owner.
+    for (size_t i = 0; i < updates.size(); ++i)
+        ownerMeshFengValidated[ownerTriMesh[start + i]] = 0;
+    ownerMeshFengValidated.toDeviceAsync(streamInfo.stream);
     for (size_t i = 0; i < updates.size(); i++) {
         relPosNode1[start + i] += updates[i].p1;
         relPosNode2[start + i] += updates[i].p2;

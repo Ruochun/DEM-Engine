@@ -30,9 +30,10 @@ int runDemo(int argc, char* argv[]) {
     const auto options = hopper::Options::Parse(argc, argv);
     const bool smoke_test = options.smoke;
     if (options.help) {
-        std::cout << "Usage: DEMdemo_HopperSphereMeshedCylinder [--smoke-test] [--geometry=default]\n"
-                     "  [--comparison-report] [--feng-diagnostics] [--output-dir PATH] [--no-frames] [--fixed-cd]\n"
-                     "Feng diagnostics retain default forces; the Feng force flavor is not implemented yet.\n";
+        std::cout
+            << "Usage: DEMdemo_HopperSphereMeshedCylinder [--smoke-test] [--geometry=default|feng]\n"
+               "  [--comparison-report] [--feng-diagnostics] [--output-dir PATH] [--no-frames] [--fixed-cd]\n"
+               "Feng geometry is experimental; unsupported patches use default geometry. Reports record actual use.\n";
         return 0;
     }
     std::cout << "==== DEME demo/test: DEMdemo_HopperSphereMeshedCylinder ====" << std::endl;
@@ -50,6 +51,7 @@ int runDemo(int argc, char* argv[]) {
     DEMSim.SetMeshUniversalContact(true);
     DEMSim.SetMeshParticlesLowPoly(true);
     DEMSim.SetErrorOutAvgContacts(80);
+    DEMSim.SetMeshMeshContactGeometry(options.geometry);
     DEMSim.SetMeshMeshFengDiagnostics(options.diagnostics);
     // Fixed cadence and bins are opt-in for repeatability checks; normal demo scheduling is preserved by default.
     if (options.fixedCD) {

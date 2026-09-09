@@ -1,6 +1,7 @@
 // Copyright (c) 2026, SBEL GPU Development Team
 // SPDX-License-Identifier: BSD-3-Clause
 #include "FengTestUtils.hpp"
+#include "DEM/utils/FengMeshValidation.hpp"
 #include <iostream>
 #include <stdexcept>
 
@@ -147,9 +148,48 @@ void testTransforms() {
         near(worldPoint - shift, point, "large world translation", 1e-8);
     }
 }
+// Adversarial endpoint fixtures must fail even when their displacement sums cancel exactly.
+void testBoundaryAndSolidValidation() {
+    std::vector<double3> p = {{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}};
+    std::vector<double3> q = {{1, 0, 0}, {1, 1, 0}, {0, 1, 0}, {0, 0, 0}};
+    require(feng::singleBoundary(p.data(), q.data(), 4, 4), "closed cycle accepted");
+    require(!feng::singleBoundary(p.data(), q.data(), 3, 3), "missing segment rejected");
+    auto openP = std::vector<double3>{{0, 0, 0}, {1, 0, 0}, {2, 2, 0}, {1, 2, 0}};
+    auto openQ = std::vector<double3>{{1, 0, 0}, {2, 0, 0}, {1, 2, 0}, {0, 2, 0}};
+    require(!feng::singleBoundary(openP.data(), openQ.data(), 4, 4), "cancelling open chains rejected");
+    auto duplicateP = p, duplicateQ = q;
+    duplicateP.insert(duplicateP.end(), p.begin(), p.end());
+    duplicateQ.insert(duplicateQ.end(), q.begin(), q.end());
+    require(!feng::singleBoundary(duplicateP.data(), duplicateQ.data(), 8, 8), "duplicated loop rejected");
+    for (int k = 4; k < 8; ++k) {
+        duplicateP[k].x += 3;
+        duplicateQ[k].x += 3;
+    }
+    require(!feng::singleBoundary(duplicateP.data(), duplicateQ.data(), 8, 8), "disconnected loops rejected");
+    std::swap(p[0], q[0]);
+    require(!feng::singleBoundary(p.data(), q.data(), 4, 4), "reversed edge rejected");
+    require(!feng::singleBoundary(p.data(), q.data(), feng::MAX_BOUNDARY_CANDIDATES + 1, 4), "bounded audit");
+    for (int refinement : {1, 2, 4})
+        require(feng::validatedSolid(cubeMesh(refinement)), "outward refined cube accepted");
+    auto mesh = cubeMesh();
+    for (auto& f : mesh.m_face_v_indices)
+        std::swap(f.x, f.y);
+    require(!feng::validatedSolid(mesh), "inward winding rejected");
+    mesh = cubeMesh();
+    mesh.m_face_v_indices.push_back(mesh.m_face_v_indices[0]);
+    ++mesh.nTri;
+    require(!feng::validatedSolid(mesh), "duplicated face rejected");
+    mesh = cubeMesh();
+    mesh.m_vertices[0] = make_float3(.5f);
+    require(!feng::validatedSolid(mesh), "concavity rejected");
+    mesh = cubeMesh();
+    mesh.SetEachTriangleAsPatch();
+    require(!feng::validatedSolid(mesh), "partial mesh patches rejected");
+}
 }  // namespace
 int main() {
     try {
+        testBoundaryAndSolidValidation();
         testSegments();
         testMomentAndOrigin();
         testCubes();

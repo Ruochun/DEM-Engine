@@ -3,6 +3,7 @@
 #ifndef DEME_FENG_TEST_UTILS_HPP
 #define DEME_FENG_TEST_UTILS_HPP
 #include "DEM/utils/FengGeometry.cuh"
+#include "DEM/BdrsAndObjs.h"
 #include <array>
 #include <vector>
 
@@ -31,6 +32,29 @@ inline std::vector<Triangle> cube(int n, bool flip, double3 offset = make_double
         }
     }
     return result;
+}
+
+// Weld vertices for host validation and the solver's mesh topology tables.
+inline deme::DEMMesh cubeMesh(int refinement = 1, bool flip = false) {
+    deme::DEMMesh mesh;
+    for (const auto& triangle : cube(refinement, flip)) {
+        int ids[3];
+        for (int k = 0; k < 3; ++k) {
+            const float3 vertex = to_float3(triangle[k]);
+            size_t index = 0;
+            for (; index < mesh.m_vertices.size(); ++index)
+                if (length(mesh.m_vertices[index] - vertex) < 1e-7f)
+                    break;
+            if (index == mesh.m_vertices.size())
+                mesh.m_vertices.push_back(vertex);
+            ids[k] = static_cast<int>(index);
+        }
+        mesh.m_face_v_indices.push_back(make_int3(ids[0], ids[1], ids[2]));
+    }
+    mesh.nTri = mesh.m_face_v_indices.size();
+    mesh.SetMass(1.f);
+    mesh.SetMOI(make_float3(1.f));
+    return mesh;
 }
 }  // namespace feng_test
 #endif

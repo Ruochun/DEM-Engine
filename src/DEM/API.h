@@ -679,11 +679,18 @@ class DEMSolver {
     std::vector<float3> GetClumpPositionsHandover() const;
     /// @brief Request an immediate contact detection update.
     void RequestContactUpdate();
-    /// Enable optional mesh-mesh intersection-boundary diagnostics (default off); forces remain unchanged.
+    /// Select mesh-mesh geometry: "default" (legacy) or "feng" (experimental intersection boundary).
+    /// Set before Initialize(). Feng replaces area, B2A normal and contact point together, retaining legacy depth
+    /// and the selected force law. Unsupported/ambiguous patches use complete legacy geometry. Currently supports
+    /// outward convex, single-patch rigid solids up to 256 triangles with simple patch combination. The getter below
+    /// exposes actual use and fallback reasons even when the diagnostic switch is off. No speedup is promised.
+    void SetMeshMeshContactGeometry(const std::string& geometry);
+    /// Enable optional mesh-mesh intersection-boundary diagnostics (default off); this switch does not change forces.
     /// Call while dynamics is idle. May be set before Initialize(). Disabling clears the visible snapshot.
     void SetMeshMeshFengDiagnostics(bool enable = true);
     /// Read the most recent force-evaluation snapshot, synchronizing its CUDA stream. Call after DoDynamics returns.
-    /// Empty before an enabled force evaluation, after disabling, or after a contact-free force step.
+    /// Empty before an enabled force evaluation or after a contact-free step. Feng force mode also produces snapshots.
+    /// Disabling diagnostics clears the snapshot, but the next Feng force evaluation produces a new one.
     /// Values describe pre-integration geometry; closurePassed/hasContactLine do not certify boundary topology.
     std::vector<MeshMeshFengDiagnostic> GetMeshMeshFengDiagnostics();
 

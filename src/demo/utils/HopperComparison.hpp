@@ -16,10 +16,11 @@
 
 namespace hopper {
 
-// Diagnostics are a separate switch: accepting "feng" as a force mode now would mislabel a default-force run.
+// Record the selected force geometry independently from optional legacy/Feng comparison diagnostics.
 struct Options {
     bool smoke = false, report = false, diagnostics = false, frames = true, fixedCD = false, help = false;
     std::filesystem::path output;
+    std::string geometry = "default";
 
     static Options Parse(int argc, char** argv) {
         Options o;
@@ -38,10 +39,11 @@ struct Options {
             else if (arg == "--help")
                 o.help = true;
             else if (arg == "--geometry=default") {
-            } else if (arg == "--geometry=feng")
-                throw std::runtime_error(
-                    "Feng forces are not implemented yet; use --feng-diagnostics with default forces.");
-            else if (arg == "--output-dir" && i + 1 < argc)
+                o.geometry = "default";
+            } else if (arg == "--geometry=feng") {
+                o.geometry = "feng";
+                o.report = true;
+            } else if (arg == "--output-dir" && i + 1 < argc)
                 o.output = argv[++i];
             else
                 throw std::runtime_error("Unknown or incomplete argument: " + arg);
@@ -51,7 +53,7 @@ struct Options {
             if (o.smoke)
                 o.output += "_smoke";
             if (o.report)
-                o.output += o.diagnostics ? "_feng_diagnostics" : "_default";
+                o.output += o.geometry == "feng" ? "_feng" : (o.diagnostics ? "_feng_diagnostics" : "_default");
         }
         if (o.report && !o.help) {
             for (const auto* name :
@@ -88,6 +90,9 @@ class Report {
         size_t patches = 0, active = 0, activeEligible = 0, comparable = 0;
         double segments = 0, ambiguousPairs = 0, elasticLoad = 0, eligibleLoad = 0;
         double areaRatioSum = 0, normalCosSum = 0, pointDistanceSum = 0;
+        size_t forceEligible = 0, usedFeng = 0;
+        double usedElasticLoad = 0;
+        std::array<size_t, 7> fallback{};
         std::set<std::pair<deme::bodyID_t, deme::bodyID_t>> pairs;
     };
     struct PairRun {
@@ -164,10 +169,10 @@ class Report {
         metadata << "schema,geometry,force_model,diagnostics,smoke,fixed_cd,fixed_cd_steps,dt,sample_steps,settling_s,"
                     "discharge_s,"
                     "spheres,cylinders,outlet_z,cylinder_E,cylinder_nu,flume_E,flume_nu\n"
-                 << "1,default,frictional_hertzian," << o.diagnostics << ',' << o.smoke << ',' << o.fixedCD << ','
-                 << (o.fixedCD ? 10 : 0) << ',' << dt << ',' << sampleSteps << ',' << settling << ',' << discharge
-                 << ',' << spheres << ',' << cylinders << ',' << outletZ << ',' << cylinderE << ',' << cylinderNu << ','
-                 << flumeE << ',' << flumeNu << '\n';
+                 << "2," << o.geometry << ",frictional_hertzian," << (o.diagnostics || o.geometry == "feng") << ','
+                 << o.smoke << ',' << o.fixedCD << ',' << (o.fixedCD ? 10 : 0) << ',' << dt << ',' << sampleSteps << ','
+                 << settling << ',' << discharge << ',' << spheres << ',' << cylinders << ',' << outletZ << ','
+                 << cylinderE << ',' << cylinderNu << ',' << flumeE << ',' << flumeNu << '\n';
         metrics = Open(o.output / "metrics.csv");
         metrics << "sample,time,phase,species,count,below_plane,ever_below_plane,discharged_mass,remaining_mass,mean_z,"
                    "translational_ke,rotational_ke,axis_x2,axis_y2,axis_z2,max_speed,wall_seconds\n";
@@ -175,7 +180,9 @@ class Report {
         coverage << "sample,force_time,phase,category,patches,nonwatertight,ambiguous,no_segment,open_boundary,"
                     "degenerate,eligible,"
                     "segments,ambiguous_pairs,active_patches,active_eligible,legacy_elastic_load,eligible_elastic_load,"
-                    "comparable,area_ratio_sum,normal_cos_sum,point_distance_sum,owner_pairs,new_owner_pairs\n";
+                    "comparable,area_ratio_sum,normal_cos_sum,point_distance_sum,owner_pairs,new_owner_pairs,"
+                    "force_eligible,used_feng,used_elastic_load,fallback_inactive,fallback_solid,fallback_grouping,"
+                    "fallback_gate,fallback_boundary,fallback_normal\n";
         runs = Open(o.output / "pair_runs.csv");
         runs << "owner_a,owner_b,category,first_sample,last_sample,observations,first_force_time,last_force_time,"
                 "observed_span,right_censored\n";
@@ -246,7 +253,7 @@ class Report {
     // Weight coverage by the elastic normal term of this demo's unchanged Hertz law. Damping, tangential force,
     // and rolling resistance are deliberately excluded; this proxy must not be reported as measured total force.
     void Geometry(deme::DEMSolver& sim, double time, const std::string& phase) {
-        if (!options.diagnostics)
+        if (!options.diagnostics && options.geometry != "feng")
             return;
         std::array<Coverage, 4> totals;
         std::set<std::pair<deme::bodyID_t, deme::bodyID_t>> present;
@@ -255,6 +262,9 @@ class Report {
             auto& c = totals[category];
             ++c.patches;
             ++c.reasons[Reason(r)];
+            c.forceEligible += r.fengEligible;
+            c.usedFeng += r.usedFeng;
+            ++c.fallback[static_cast<unsigned int>(r.fallbackReason)];
             c.segments += r.segmentCount;
             c.ambiguousPairs += r.ambiguousPairCount;
             const auto pair = std::minmax(r.ownerA, r.ownerB);
@@ -268,6 +278,7 @@ class Report {
                 const double effectiveE = 1.0 / (compliance(r.ownerA) + compliance(r.ownerB));
                 const double load = (4.0 / 3.0) * effectiveE * std::sqrt(r.legacyArea / deme::PI) * r.legacyPenetration;
                 c.elasticLoad += load;
+                c.usedElasticLoad += r.usedFeng ? load : 0;
                 if (r.hasContactLine) {
                     ++c.activeEligible;
                     c.eligibleLoad += load;
@@ -298,7 +309,10 @@ class Report {
             coverage << ',' << c.segments << ',' << c.ambiguousPairs << ',' << c.active << ',' << c.activeEligible
                      << ',' << c.elasticLoad << ',' << c.eligibleLoad << ',' << c.comparable << ',' << c.areaRatioSum
                      << ',' << c.normalCosSum << ',' << c.pointDistanceSum << ',' << c.pairs.size() << ',' << newPairs
-                     << '\n';
+                     << ',' << c.forceEligible << ',' << c.usedFeng << ',' << c.usedElasticLoad;
+            for (size_t reason = 1; reason < c.fallback.size(); ++reason)
+                coverage << ',' << c.fallback[reason];
+            coverage << '\n';
         }
         for (auto it = live.begin(); it != live.end();) {
             if (!present.count(it->first)) {

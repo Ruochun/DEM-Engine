@@ -206,9 +206,14 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
     const std::string flags_sig = jitify::reflection::reflect_list(flags_sorted);
     const auto [nvrtc_major, nvrtc_minor] = getNvrtcVersion();
     const std::string nvrtc_tag = std::to_string(nvrtc_major) + "." + std::to_string(nvrtc_minor);
+    // Device pointer bundles are included rather than substituted into kernel text. A layout edit must invalidate
+    // cached kernels even when the release version and kernel source are unchanged (e.g. switching topic branches).
+    // Hash contents, not timestamps: copying generated headers must not invalidate an otherwise identical kernel.
+    const std::string data_layout = hashString(loadSourceFile(KERNEL_INCLUDE_DIR / "DEM" / "Defines.h") +
+                                               loadSourceFile(KERNEL_INCLUDE_DIR / "DEM" / "VariableTypes.h"));
     const std::string fingerprint = code + "|flags:" + flags_sig + "|api:" + std::to_string(DEME_API_VERSION) +
                                     "|cuda:" + std::to_string(getCudaVersion()) + "|nvrtc:" + nvrtc_tag +
-                                    "|arch:" + arch_tag;
+                                    "|arch:" + arch_tag + "|data-layout:" + data_layout;
     std::string program_hash = hashString(fingerprint);
 
     static std::once_flag cache_dir_init_flag;

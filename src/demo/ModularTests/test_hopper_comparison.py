@@ -165,10 +165,10 @@ def main():
     if not args.validate_only:
         for name in names:
             require(not (root / name).exists(), f"Refusing to overwrite {root / name}")
-        # Rejecting the unavailable force mode must happen before constructing a GPU solver.
+        # Invalid geometry names must fail before constructing a GPU solver.
         # Loading a freshly linked CUDA executable can be slow even before main on WSL/cold filesystem caches.
-        unsupported = subprocess.run([str(executable), '--geometry=feng'], capture_output=True, text=True, timeout=120)
-        require(unsupported.returncode != 0 and 'not implemented' in unsupported.stderr, 'Unavailable Feng mode accepted')
+        unsupported = subprocess.run([str(executable), '--geometry=invalid'], capture_output=True, text=True, timeout=120)
+        require(unsupported.returncode != 0 and 'Unknown' in unsupported.stderr, 'Invalid geometry mode accepted')
         for name in names:
             command = [str(executable), '--smoke-test', '--comparison-report', '--geometry=default', '--no-frames',
                        '--fixed-cd', '--output-dir', str(root / name)]

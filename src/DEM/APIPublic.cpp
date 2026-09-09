@@ -815,6 +815,15 @@ void DEMSolver::RequestContactUpdate() {
     dT->announceCritical();
 }
 
+// Select force geometry only during setup so an API toggle cannot silently reinterpret live friction history.
+void DEMSolver::SetMeshMeshContactGeometry(const std::string& geometry) {
+    assertSysNotInit("SetMeshMeshContactGeometry");
+    if (geometry != "default" && geometry != "feng")
+        DEME_ERROR("Mesh-mesh contact geometry must be 'default' or 'feng' (got '%s').", geometry.c_str());
+    dT->meshMeshFengForcesEnabled = geometry == "feng";
+    dT->meshMeshFengDiagnosticCount = 0;
+}
+
 // Diagnostics remain opt-in and never alter contact forces or history. Public calls follow the solver's idle-thread
 // contract; the explicit stream synchronization makes the returned snapshot safe for immediate host inspection.
 void DEMSolver::SetMeshMeshFengDiagnostics(bool enable) {
@@ -825,7 +834,7 @@ void DEMSolver::SetMeshMeshFengDiagnostics(bool enable) {
 std::vector<MeshMeshFengDiagnostic> DEMSolver::GetMeshMeshFengDiagnostics() {
     assertSysInit("GetMeshMeshFengDiagnostics");
     const size_t count = dT->meshMeshFengDiagnosticCount;
-    if (!dT->meshMeshFengDiagnosticsEnabled || count == 0) {
+    if ((!dT->meshMeshFengDiagnosticsEnabled && !dT->meshMeshFengForcesEnabled) || count == 0) {
         return {};
     }
     ScopedCudaDevice device_scope(dT->streamInfo.device);
@@ -3508,6 +3517,8 @@ size_t DEMSolver::ChangeClumpFamily(unsigned int fam_num,
 // of the required simulation information such as the scale of the problem domain, and makes sure these info live in
 // GPU memory.
 void DEMSolver::Initialize(bool dry_run) {
+    if (dT->meshMeshFengForcesEnabled && !dT->solverFlags.meshUniversalContact)
+        DEME_ERROR("Feng mesh geometry requires SetMeshUniversalContact(true).");
     // A few checks first
     validateUserInputs();
 

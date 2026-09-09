@@ -13,6 +13,8 @@ SET(LIBRARIES
 SET(MODULAR_TESTS
 		DEMTest_FengGeometry
 		DEMTest_FengDiagnostics
+		DEMTest_FengForces
+		DEMTest_JitDataLayout
 		DEMTest_StateFinite
 		DEMTest_AdaptiveTimestep
 		DEMTest_AnalyticalCone
