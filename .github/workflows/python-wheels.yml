@@ -81,14 +81,8 @@ jobs:
 
           name = wheels[0].name
           expected_python = "${{ matrix.python }}"
-<<<<<<< HEAD
           if not name.startswith("deme3-"):
               raise SystemExit(f"Expected a deme3 preview wheel, found: {name}")
-=======
-          distribution = "${{ github.ref_name == 'Mesh_Particles_Py' && 'deme3' || 'deme' }}"
-          if not name.startswith(distribution + "-"):
-              raise SystemExit(f"Expected a {distribution} distribution wheel, found: {name}")
->>>>>>> Mesh_Particles
           if expected_python not in name or "manylinux_2_28_x86_64" not in name:
               raise SystemExit(f"Unexpected wheel tags: {name}")
 
