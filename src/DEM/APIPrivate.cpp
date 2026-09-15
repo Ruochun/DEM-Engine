@@ -651,6 +651,21 @@ void DEMSolver::decideCDMarginStrat() {
             m_approx_vel_func = this->CreateInspector("absv");
             // Also create inspector for angular velocity magnitude
             m_approx_angvel_func = this->CreateInspector("absangvel");
+            // Validate every owner in the existing dT magnitude kernels, before any reduction or kT handoff.
+            // Unlike the primitive margin checks, these run with fixed margins and with angular margins disabled.
+            // Keep this policy on the internal inspectors so public inspection behavior remains unchanged.
+            m_approx_vel_func->inspection_code += R"V0G0N(
+                if (!isfinite(quantity[myOwner])) {
+                    DEME_ABORT_KERNEL("Non-finite linear velocity (NaN or Inf) for ownerID %llu.\n",
+                                      static_cast<unsigned long long>(myOwner));
+                }
+            )V0G0N";
+            m_approx_angvel_func->inspection_code += R"V0G0N(
+                if (!isfinite(quantity[myOwner])) {
+                    DEME_ABORT_KERNEL("Non-finite angular velocity (NaN or Inf) for ownerID %llu.\n",
+                                      static_cast<unsigned long long>(myOwner));
+                }
+            )V0G0N";
             m_max_v_finder_type = MARGIN_FINDER_TYPE::DEM_INSPECTOR;
             break;
     }

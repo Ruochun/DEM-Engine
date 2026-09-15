@@ -12,10 +12,11 @@
 #include <DEM/API.h>
 #include <DEM/utils/Samplers.hpp>
 #ifdef DEME_HAS_VISUALIZER
-    #include <DEM/utils/DEMVisualizer.h>
+    #include "VisualizerDemoLoop.h"
 #endif
 
 #include <filesystem>
+#include <cmath>
 #include <cstdio>
 #include <time.h>
 #include <filesystem>
@@ -122,8 +123,8 @@ int main() {
 
     // Testing modifying jitify options and force model prerequisites
     auto jitify_options = DEMSim.GetJitifyOptions();
-    jitify_options.pop_back();  // Remove C++ std17 option
-    jitify_options.push_back("-std=c++20");
+    jitify_options.pop_back();                // Remove C++ std17 option
+    jitify_options.push_back("-std=c++17");   // Then add it back
     DEMSim.SetJitifyOptions(jitify_options);  // Then set it
     my_force_model->DefineCustomModelPrerequisites(
         "float3 __device__ GetContactForce(float3 AOwner, float3 BOwner, float3 ALinVel, float3 BLinVel, "
@@ -143,11 +144,12 @@ int main() {
     DEMSim.Update();
 
 #ifdef DEME_HAS_VISUALIZER
-    // Rendering is deliberately frame-driven: the visualizer observes the solver but never advances it.
+    // Display cadence follows wall time so camera input stays responsive between simulation output frames.
     DEMVisualizer visualizer(DEMSim);
     visualizer.SetCameraPosition(make_float3(5.f, 5.f, 3.f));
     visualizer.SetCameraTarget(make_float3(0.f, 0.f, -0.5f));
     visualizer.Initialize();
+    VisualizerDemoLoop viewer_loop;
 #endif
 
     // Ready simulation
@@ -188,12 +190,18 @@ int main() {
         // Testing persistent contact functionality...
         DEMSim.MarkPersistentContact();
 
-        DEMSim.DoDynamicsThenSync(frame_time);
 #ifdef DEME_HAS_VISUALIZER
-        // Closing the window disables subsequent frames without stopping the simulation demo.
-        if (visualizer.Run()) {
-            visualizer.Render();
+        // Keep each solver call short enough to service mouse input; output remains at frame_time intervals.
+        // Match the float timestep used internally so a rounded-up double does not request an extra step.
+        const float dynamics_step = static_cast<float>(DEMSim.GetTimeStepSize());
+        const int steps_per_frame = static_cast<int>(std::lround(frame_time / dynamics_step));
+        for (int step = 0; step < steps_per_frame; ++step) {
+            viewer_loop.Update(visualizer);
+            DEMSim.DoDynamics(dynamics_step);
         }
+        DEMSim.DoDynamicsThenSync(0.0);
+#else
+        DEMSim.DoDynamicsThenSync(frame_time);
 #endif
         max_z = max_z_finder->GetValue();
         max_v = max_v_finder->GetValue();

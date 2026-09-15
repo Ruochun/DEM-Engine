@@ -9,7 +9,8 @@ DEME requires:
 * a 64-bit Linux system for the currently supported Python package;
 * an NVIDIA GPU;
 * an NVIDIA driver compatible with the selected CUDA Toolkit;
-* CUDA Toolkit 11 or newer, including NVRTC and CUDA headers;
+* CUDA runtime libraries, NVRTC, and headers (installed by the ``cuda12`` extra,
+  or provided by a compatible system CUDA Toolkit);
 * CMake 3.18 or newer and a CUDA-compatible C++ compiler when building from
   source.
 
@@ -35,7 +36,22 @@ Install a released wheel with:
 
 .. code-block:: console
 
-   python -m pip install deme3
+   python -m pip install "deme[cuda12]"
+
+This installation flavor is for the Python package only. It configures the
+private Python extension without changing CUDA environment variables or the
+header discovery used by standalone C++ programs. C++ builds and applications
+continue to use their normal system CUDA Toolkit.
+
+The ``cuda12`` extra installs CUDA 12.9 runtime/compiler libraries and headers
+from NVIDIA wheels. No system CUDA Toolkit is required for binary-wheel users.
+On WSL2, install a compatible NVIDIA driver on Windows; do not install a Linux
+GPU driver inside WSL. A working GPU driver is still required and is not
+installed by pip. Building from source still requires a CUDA development toolkit.
+
+Use plain ``pip install deme`` if you provide a system toolkit yourself.
+Preview builds from ``Mesh_Particles_Py`` use ``pip install "deme3[cuda12]"``;
+both distributions provide the same namespace and should not be installed together.
 
 The canonical import is:
 
@@ -120,119 +136,6 @@ This is not a pure-Python or universal wheel. Its filename tags determine which
 Python interpreter and operating-system ABI pip will accept, while CUDA and
 driver compatibility must also be validated separately.
 
-Build the complete supported Python matrix
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-One native wheel must be built by each targeted CPython interpreter. Building
-with Python 3.13, for example, creates only the ``cp313`` wheel; it does not
-also create wheels for the other supported Python versions. DEM-Engine 3
-currently targets CPython 3.9 through 3.14.
-
-The following reproducible Conda workflow creates a separate build environment
-for every target. Run the environment-creation commands from the repository
-root:
-
-.. code-block:: console
-
-   conda create --yes --name deme-wheel-py39 python=3.9 pip
-   conda create --yes --name deme-wheel-py310 python=3.10 pip
-   conda create --yes --name deme-wheel-py311 python=3.11 pip
-   conda create --yes --name deme-wheel-py312 python=3.12 pip
-   conda create --yes --name deme-wheel-py313 python=3.13 pip
-   conda create --yes --name deme-wheel-py314 python=3.14 pip
-
-   for env in deme-wheel-py39 deme-wheel-py310 deme-wheel-py311 deme-wheel-py312 deme-wheel-py313 deme-wheel-py314; do
-       conda run --name "$env" python -m pip install --upgrade pip build twine auditwheel
-   done
-
-Build once with each interpreter. As in the single-version workflow, run the
-builder from the checkout's parent directory to prevent the local ``build/``
-directory from shadowing the PyPA ``build`` package:
-
-.. code-block:: console
-
-   cd ..
-   for env in deme-wheel-py39 deme-wheel-py310 deme-wheel-py311 deme-wheel-py312 deme-wheel-py313 deme-wheel-py314; do
-       conda run --name "$env" python -m build --wheel --outdir DEM-Engine/dist DEM-Engine
-   done
-   cd DEM-Engine
-
-   conda run --name deme-wheel-py313 python -m twine check dist/*.whl
-
-The resulting directory should contain six distinct wheels with ``cp39``,
-``cp310``, ``cp311``, ``cp312``, ``cp313``, and ``cp314`` tags.
-Confirm that explicitly:
-
-.. parsed-literal::
-
-   ls -1 dist/deme-|release|-cp3*-linux_*.whl
-   for wheel in dist/*.whl; do
-       conda run --name deme-wheel-py313 python -m auditwheel show "$wheel"
-   done
-
-Generating all six files is only the build step. Each wheel must still be
-installed and exercised with its matching Python version before that version
-is considered validated. CUDA, Linux ABI, and GPU compatibility also require
-separate testing; ``auditwheel show`` reports the native shared-library and
-``glibc`` requirements but does not prove runtime compatibility.
-
-Build release wheels with cibuildwheel
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The Conda commands above are useful for native development builds. Release
-wheels use ``cibuildwheel`` and PyPA's CUDA-enabled
-``manylinux_2_28_x86_64_cuda12_9`` container so the result does not inherit the
-Linux ABI of the maintainer's workstation. The configuration is stored in
-``pyproject.toml``.
-
-With Docker available, build the same complete matrix locally from the parent
-of the checkout:
-
-.. parsed-literal::
-
-   python3 -m venv .venv-cibuildwheel
-   source .venv-cibuildwheel/bin/activate
-   python -m pip install --upgrade pip
-   python -m pip install "cibuildwheel==4.1.1" twine auditwheel
-
-   cd ..
-   python -m cibuildwheel --platform linux --output-dir DEM-Engine/wheelhouse DEM-Engine
-   cd DEM-Engine
-
-   python -m twine check wheelhouse/*.whl
-   for wheel in wheelhouse/*.whl; do
-       python -m auditwheel show "$wheel"
-   done
-
-This release process uses ``auditwheel repair`` to copy ordinary redistributable
-native dependencies into each wheel and assign the
-``manylinux_2_28_x86_64`` tag. It explicitly excludes ``libcuda.so.1``,
-``libcudart.so.12``, and ``libnvrtc.so.12``. DEME runtime-compiles CUDA kernels,
-so a compatible CUDA 12.9 toolkit (including NVRTC, its builtins, and headers)
-and NVIDIA driver must be installed on the deployment host. Bundling a driver
-stub is incorrect, while bundling NVRTC without all of its dynamically loaded
-resources produces an incomplete runtime. Before publishing, inspect the
-repaired wheel and ``auditwheel show`` output to confirm that CUDA is the only
-non-system external dependency.
-
-Automated wheel builds
-~~~~~~~~~~~~~~~~~~~~~~
-
-``.github/workflows/python-wheels.yml`` runs the same policy as six parallel
-jobs, one for each CPython ABI. It runs on relevant pull requests, release tags,
-or manual dispatch. Every job:
-
-* checks out Git submodules recursively;
-* builds in the CUDA 12.9 manylinux 2.28 container;
-* repairs the wheel with ``auditwheel``;
-* checks package metadata and the expected Python/platform filename tags; and
-* uploads the wheel as a workflow artifact for testing or release assembly.
-
-The hosted build runners do not provide a usable NVIDIA GPU. Consequently this
-workflow validates compilation, repair, metadata, and tags but deliberately
-does not claim GPU runtime validation. Install each artifact on a compatible
-GPU host and run the tests below before publishing it.
-
 Test the wheel in a clean environment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -247,7 +150,7 @@ install the wheel there:
    source /tmp/deme-wheel-test/bin/activate
 
    python -m pip install --upgrade pip
-   python -m pip install dist/deme-|release|-*.whl
+   python -m pip install dist/deme-|release|-\*.whl
    python -m pip check
 
 Run import checks from outside the source tree. Otherwise, files in the
@@ -280,62 +183,6 @@ Return to the checkout when testing is complete:
    deactivate
    cd /path/to/DEM-Engine
 
-Publish the deme3 preview distribution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Publishing changes external package state and is only for authorized
-maintainers. ``python-wheels.yml`` uses PyPI Trusted Publishing, so it does not
-store a long-lived PyPI token in GitHub.
-
-Before the first upload, create a GitHub environment named ``pypi-deme3`` under
-``Settings`` then ``Environments``. Configure required reviewers so that the
-publication job always pauses for approval, and restrict deployment branches to
-``Mesh_Particles_Py``. Then sign in to PyPI, open the
-account-level ``Publishing`` page, and add a pending GitHub publisher with:
-
-* PyPI project name: ``deme3``;
-* GitHub owner: ``Ruochun``;
-* repository: ``DEM-Engine``;
-* workflow filename: ``python-wheels.yml``; and
-* environment: ``pypi-deme3``.
-
-The pending publisher creates ``deme3`` on the first successful upload. It
-does not reserve the name before that upload. The project name must exactly
-match ``name = "deme3"`` in ``pyproject.toml``.
-
-To build without publishing, open the repository's ``Actions`` tab, select
-``Build deme3 preview wheels``, choose ``Run workflow``, leave
-``publish_to_pypi`` disabled, and run it from ``Mesh_Particles_Py``.
-Download and test all six artifacts after the jobs succeed.
-
-To publish the already-reviewed source commit, dispatch the same workflow
-again with ``publish_to_pypi`` enabled. The six build jobs run again; only if
-all succeed does the ``Publish deme3 preview wheels to PyPI`` job enter the protected
-``pypi-deme3`` environment. Approve that deployment after checking the commit and
-wheel jobs. The publishing job downloads the six artifacts and uploads them
-with a short-lived PyPI OIDC credential.
-
-PyPI does not allow replacing a file or reusing an existing release version.
-If any ``deme3`` version |release| file has already been uploaded, increment the
-project version and rebuild the complete wheel set rather than retrying with
-different bytes under the same version.
-
-Wheel portability
-~~~~~~~~~~~~~~~~~
-
-Before distributing a wheel, record and test at least:
-
-* the Python and ABI tag in the wheel filename;
-* the Linux distribution and minimum compatible ``glibc`` baseline;
-* the CUDA Toolkit used for compilation;
-* the minimum NVIDIA driver version;
-* the GPU architectures included by the CUDA build; and
-* imported shared-library dependencies.
-
-Until the supported compatibility matrix is published, build and validate
-wheels on the oldest intended deployment platform and test them on each
-supported Python, CUDA/driver, and GPU configuration.
-
 C++ build
 ---------
 
@@ -346,3 +193,47 @@ C++ build
    cmake --build build --parallel
 
 Use a focused demo or modular-test target first when validating a change.
+
+On native Windows, configure with CMake GUI or the command line using a
+CUDA-compatible Visual Studio toolchain, then build the Release configuration:
+
+.. code-block:: console
+
+   cmake --build build --config Release
+
+Executables from multi-configuration generators are normally under
+``build/bin/Release``. Linux and WSL use ``build/bin``. WSL follows the Linux
+instructions; graphical output additionally needs the display setup in
+:doc:`visualization`.
+
+Install the C++ library
+-----------------------
+
+Select an installation prefix during configuration, then install after building:
+
+.. code-block:: console
+
+   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/path/to/deme-install
+   cmake --build build --config Release --parallel
+   cmake --install build --config Release
+
+For a consuming CMake project, point ``DEME_DIR`` to the installed directory
+containing ``DEMEConfig.cmake`` (under ``lib/cmake/DEME`` or
+``lib64/cmake/DEME``, depending on the installation).
+
+Development and release packaging
+---------------------------------
+
+For a local source installation use ``python -m pip install .``; use
+``python -m pip install -e .`` for an editable installation. These still build
+a native extension and need the source-build prerequisites. Select a specific
+interpreter for a manual CMake build with
+``-DPython_EXECUTABLE=/path/to/python`` and ``-DDEME_BUILD_PYTHON=ON``.
+
+The Conda recipe is under ``recipe/``. To build it locally, install
+``conda-build`` and run ``conda build recipe/ -c conda-forge``. Use compilers
+and runtime libraries compatible with the target environment; see
+:doc:`troubleshooting` for ``GLIBCXX`` errors.
+
+For the supported wheel matrix, CI, portability checks, and PyPI publishing,
+see :doc:`developer/packaging`.

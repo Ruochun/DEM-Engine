@@ -133,6 +133,10 @@ class DEMSolver {
     /// simulation and should not be called concurrently with DoDynamics(). Disabled geometry categories are not
     /// transferred into the returned snapshot.
     DEMVisualizationSnapshot GetVisualizationSnapshot(bool include_spheres = true, bool include_triangles = true) const;
+    /// Get cached-renderer geometry in owner-local coordinates. Refresh when the frame revision changes.
+    DEMVisualizationScene GetVisualizationScene() const;
+    /// Fill reusable owner arrays at a synchronized simulation boundary; never call concurrently with dynamics.
+    void GetVisualizationFrame(DEMVisualizationFrame& frame, bool include_velocities = false) const;
     /// @brief Set the strategy for auto-adapting time step size.
     /// @param type "none", "hertz_const", "max_vel" or "int_diff". Currently, only "hertz_const" has behavior; it
     /// computes a fixed setup-time timestep from Hertzian material stiffness, minimum clump mass, and minimum radius.
@@ -1603,8 +1607,12 @@ class DEMSolver {
     /// of some random number)
     void EnsureKernelErrMsgLineNum(bool flag = true) { ensure_kernel_line_num = flag; }
 
-    /// Reduce contact forces to accelerations right after calculating them, in the same kernel. This may give some
-    /// performance boost if you have only polydisperse spheres, no clumps.
+    /// Reduce contact forces to accelerations right after calculating them, in the same kernel, instead of in a
+    /// separate pass over the contact array (the default). Upstream main measured DEMdemo_PlateSinkage with 3-sphere
+    /// clumps at 150k to 600k grains: about +21% throughput on an NVIDIA Blackwell GPU and +96% to +204% on an AMD
+    /// MI350X, where the separate pass is the dominant cost and also slows concurrent contact detection. These are
+    /// upstream measurements, not a performance guarantee for this branch. Contact-force recording and output are
+    /// unaffected; tracker force-pair queries throw while this is on.
     /// @note After initialization, call UpdateSimParams() for this change to take effect in dT.
     void SetCollectAccRightAfterForceCalc(bool flag = true) { collect_force_in_force_kernel = flag; }
 

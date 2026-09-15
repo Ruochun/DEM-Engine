@@ -11,6 +11,7 @@ SET(LIBRARIES
 # ------------------------------------------------------------------------------
 
 SET(MODULAR_TESTS
+		DEMTest_StateFinite
 		DEMTest_AdaptiveTimestep
 		DEMTest_AnalyticalCone
 		DEMTest_AnalyticalConePour
@@ -19,6 +20,7 @@ SET(MODULAR_TESTS
 		DEMTest_ConeGrazingPlane
 		DEMTest_ConeGrazingSphere
 		DEMTest_CylinderCrossRotation
+		DEMTest_CudaHeaderDiscovery
 		DEMTest_DeviceDataRetrieval
 		DEMTest_DeviceSelection
 		DEMTest_MeshBox1Particle
@@ -32,7 +34,12 @@ SET(MODULAR_TESTS
 		DEMTest_SphereSphereArea
 		DEMTest_TrianglePVTracking
 		DEMTest_VisualizationSnapshot
+		DEMTest_VisualizationScene
 )
+
+if(DEME_BUILD_VISUALIZER)
+	list(APPEND MODULAR_TESTS DEMTest_Visualizer)
+endif()
 
 # ------------------------------------------------------------------------------
 # Add all test executables
@@ -65,6 +72,9 @@ FOREACH(PROGRAM ${MODULAR_TESTS})
 			PUBLIC ${LIBRARIES}
 			PUBLIC ${EXTERNAL_LIBRARIES}
 		)
+		if(PROGRAM STREQUAL "DEMTest_Visualizer")
+			target_link_libraries(${PROGRAM} PRIVATE DEMEVisualizer)
+		endif()
 		
 		add_dependencies(${PROGRAM} ${LIBRARIES})
 
