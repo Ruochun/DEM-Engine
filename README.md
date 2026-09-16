@@ -1,6 +1,6 @@
-# DEM-Engine
+# SBEL Chrono DEM-Engine
 
-**GPU-accelerated discrete element simulation with C++ and Python APIs.**
+**Now version 3: GPU-accelerated discrete element simulation built for performance, with C++ and Python APIs.**
 
 DEM-Engine (DEME) simulates granular materials using one or two NVIDIA GPUs.
 This branch supports sphere clumps, mesh particles, analytical boundaries,
@@ -9,13 +9,44 @@ an interactive visualizer and host/device data access for co-simulation.
 
 <p>
   <img width="380" src="https://i.imgur.com/DKGlM14.jpg" alt="DEM-Engine granular simulation">
-  <img width="380" src="https://i.imgur.com/A3utANi.gif" alt="DEM-Engine simulation animation">
+  <img width="380" src="https://i.imgur.com/Pt74UFM.gif" alt="DEM-Engine demo animation">
+  
 </p>
 
 <p>
-  <img width="380" src="https://i.imgur.com/YOEbAd8.gif" alt="DEM-Engine demo animation">
-  <img width="380" src="https://i.imgur.com/4R25TPX.gif" alt="DEM-Engine demo animation">
+  <img width="460" src="https://i.imgur.com/A3utANi.gif" alt="DEM-Engine simulation animation">
+  <img width="300" src="https://i.imgur.com/4R25TPX.gif" alt="DEM-Engine demo animation">
 </p>
+
+## What's new in DEME 3?
+
+**[Get started with DEME 3: installation guide](docs/installation.rst)** —
+Python packages, C++ source builds, and system requirements.
+
+- **Mesh contact:** mesh–mesh collisions and a new clump–mesh scheme that combines
+  triangle contributions into patch/island contacts before evaluating forces.
+- **Rigid combined bodies:** group members into one rigid assembly, replacing
+  geometry-wildcard-based constructions with member-level controls.
+- **On-device coupling:** exchange state and forces directly with other GPU packages.
+- **Persistent kernel caching:** reuse compiled kernels across compatible repeated
+  runs to reduce initialization time.
+- **Interactive visualization and expanded Python workflows.**
+
+**When to stay with DEME 2:** DEME 3 currently supports only NVIDIA GPUs and may
+use more memory. If you need non-NVIDIA GPU support, or your application does
+not need mesh–mesh contact or the new aggregated clump–mesh contact scheme,
+consider staying with **DEME 2.4.2**, the final DEME 2 release.
+
+For C++, use the upstream [v2.4.2 tag](https://github.com/projectchrono/DEM-Engine/tree/v2.4.2):
+
+```bash
+git clone --branch v2.4.2 --recurse-submodules https://github.com/projectchrono/DEM-Engine.git DEM-Engine-2.4.2
+```
+
+For pyDEME, explicitly pin the Python distribution: `python -m pip install "deme==2.4.2"`.
+Use version 2.4.2's installation requirements and examples for either route.
+See [DEME 3 features and migration considerations](docs/deme3-new-features.rst)
+for details, including the contact-model changes and memory tradeoffs.
 
 ## Why use DEME?
 
@@ -24,21 +55,24 @@ physics, and computational cost matter. Typical applications include mixing,
 hopper flow, soil penetration, wheel–terrain interaction, and granular impact.
 
 - **Complex particle shapes.** Represent grains with clumped spheres or mesh
-  particles, and build rigid assemblies with combined owners.
+  particles, and build rigid assemblies with combined owners. DEME supports
+  **mesh–mesh contact**, allowing mesh particles to collide with one another.
 - **Custom contact physics.** Define your own contact force models, including
   cohesion, electrostatic interactions, and bonds that can break. Material
   properties and per-contact variables let you tailor the model to your problem.
 - **GPU performance.** Use one or two NVIDIA GPUs, including consumer and data
   center hardware. As an illustrative benchmark from the main-branch README,
   one million three-sphere clumps simulated for one million timesteps takes
-  around one hour on two RTX 3080s. Runtime depends on the geometry, contact
+  around one hour on RTX 3080s. Runtime depends on the geometry, contact
   model, and simulation settings.
 - **Control over the simulation.** Prescribe motion, extract forces, and update
   geometry to model processes such as mesh deformation or grain breakage.
   The examples show how to supply these behaviors through the API.
-- **Co-simulation.** Couple DEME to other solvers, such as
-  [Chrono](https://github.com/projectchrono/chrono), for multibody dynamics or
-  other physics. Host and GPU data access support exchanging state and forces.
+- **On-device co-simulation.** Exchange simulation state and forces directly
+  with other GPU-based packages through device buffers, avoiding CPU round trips
+  for the exchanged data. Host data access also supports coupling to solvers
+  such as [Chrono](https://github.com/projectchrono/chrono) for multibody dynamics
+  or other physics.
 - **C++ and Python workflows.** Start with Python or integrate the C++ library
   into an application. The C++ API follows a Chrono-like design, and the
   interactive visualizer helps inspect simulations as they run.
@@ -75,15 +109,24 @@ python -m pip install "deme[cuda12]"
 The `cuda12` extra installs CUDA runtime libraries, NVRTC, and headers through pip;
 no system CUDA Toolkit installation is needed for Python wheels. This setup applies
 only to the Python extension; standalone C++ applications keep their normal CUDA
-configuration. Use plain `pip install deme` to
-use an existing toolkit. Preview builds from `Mesh_Particles_Py` are published as
-`deme3` (`pip install "deme3[cuda12]"`), with the same `import deme` namespace.
+configuration. Use plain `pip install deme` to use an existing toolkit.
 
 ```python
 import deme
 
 solver = deme.DEMSolver()
 ```
+
+After installation, run a Python demo from the repository root:
+
+```bash
+python python/demos/single_sphere_collide.py --smoke-test
+```
+
+This headless example simulates two colliding spheres over meshes and writes
+visualization files. The first run may take time to compile CUDA kernels.
+See the [Python demos](python/demos/README.md) for more examples, command-line
+options, and instructions for viewing their output.
 
 See [installation requirements](docs/installation.rst) for wheel compatibility
 and source builds. New scripts should use `import deme`; `import DEME` remains

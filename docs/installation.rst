@@ -16,7 +16,7 @@ DEME requires:
 
 The default source build also includes the interactive visualizer. On Linux,
 install the X11 and OpenGL development headers listed in
-:doc:`visualization`. Set ``DEME_BUILD_VISUALIZER=OFF`` only for an explicitly
+`Interactive visualization <visualization.rst>`__. Set ``DEME_BUILD_VISUALIZER=OFF`` only for an explicitly
 headless build; published Python wheels build the visualizer by default.
 
 The exact Python, CUDA, compiler, driver, and GPU architecture matrix is being
@@ -50,8 +50,6 @@ GPU driver inside WSL. A working GPU driver is still required and is not
 installed by pip. Building from source still requires a CUDA development toolkit.
 
 Use plain ``pip install deme`` if you provide a system toolkit yourself.
-Preview builds from ``Mesh_Particles_Py`` use ``pip install "deme3[cuda12]"``;
-both distributions provide the same namespace and should not be installed together.
 
 The canonical import is:
 
@@ -204,7 +202,7 @@ CUDA-compatible Visual Studio toolchain, then build the Release configuration:
 Executables from multi-configuration generators are normally under
 ``build/bin/Release``. Linux and WSL use ``build/bin``. WSL follows the Linux
 instructions; graphical output additionally needs the display setup in
-:doc:`visualization`.
+`Interactive visualization <visualization.rst>`__.
 
 Install the C++ library
 -----------------------
@@ -233,7 +231,7 @@ interpreter for a manual CMake build with
 The Conda recipe is under ``recipe/``. To build it locally, install
 ``conda-build`` and run ``conda build recipe/ -c conda-forge``. Use compilers
 and runtime libraries compatible with the target environment; see
-:doc:`troubleshooting` for ``GLIBCXX`` errors.
+`Troubleshooting <troubleshooting.rst>`__ for ``GLIBCXX`` errors.
 
 For the supported wheel matrix, CI, portability checks, and PyPI publishing,
-see :doc:`developer/packaging`.
+see `Python wheel maintenance <developer/packaging.rst>`__.

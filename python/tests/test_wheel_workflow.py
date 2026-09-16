@@ -22,13 +22,18 @@ class WheelWorkflowTests(unittest.TestCase):
         block = step.split("python - <<'PY'\n", 1)[1].split("\n          PY\n", 1)[0]
         cls.validator = textwrap.dedent(block)
 
-    def validate(self, branch, abi="cp313", metadata_name=None, extra=True, member=None, filename_name=None):
+    def validate(self, branch, abi="cp313", metadata_name=None, extra=True, member=None, filename_name=None,
+                 content_type="text/markdown", description=None):
         """Render the two Actions expressions and execute against a temporary wheel."""
         distribution = "deme3" if branch == "Mesh_Particles_Py" else "deme"
         source = self.validator.replace("${{ matrix.python }}", abi).replace(
             "${{ github.ref_name == 'Mesh_Particles_Py' && 'deme3' || 'deme' }}", distribution)
         self.assertNotIn("${{", source, "Update the test renderer for new workflow expressions")
         with tempfile.TemporaryDirectory() as directory:
+            # Match the build checkout's prepared README, including non-ASCII text,
+            # so the real validator checks both the metadata type and UTF-8 body.
+            readme = "# DEME 3\n\nGPU simulation with mesh–mesh contact.\n"
+            (Path(directory) / "README.md").write_text(readme, encoding="utf-8")
             wheelhouse = Path(directory) / "wheelhouse"
             wheelhouse.mkdir()
             filename = f"{filename_name or distribution}-3.0.12-{abi}-{abi}-manylinux_2_28_x86_64.whl"
@@ -36,6 +41,9 @@ class WheelWorkflowTests(unittest.TestCase):
                 metadata = f"Metadata-Version: 2.1\nName: {metadata_name or distribution}\nVersion: 3.0.12\n"
                 if extra:
                     metadata += "Provides-Extra: cuda12\n"
+                if content_type is not None:
+                    metadata += f"Description-Content-Type: {content_type}\n"
+                metadata += "\n" + (readme if description is None else description)
                 archive.writestr(f"{distribution}-3.0.12.dist-info/METADATA", metadata)
                 if member:
                     archive.writestr(member, b"fixture")
@@ -63,6 +71,19 @@ class WheelWorkflowTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertTrue(result.stderr.strip())
+
+    def test_rejects_invalid_pypi_descriptions(self):
+        for branch in ("Mesh_Particles_Py", "Mesh_Particles"):
+            for invalid, message in (
+                ({"content_type": None}, "Expected a Markdown PyPI description"),
+                ({"content_type": "text/plain"}, "Expected a Markdown PyPI description"),
+                ({"description": ""}, "Wheel description does not match the prepared README"),
+                ({"description": "Outdated README"}, "Wheel description does not match the prepared README"),
+            ):
+                with self.subTest(branch=branch, invalid=invalid):
+                    result = self.validate(branch, **invalid)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(result.stderr.strip(), message)
 
 
 if __name__ == "__main__":
