@@ -5,7 +5,7 @@
 
 // =============================================================================
 // Hopper discharge with analytical sphere particles and low-poly mesh cylinders.
-// Cylinders have an octagonal cross section, flat ends, and 28 triangles each.
+// Cylinders have a regular 32-sided cross section, centered flat-end fans, and 128 triangles each.
 // Spheres and cylinders settle together above a fixed mesh plug. Disabling the
 // plug's contacts and output opens the outlet for discharge into the lower bin.
 // Run with --smoke-test for a small bed and a short, self-checking discharge.
@@ -62,16 +62,24 @@ int main(int argc, char* argv[]) {
     constexpr unsigned int closed_gate_family = 3;
     constexpr unsigned int disabled_gate_family = 4;
 
-    auto mat_flume = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.60}});
-    auto mat_walls = DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.60}});
-    auto mat_spheres = DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", 0.20}, {"mu", 0.40}, {"Crr", 0.04}});
-    auto mat_cylinders = DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", 0.20}, {"mu", 0.30}, {"Crr", 0.03}});
+    // Strong sliding friction and rolling resistance for this hopper experiment.
+    // Use the same values for particles and walls so mixed pairs retain this resistance.
+    constexpr float friction = 1.0f;
+    constexpr float rolling_resistance = 0.20f;
+    auto mat_flume =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.60}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_walls =
+        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.60}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_spheres =
+        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", 0.20}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_cylinders =
+        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", 0.20}, {"mu", friction}, {"Crr", rolling_resistance}});
     // Apply the wall/flume contact coefficients to both particle materials.
     for (const auto& wall : {mat_walls, mat_flume}) {
         for (const auto& particle : {mat_spheres, mat_cylinders}) {
             DEMSim.SetMaterialPropertyPair("CoR", wall, particle, 0.20);
-            DEMSim.SetMaterialPropertyPair("Crr", wall, particle, 0.05);
-            DEMSim.SetMaterialPropertyPair("mu", wall, particle, 0.30);
+            DEMSim.SetMaterialPropertyPair("Crr", wall, particle, rolling_resistance);
+            DEMSim.SetMaterialPropertyPair("mu", wall, particle, friction);
         }
     }
 
@@ -108,8 +116,9 @@ int main(int argc, char* argv[]) {
     DEMSim.DisableContactBetweenFamilies(fixed_family, fixed_family);
 
     // The template is centered on its principal axes, with its long axis along X.
+    // Thirty-two sides limit radial faceting error to 0.49%; centered cap fans keep the ends symmetric.
     // Explicit circular-cylinder mass properties describe the nominal particle dimensions and density.
-    auto cylinder_type = DEMSim.LoadMeshType(GetDEMEDataFile("mesh/cyl_x_r1_h2_8sides.obj"), mat_cylinders, false);
+    auto cylinder_type = DEMSim.LoadMeshType(GetDEMEDataFile("mesh/cyl_x_r1_h2_32sides.obj"), mat_cylinders, false);
     cylinder_type->Scale(make_float3(cylinder_length / 2, radius_cylinder, radius_cylinder));
     const float cylinder_mass = PI * radius_cylinder * radius_cylinder * cylinder_length * density_cylinder;
     const float axial_moi = 0.5 * cylinder_mass * radius_cylinder * radius_cylinder;
@@ -218,7 +227,7 @@ int main(int argc, char* argv[]) {
 
     if (smoke_test) {
         // Check the representation, free cylinder motion, finite particle states, and stationary disabled plug.
-        bool valid = DEMSim.GetNumClumps() == total_spheres && cylinder_type->GetNumTriangles() == 28;
+        bool valid = DEMSim.GetNumClumps() == total_spheres && cylinder_type->GetNumTriangles() == 128;
         const auto positions = DEMSim.GetOwnerPosition(0, static_cast<bodyID_t>(DEMSim.GetNumOwners()));
         const auto velocities = DEMSim.GetOwnerVelocity(0, static_cast<bodyID_t>(DEMSim.GetNumOwners()));
         for (size_t i = 0; i < positions.size(); i++) {
