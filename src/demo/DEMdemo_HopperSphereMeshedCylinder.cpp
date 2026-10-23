@@ -53,7 +53,7 @@ int main(int argc, char* argv[]) {
     const double density_cylinder = 1128;
     const double radius_sphere = 0.003;
     const double density_sphere = 1592;
-    const float step_size = 5e-6f;
+    const float step_size = 2e-6f;
     const double hopper_width = 0.04;
     const double gate_width = 0.1295;
     constexpr unsigned int cylinder_family = 100;
@@ -66,18 +66,19 @@ int main(int argc, char* argv[]) {
     // Use the same values for particles and walls so mixed pairs retain this resistance.
     constexpr float friction = 1.0f;
     constexpr float rolling_resistance = 0.20f;
+    constexpr float CoR = 0.00;
     auto mat_flume =
-        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.60}, {"mu", friction}, {"Crr", rolling_resistance}});
+        DEMSim.LoadMaterial({{"E", 1e5}, {"nu", 0.3}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
     auto mat_walls =
-        DEMSim.LoadMaterial({{"E", 1e8}, {"nu", 0.3}, {"CoR", 0.60}, {"mu", friction}, {"Crr", rolling_resistance}});
+        DEMSim.LoadMaterial({{"E", 1e5}, {"nu", 0.3}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
     auto mat_spheres =
-        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", 0.20}, {"mu", friction}, {"Crr", rolling_resistance}});
+        DEMSim.LoadMaterial({{"E", 1e5}, {"nu", 0.35}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
     auto mat_cylinders =
-        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", 0.20}, {"mu", friction}, {"Crr", rolling_resistance}});
+        DEMSim.LoadMaterial({{"E", 1e5}, {"nu", 0.35}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
     // Apply the wall/flume contact coefficients to both particle materials.
     for (const auto& wall : {mat_walls, mat_flume}) {
         for (const auto& particle : {mat_spheres, mat_cylinders}) {
-            DEMSim.SetMaterialPropertyPair("CoR", wall, particle, 0.20);
+            DEMSim.SetMaterialPropertyPair("CoR", wall, particle, CoR);
             DEMSim.SetMaterialPropertyPair("Crr", wall, particle, rolling_resistance);
             DEMSim.SetMaterialPropertyPair("mu", wall, particle, friction);
         }

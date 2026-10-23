@@ -1,10 +1,14 @@
 // DEM force calculation strategies, modifiable
 
 if (overlapDepth > 0) {
+    // Promote before vector arithmetic and quaternion products, then narrow only at writeback.
+    const double3 normal = to_double3(B2A);
+    double3 force_double = to_double3(force);
+
     // Material properties
-    float E_cnt, CoR_cnt;
+    double E_cnt, CoR_cnt;
     {
-        matProxy2ContactParam<float>(E_cnt, E[bodyAMatType], nu[bodyAMatType], E[bodyBMatType], nu[bodyBMatType]);
+        matProxy2ContactParam<double>(E_cnt, E[bodyAMatType], nu[bodyAMatType], E[bodyBMatType], nu[bodyBMatType]);
         // CoR is pair-wise, so obtain it this way
         CoR_cnt = CoR[bodyAMatType][bodyBMatType];
     }
@@ -12,27 +16,29 @@ if (overlapDepth > 0) {
     // We also need the relative velocity between A and B in global frame to use in the damping terms
     // To get that, we need contact points' rotational velocity in GLOBAL frame
     // This is local rotational velocity (the portion of linear vel contributed by rotation)
-    float3 rotVelCPA = cross(ARotVel, locCPA);
-    float3 rotVelCPB = cross(BRotVel, locCPB);
+    double3 rotVelCPA = cross(to_double3(ARotVel), to_double3(locCPA));
+    double3 rotVelCPB = cross(to_double3(BRotVel), to_double3(locCPB));
     // This is mapping from local rotational velocity to global
-    applyOriQToVector3(rotVelCPA, AOriQ);
-    applyOriQToVector3(rotVelCPB, BOriQ);
+    applyOriQToVector3(rotVelCPA, make_double4(AOriQ.x, AOriQ.y, AOriQ.z, AOriQ.w));
+    applyOriQToVector3(rotVelCPB, make_double4(BOriQ.x, BOriQ.y, BOriQ.z, BOriQ.w));
 
     // The (total) relative linear velocity of A relative to B
-    const float3 velB2A = (ALinVel + rotVelCPA) - (BLinVel + rotVelCPB);
-    const float projection = dot(velB2A, B2A);
+    const double3 velB2A = (to_double3(ALinVel) + rotVelCPA) - (to_double3(BLinVel) + rotVelCPB);
+    const double projection = dot(velB2A, normal);
 
-    const float mass_eff = (AOwnerMass * BOwnerMass) / (AOwnerMass + BOwnerMass);
+    const double mass_eff = (static_cast<double>(AOwnerMass) * static_cast<double>(BOwnerMass)) /
+                            (static_cast<double>(AOwnerMass) + static_cast<double>(BOwnerMass));
 
     // Contact radius (radial distance from contact center axis) called cnt_rad, computed from area
-    const float cnt_rad = sqrtf(overlapArea / deme::PI);
-    const float Sn = 2.f * E_cnt * cnt_rad;
+    const double cnt_rad = sqrt(overlapArea / deme::PI);
+    const double Sn = 2. * E_cnt * cnt_rad;
 
-    const float loge = (CoR_cnt < DEME_TINY_FLOAT) ? log(DEME_TINY_FLOAT) : log(CoR_cnt);
-    const float beta = loge / sqrt(loge * loge + deme::PI_SQUARED);
+    const double loge = (CoR_cnt < DEME_TINY_FLOAT) ? log(static_cast<double>(DEME_TINY_FLOAT)) : log(CoR_cnt);
+    const double beta = loge / sqrt(loge * loge + deme::PI_SQUARED);
 
-    const float k_n = (2.f / 3.f) * Sn;
-    const float gamma_n = (2.f * sqrtf(5.f / 6.f)) * beta * sqrtf(Sn * mass_eff);
+    const double k_n = (2. / 3.) * Sn;
+    const double gamma_n = (2. * sqrt(5. / 6.)) * beta * sqrt(Sn * mass_eff);
 
-    force += (k_n * overlapDepth + gamma_n * projection) * B2A;
+    force_double += (k_n * overlapDepth + gamma_n * projection) * normal;
+    force = to_float3(force_double);
 }

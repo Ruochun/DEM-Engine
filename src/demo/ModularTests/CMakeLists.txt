@@ -22,6 +22,7 @@ SET(MODULAR_TESTS
 		DEMTest_ConeGrazingSphere
 		DEMTest_CylinderCrossRotation
 		DEMTest_CudaHeaderDiscovery
+		DEMTest_HertzianPrecision
 		DEMTest_JitReflection
 		DEMTest_JitHeaderCache
 		DEMTest_JitSourceLoading
