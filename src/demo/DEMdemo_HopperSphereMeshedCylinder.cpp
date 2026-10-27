@@ -5,7 +5,7 @@
 
 // =============================================================================
 // Hopper discharge with analytical sphere particles and low-poly mesh cylinders.
-// Cylinders have a regular 32-sided cross section, centered flat-end fans, and 128 triangles each.
+// Cylinders have a regular octagonal cross section, centered flat-end fans, and 32 triangles each.
 // Spheres and cylinders settle together above a fixed mesh plug. Disabling the
 // plug's contacts and output opens the outlet for discharge into the lower bin.
 // Run with --smoke-test for a small bed and a short, self-checking discharge.
@@ -117,9 +117,9 @@ int main(int argc, char* argv[]) {
     DEMSim.DisableContactBetweenFamilies(fixed_family, fixed_family);
 
     // The template is centered on its principal axes, with its long axis along X.
-    // Thirty-two sides limit radial faceting error to 0.49%; centered cap fans keep the ends symmetric.
+    // Eight sides keep the mesh inexpensive; centered cap fans give both ends symmetric connectivity.
     // Explicit circular-cylinder mass properties describe the nominal particle dimensions and density.
-    auto cylinder_type = DEMSim.LoadMeshType(GetDEMEDataFile("mesh/cyl_x_r1_h2_32sides.obj"), mat_cylinders, false);
+    auto cylinder_type = DEMSim.LoadMeshType(GetDEMEDataFile("mesh/cyl_x_r1_h2_8sides.obj"), mat_cylinders, false);
     cylinder_type->Scale(make_float3(cylinder_length / 2, radius_cylinder, radius_cylinder));
     const float cylinder_mass = PI * radius_cylinder * radius_cylinder * cylinder_length * density_cylinder;
     const float axial_moi = 0.5 * cylinder_mass * radius_cylinder * radius_cylinder;
@@ -228,7 +228,7 @@ int main(int argc, char* argv[]) {
 
     if (smoke_test) {
         // Check the representation, free cylinder motion, finite particle states, and stationary disabled plug.
-        bool valid = DEMSim.GetNumClumps() == total_spheres && cylinder_type->GetNumTriangles() == 128;
+        bool valid = DEMSim.GetNumClumps() == total_spheres && cylinder_type->GetNumTriangles() == 32;
         const auto positions = DEMSim.GetOwnerPosition(0, static_cast<bodyID_t>(DEMSim.GetNumOwners()));
         const auto velocities = DEMSim.GetOwnerVelocity(0, static_cast<bodyID_t>(DEMSim.GetNumOwners()));
         for (size_t i = 0; i < positions.size(); i++) {
