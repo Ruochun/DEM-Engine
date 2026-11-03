@@ -8,6 +8,8 @@
 // Cylinders have a regular octagonal cross section, centered flat-end fans, and 32 triangles each.
 // Spheres and cylinders settle together above a fixed mesh plug. Disabling the
 // plug's contacts and output opens the outlet for discharge into the lower bin.
+// Units throughout: grams, centimeters, seconds (stress in dyn/cm^2).
+// CSV/VTK positions are in cm and velocities in cm/s.
 // Run with --smoke-test for a small bed and a short, self-checking discharge.
 // =============================================================================
 
@@ -32,7 +34,18 @@ int main(int argc, char* argv[]) {
     }
     std::cout << "==== DEME demo/test: DEMdemo_HopperSphereMeshedCylinder ====" << std::endl;
 
+    // Keep physical inputs in SI and convert them at their point of use. Time remains in seconds.
+    constexpr float length_unit = 100.f;  // m -> cm
+    constexpr float mass_unit = 1000.f;   // kg -> g
+    constexpr float velocity_unit = length_unit;
+    constexpr float acceleration_unit = length_unit;
+    constexpr float density_unit = mass_unit / (length_unit * length_unit * length_unit);
+    constexpr float pressure_unit = mass_unit / length_unit;  // Pa -> dyn/cm^2
+    constexpr float inertia_unit = mass_unit * length_unit * length_unit;
+
     DEMSolver DEMSim;
+    // Physical inputs below are converted from SI. The built-in rolling activation-time formula
+    // is not unit-invariant, so CGS and SI trajectories can differ even beyond roundoff.
     DEMSim.UseFrictionalHertzianModel();
     DEMSim.SetVerbosity("INFO");
     DEMSim.SetOutputFormat("CSV");
@@ -48,33 +61,34 @@ int main(int argc, char* argv[]) {
 
     const size_t total_cylinders = smoke_test ? 24 : 5250;
     const size_t total_spheres = smoke_test ? 16 : 3500;
-    const double radius_cylinder = 0.002;
-    const double cylinder_length = 0.008;
-    const double density_cylinder = 1128;
-    const double radius_sphere = 0.003;
-    const double density_sphere = 1592;
+    const double radius_cylinder = 0.002 * length_unit;
+    const double cylinder_length = 0.008 * length_unit;
+    const double density_cylinder = 1128 * density_unit;
+    const double radius_sphere = 0.003 * length_unit;
+    const double density_sphere = 1592 * density_unit;
     const float step_size = 2e-6f;
-    const double hopper_width = 0.04;
-    const double gate_width = 0.1295;
+    const double hopper_width = 0.04 * length_unit;
+    const double gate_width = 0.1295 * length_unit;
     constexpr unsigned int cylinder_family = 100;
     constexpr unsigned int sphere_family = 99;
     constexpr unsigned int fixed_family = 10;
     constexpr unsigned int closed_gate_family = 3;
     constexpr unsigned int disabled_gate_family = 4;
 
+    // Density is in g/cm^3; 1 Pa = 10 dyn/cm^2. Time and dimensionless coefficients are unchanged.
     // Strong sliding friction and rolling resistance for this hopper experiment.
     // Use the same values for particles and walls so mixed pairs retain this resistance.
     constexpr float friction = 0.4f;
     constexpr float rolling_resistance = 0.04f;
     constexpr float CoR = 0.1;
-    auto mat_flume =
-        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
-    auto mat_walls =
-        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.3}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
-    auto mat_spheres =
-        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
-    auto mat_cylinders =
-        DEMSim.LoadMaterial({{"E", 1e6}, {"nu", 0.35}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_flume = DEMSim.LoadMaterial(
+        {{"E", 1e6 * pressure_unit}, {"nu", 0.3}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_walls = DEMSim.LoadMaterial(
+        {{"E", 1e6 * pressure_unit}, {"nu", 0.3}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_spheres = DEMSim.LoadMaterial(
+        {{"E", 1e6 * pressure_unit}, {"nu", 0.35}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
+    auto mat_cylinders = DEMSim.LoadMaterial(
+        {{"E", 1e6 * pressure_unit}, {"nu", 0.35}, {"CoR", CoR}, {"mu", friction}, {"Crr", rolling_resistance}});
     // Apply the wall/flume contact coefficients to both particle materials.
     for (const auto& wall : {mat_walls, mat_flume}) {
         for (const auto& particle : {mat_spheres, mat_cylinders}) {
@@ -84,11 +98,23 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    DEMSim.InstructBoxDomainDimension({-0.10, 0.10}, {-0.02, 0.02}, {-0.50, 1.0});
-    DEMSim.InstructBoxDomainBoundingBC("top_open", mat_walls);
+    DEMSim.InstructBoxDomainDimension({-0.10 * length_unit, 0.10 * length_unit},
+                                       {-0.02 * length_unit, 0.02 * length_unit},
+                                       {-0.50 * length_unit, 1.0 * length_unit});
+    // Reproduce the top-open box explicitly so its default SI mass/inertia also convert to CGS.
+    // Fixed bodies still contribute their mass to the contact damping's effective mass.
+    auto box = DEMSim.AddExternalObject();
+    box->SetMass(box->GetMass() * mass_unit);
+    box->SetMOI(box->GetMOI() * inertia_unit);
+    box->AddPlane(make_float3(0, 0, -0.50 * length_unit), make_float3(0, 0, 1), mat_walls);
+    box->AddPlane(make_float3(-0.10 * length_unit, 0, 0.25 * length_unit), make_float3(1, 0, 0), mat_walls);
+    box->AddPlane(make_float3(0.10 * length_unit, 0, 0.25 * length_unit), make_float3(-1, 0, 0), mat_walls);
+    box->AddPlane(make_float3(0, -0.02 * length_unit, 0.25 * length_unit), make_float3(0, 1, 0), mat_walls);
+    box->AddPlane(make_float3(0, 0.02 * length_unit, 0.25 * length_unit), make_float3(0, -1, 0), mat_walls);
     DEMSim.SetTimeStepSize(step_size);
-    DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81));
-    DEMSim.SetMaxVelocity(25.);
+    DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81 * acceleration_unit));
+    DEMSim.SetMaxVelocity(25. * velocity_unit);
+    DEMSim.SetExpandSafetyAdder(3.f * velocity_unit);  // Convert the default 3 m/s contact-margin allowance to cm/s.
     DEMSim.SetInitBinSize(2 * radius_cylinder);
     DEMSim.SetFamilyFixed(fixed_family);
     DEMSim.SetFamilyFixed(closed_gate_family);
@@ -100,16 +126,28 @@ int main(int argc, char* argv[]) {
     }
 
     // The three rectangular mesh pieces form the hopper floor and its removable central plug.
+    // The funnel OBJ is authored in meters. Scale geometry separately from its already-loaded
+    // mass properties: changing units multiplies mass by 1000 and inertia by 1000 * 100^2.
+    auto convert_funnel_to_cgs = [=](const std::shared_ptr<DEMMesh>& mesh) {
+        const float mass_cgs = mesh->GetMass() * mass_unit;
+        const float3 moi_cgs = mesh->GetMOI() * inertia_unit;
+        mesh->Scale(length_unit);
+        mesh->SetMass(mass_cgs);
+        mesh->SetMOI(moi_cgs);
+    };
     const auto funnel_file = GetDEMEDataFile("mesh/funnel_left.obj");
     const float4 funnel_rotation = make_float4(std::sqrt(0.5f), 0, 0, std::sqrt(0.5f));
     auto left = DEMSim.AddWavefrontMeshObject(funnel_file, mat_flume);
-    left->Move(make_float3(-hopper_width / 2, 0, -0.01), funnel_rotation);
+    convert_funnel_to_cgs(left);
+    left->Move(make_float3(-hopper_width / 2, 0, -0.01 * length_unit), funnel_rotation);
     left->SetFamily(fixed_family);
     auto right = DEMSim.AddWavefrontMeshObject(funnel_file, mat_flume);
-    right->Move(make_float3(gate_width + hopper_width / 2, 0, -0.01), funnel_rotation);
+    convert_funnel_to_cgs(right);
+    right->Move(make_float3(gate_width + hopper_width / 2, 0, -0.01 * length_unit), funnel_rotation);
     right->SetFamily(fixed_family);
     auto gate = DEMSim.AddWavefrontMeshObject(funnel_file, mat_flume);
-    gate->Move(make_float3(gate_width / 2, 0, -0.011), funnel_rotation);
+    convert_funnel_to_cgs(gate);
+    gate->Move(make_float3(gate_width / 2, 0, -0.011 * length_unit), funnel_rotation);
     gate->SetFamily(closed_gate_family);
     auto gate_tracker = DEMSim.Track(gate);
     // The floor pieces overlap the closed gate; their mutual contacts do not contribute to the bed dynamics.
@@ -135,12 +173,12 @@ int main(int argc, char* argv[]) {
 
     // Build the complete bed before Initialize so mesh topology and mass tables are available during JIT compilation.
     // An anisotropic grid leaves gaps between horizontal cylinders. Sorting by height fills the lower layers first.
-    const float half_width = smoke_test ? 0.02f : 0.10f;
-    const float half_depth = smoke_test ? 0.013f : 0.02f;
+    const float half_width = (smoke_test ? 0.02f : 0.10f) * length_unit;
+    const float half_depth = (smoke_test ? 0.013f : 0.02f) * length_unit;
     GridSampler cylinder_sampler(make_float3(1.1 * cylinder_length, 2.2 * radius_cylinder, 2.2 * radius_cylinder));
     auto cylinder_positions = cylinder_sampler.SampleBox(
-        make_float3(0, 0, 0.16),
-        make_float3(half_width - 0.55 * cylinder_length, half_depth - 1.1 * radius_cylinder, 0.14));
+        make_float3(0, 0, 0.16 * length_unit),
+        make_float3(half_width - 0.55 * cylinder_length, half_depth - 1.1 * radius_cylinder, 0.14 * length_unit));
     std::stable_sort(cylinder_positions.begin(), cylinder_positions.end(),
                      [](const float3& a, const float3& b) { return a.z < b.z; });
     if (cylinder_positions.size() < total_cylinders) {
@@ -156,8 +194,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Place analytical spheres above the cylinders with a gap; both particle types move from the first step.
-    const float sphere_bottom = cylinder_positions.back().z + radius_cylinder + radius_sphere + 0.01;
-    const float sphere_top = 0.60f;
+    const float sphere_bottom = cylinder_positions.back().z + radius_cylinder + radius_sphere + 0.01 * length_unit;
+    const float sphere_top = 0.60f * length_unit;
     GridSampler sphere_sampler(2.2 * radius_sphere);
     auto sphere_positions =
         sphere_sampler.SampleBox(make_float3(0, 0, (sphere_bottom + sphere_top) / 2),
@@ -171,13 +209,14 @@ int main(int argc, char* argv[]) {
     sphere_positions.resize(total_spheres);
     auto spheres = DEMSim.AddClumps(sphere_type, sphere_positions);
     spheres->SetFamily(sphere_family);
-    spheres->SetVel(make_float3(0, 0, -0.8));
+    spheres->SetVel(make_float3(0, 0, -0.8 * velocity_unit));
     auto max_speed = DEMSim.CreateInspector("max_absv");
     DEMSim.Initialize();
 
     // Mesh instances were added consecutively; a single bulk velocity update initializes their downward motion.
     const auto first_cylinder = first_cylinder_tracker->GetOwnerID();
-    DEMSim.SetOwnerVelocity(first_cylinder, std::vector<float3>(total_cylinders, make_float3(0, 0, -0.8)));
+    DEMSim.SetOwnerVelocity(first_cylinder,
+                            std::vector<float3>(total_cylinders, make_float3(0, 0, -0.8 * velocity_unit)));
     const float gate_initial_z = gate_tracker->Pos().z;
     std::cout << "Particles: " << total_cylinders << " meshed cylinders (" << cylinder_type->GetNumTriangles()
               << " triangles each), " << total_spheres << " analytical spheres" << std::endl;
@@ -197,7 +236,7 @@ int main(int argc, char* argv[]) {
         DEMSim.WriteSphereFile(out_dir / sphere_file);
         DEMSim.WriteMeshFile(out_dir / mesh_file);
         std::cout << "Frame " << frame++ << ": t = " << elapsed << " s, max speed = " << max_speed->GetValue()
-                  << std::endl;
+                  << " cm/s" << std::endl;
         // Report host and device memory at output intervals throughout settling and discharge.
         DEMSim.ShowMemStats();
     };
@@ -237,7 +276,7 @@ int main(int argc, char* argv[]) {
                     std::isfinite(velocities[i].z);
         }
         valid = valid && gate_tracker->GetFamily() == disabled_gate_family &&
-                std::abs(gate_tracker->Pos().z - gate_initial_z) < 1e-4 &&
+                std::abs(gate_tracker->Pos().z - gate_initial_z) < 1e-4 * length_unit &&
                 first_cylinder_tracker->Pos().z < cylinder_positions.front().z - radius_cylinder;
         std::cout << (valid ? "PASS" : "FAIL") << ": hopper mesh-cylinder smoke test" << std::endl;
         if (!valid) {
