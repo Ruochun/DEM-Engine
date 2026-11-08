@@ -1,0 +1,66 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "cppdbg",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "program": "${workspaceFolder}/build-minislump-debug/bin/DEMdemo_DFCMiniSlump",
+            "cwd": "${workspaceFolder}/build-minislump-debug",
+            "setupCommands": [
+                {
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "text": "set pagination off"
+                }
+            ],
+            "name": "MiniSlump: launch",
+            "request": "launch",
+            "args": [
+                "--out-dir",
+                "${workspaceFolder}/build-minislump-debug/${input:outputDirectory}"
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "preLaunchTask": "MiniSlump: build debug",
+            "pipeTransport": {
+                "pipeProgram": "/bin/sh",
+                "pipeArgs": [
+                    "-c"
+                ],
+                "debuggerPath": "/usr/bin/gdb",
+                "pipeCwd": "${workspaceFolder}"
+            },
+            "internalConsoleOptions": "openOnSessionStart"
+        },
+        {
+            "type": "cppdbg",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "program": "${workspaceFolder}/build-minislump-debug/bin/DEMdemo_DFCMiniSlump",
+            "cwd": "${workspaceFolder}/build-minislump-debug",
+            "setupCommands": [
+                {
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "text": "set pagination off"
+                }
+            ],
+            "name": "MiniSlump: attach",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "outputDirectory",
+            "type": "promptString",
+            "description": "New/empty output directory relative to build-minislump-debug",
+            "default": "OUT_debug_1"
+        }
+    ]
+}

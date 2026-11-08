@@ -1,0 +1,9 @@
+{
+  "DFCModel.cu": "31daa91cb1d7b134ddf8ebbae1f5fd2edd13ca967b3b4ac1cbfcf1cb5374eda3",
+  "DFCgeo000-data-particles-mini-2x4-dist.dat": "280f74c7b6de56f77c71af84a14b1036b7ff12f9fc9808ab75f9268d7e594f0c",
+  "minislump-Cut4.obj": "a5ef6c8d99b46463fd2aceef455f61af467d13e6d61e1006efa0daf672b0c231",
+  "minislump-Cut4.mtl": "82b28badae4fba5c2bdfa619b0d1c42eaccd849f7e771e4ab76a5bb4382b09b0",
+  "cone_chrono_transform.json": "909ab9322d775d27fd317ca00a4d4f90433656d955356973dcf31281cba07ef7",
+  "ConeTransform.hpp": "bf97497719f3c362776d3c038f33c6ea7ff3d5c915c3f24e3906580d2b16949a",
+  "prerequisites.cuh": "017d1d113b8ea5d38815419e80e55015a82eb859cffcde156c735ee967beade7"
+}

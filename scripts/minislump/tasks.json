@@ -1,0 +1,17 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "MiniSlump: build debug",
+            "type": "process",
+            "command": "bash",
+            "args": [
+                "${workspaceFolder}/scripts/minislump/build-debug.sh"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build"
+        }
+    ]
+}

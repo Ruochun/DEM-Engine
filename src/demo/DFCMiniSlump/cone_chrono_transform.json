@@ -1,0 +1,20 @@
+{
+  "position": [
+    -0.002635809502873702,
+    54.016655285740605,
+    -0.022410164475246346
+  ],
+  "quaternion_xyzw": [
+    -0.4672735656779499,
+    -0.5307364097018059,
+    0.5307089839701753,
+    -0.4672496683453035
+  ],
+  "mesh_com": [
+    -0.02394126061795512,
+    -0.0004071611958106388,
+    27.016654097829335
+  ],
+  "mesh_sha256": "a5ef6c8d99b46463fd2aceef455f61af467d13e6d61e1006efa0daf672b0c231",
+  "source": "Chrono 10 ChBodyEasyMesh; density=7.8e-9, compute_mass=true, SetRot(-pi/2 about X), SetPos(0,27,0). Exported REF-to-world frame."
+}

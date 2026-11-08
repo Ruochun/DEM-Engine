@@ -13,6 +13,7 @@ SET(LIBRARIES
 # ------------------------------------------------------------------------------
 
 SET(DEMOS
+		DEMdemo_DFCMiniSlump
 		DEMdemo_Repose
 		DEMdemo_Repose2D
 		DEMdemo_ContactChain
@@ -116,3 +117,7 @@ ENDFOREACH(PROGRAM)
 # ------------------------------------------------------------------------------
 
 add_subdirectory(ModularTests)
+
+# Keep the reproduction independent of the launch working directory.
+target_compile_definitions(DEMdemo_DFCMiniSlump PRIVATE
+    DFC_MINISLUMP_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/DFCMiniSlump")
