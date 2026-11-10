@@ -3437,7 +3437,11 @@ inline void DEMDynamicThread::ifProduceFreshThenUseItAndSendNewOrder() {
             std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
             sendToTheirBuffer();
         }
-        pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
+        // Publish under the wait mutex so kT cannot miss the notification between checking and sleeping.
+        {
+            std::lock_guard<std::mutex> lock(pSchedSupport->kinematicCanProceed);
+            pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
+        }
         pSchedSupport->schedulingStats.nKinematicUpdates++;
 
         timers.GetTimer("Send to kT buffer").stop();
@@ -3500,7 +3504,11 @@ void DEMDynamicThread::workerThread() {
                 std::lock_guard<std::mutex> lock(pSchedSupport->kinematicOwnedBuffer_AccessCoordination);
                 sendToTheirBuffer();
             }
-            pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
+            // Publish under the wait mutex so kT cannot miss the notification between checking and sleeping.
+            {
+                std::lock_guard<std::mutex> lock(pSchedSupport->kinematicCanProceed);
+                pSchedSupport->kinematicOwned_Cons2ProdBuffer_isFresh.store(true, std::memory_order_release);
+            }
             contactPairArr_isFresh = true;
             pSchedSupport->schedulingStats.nKinematicUpdates++;
             // Signal the kinematic that it has data for a new work order.
@@ -3538,8 +3546,10 @@ void DEMDynamicThread::workerThread() {
                 timers.GetTimer("Wait for kT update").start();
                 // Wait for a signal from kT to indicate that kT has caught up
                 std::unique_lock<std::mutex> lock(pSchedSupport->dynamicCanProceed);
+                // kT publishes freshness under this same mutex. A late result either skips the wait or wakes
+                // it after wait atomically releases the mutex; no extra consume/send is needed here.
+                // Loop to avoid spurious wakeups.
                 while (!pSchedSupport->dynamicOwned_Prod2ConsBuffer_isFresh.load(std::memory_order_acquire)) {
-                    // Loop to avoid spurious wakeups
                     pSchedSupport->cv_DynamicCanProceed.wait(lock);
                 }
                 pSchedSupport->schedulingStats.nTimesDynamicHeldBack++;
