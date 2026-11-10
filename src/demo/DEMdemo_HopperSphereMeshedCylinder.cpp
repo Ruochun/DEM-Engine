@@ -112,6 +112,9 @@ int main(int argc, char* argv[]) {
     box->AddPlane(make_float3(0, -0.02 * length_unit, 0.25 * length_unit), make_float3(0, 1, 0), mat_walls);
     box->AddPlane(make_float3(0, 0.02 * length_unit, 0.25 * length_unit), make_float3(0, -1, 0), mat_walls);
     DEMSim.SetTimeStepSize(step_size);
+    // Refresh contacts every dynamics step; zero drift also removes the automatic predictive margin.
+    DEMSim.SetCDUpdateFreq(0);
+    DEMSim.DisableAdaptiveUpdateFreq();
     DEMSim.SetGravitationalAcceleration(make_float3(0, 0, -9.81 * acceleration_unit));
     DEMSim.SetMaxVelocity(25. * velocity_unit);
     DEMSim.SetExpandSafetyAdder(3.f * velocity_unit);  // Convert the default 3 m/s contact-margin allowance to cm/s.
