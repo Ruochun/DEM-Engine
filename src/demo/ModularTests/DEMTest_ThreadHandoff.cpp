@@ -38,8 +38,12 @@ int main() {
         solver.SetInitBinNumTarget(8);
         solver.SetTimeStepSize(1.e-4);
         solver.SetGravitationalAcceleration(make_float3(0.f, 0.f, 0.f));
-        solver.SetCDUpdateFreq(drift);
-        solver.DisableAdaptiveUpdateFreq();
+        if (drift == 0) {
+            solver.SetSynchronizedMode();
+        } else {
+            solver.SetCDUpdateFreq(drift);
+            solver.DisableAdaptiveUpdateFreq();
+        }
         auto material = solver.LoadMaterial({{"E", 1.e7f}, {"nu", 0.3f}, {"CoR", 0.2f}, {"mu", 0.4f}, {"Crr", 0.f}});
         auto sphere = solver.LoadSphereType(1.f, 0.05f, material);
         solver.AddClumps(sphere, make_float3(0.f, 0.f, 0.f));
