@@ -15,8 +15,16 @@ int main(int argc, char** argv) {
         auto args = minislump::parse(argc, argv);
         // Never recursively delete an arbitrary user path. Repetitions use separate directories.
         fs::create_directories(args.output);
-        if (!fs::is_empty(args.output))
-            throw std::runtime_error("Output directory must be empty: " + args.output.string());
+        if (!fs::is_empty(args.output)) {
+            // Remove all content
+            for (const auto& entry : fs::directory_iterator(args.output)) {
+                fs::remove_all(entry.path());
+            }
+            // Ensure the directory is now empty
+            if (!fs::is_empty(args.output)) {
+                throw std::runtime_error("Failed to clear output directory: " + args.output.string());
+            }
+        }
         const fs::path data = DFC_MINISLUMP_DATA_DIR;
         constexpr double pi = 3.14159265358979323846;
         const double specimen_volume =
