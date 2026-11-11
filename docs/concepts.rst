@@ -29,6 +29,27 @@ DEME uses two cooperating workers:
 Their asynchronous handoff is part of the solver's performance model. User code
 should use the public solver API rather than directly synchronizing worker data.
 
+Synchronized mode
+~~~~~~~~~~~~~~~~~
+
+Use ``DEMSolver::SetSynchronizedMode()`` before ``Initialize()`` to configure
+zero future drift and disable adaptive contact-detection update frequency:
+
+.. code-block:: cpp
+
+   DEMSim.SetSynchronizedMode();
+   DEMSim.Initialize();
+
+This is equivalent to ``SetCDUpdateFreq(0)`` followed by
+``DisableAdaptiveUpdateFreq()``. Both workers remain active, but dynamics cannot
+drift ahead of the contact-detection update budget. This trades asynchronous
+overlap for synchronized stepping.
+
+For an initialized solver, first synchronize with ``DoDynamicsThenSync(0.0)``,
+then call ``SetSynchronizedMode()`` and ``UpdateSimParams()``. The mode setter
+does not itself wait for outstanding work; continue to use
+``DoDynamicsThenSync()`` where host-side synchronization is required.
+
 Owners and members
 ------------------
 
