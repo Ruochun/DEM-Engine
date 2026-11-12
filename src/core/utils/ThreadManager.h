@@ -18,6 +18,7 @@ class ManagerStatistics {
     std::atomic<uint64_t> nDynamicUpdates;
     std::atomic<uint64_t> nKinematicUpdates;
     std::atomic<uint64_t> accumKinematicLagSteps;
+    std::atomic<uint64_t> nContactAgeSamples;  // Valid incoming-result timestamps consumed by dT.
     // std::atomic<uint64_t> nDynamicReceives;
     // std::atomic<uint64_t> nKinematicReceives;
 
@@ -27,6 +28,7 @@ class ManagerStatistics {
         nDynamicUpdates = 0;
         nKinematicUpdates = 0;
         accumKinematicLagSteps = 0;
+        nContactAgeSamples = 0;
         // nDynamicReceives = 0;
         // nKinematicReceives = 0;
     }
