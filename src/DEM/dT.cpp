@@ -3584,19 +3584,15 @@ void DEMDynamicThread::workerThread() {
             } else {
                 // If the produce is fresh, use it, and then send kT a new work order.
                 // We used to send work order to kT whenever kT unpacks its buffer. This can lead to a situation where
-                // dT
-                // sends a new work order and then immediately bails out (user asks it to do something else). A bit
-                // later
-                // on, kT will update dT's buffer, and then kT will spot a new work order and work on the new order.
-                // However! If kT finishes this new order before dT comes back, the persistent contact wildcard map will
-                // be
-                // off (across 2 kT updates)! So, dT only send new work orders after kT finishes the old order and it
-                // unpacks it.
+                // dT sends a new work order and then immediately bails out (user asks it to do something else). A bit
+                // later on, kT will update dT's buffer, and then kT will spot a new work order and work on the new
+                // order. However! If kT finishes this new order before dT comes back, the persistent contact wildcard
+                // map will be off (across 2 kT updates)! So, dT only send new work orders after kT finishes the old
+                // order and it unpacks it.
                 ifProduceFreshThenUseItAndSendNewOrder();
 
                 // Check if we need to wait; i.e., if dynamic drifted too much into future, then we must wait a bit
-                // before
-                // the next cycle begins
+                // before the next cycle begins
                 if (pSchedSupport->dynamicShouldWait()) {
                     timers.GetTimer("Wait for kT update").start();
                     // Wait for a signal from kT to indicate that kT has caught up
@@ -3620,8 +3616,7 @@ void DEMDynamicThread::workerThread() {
                 // with this ShouldWait check being here, if dynamicOwned_Prod2ConsBuffer_isFresh is true so
                 // ifProduceFreshThenUseItAndSendNewOrder is executed, then kT is is working for us, no worry; if
                 // dynamicOwned_Prod2ConsBuffer_isFresh is false so ifProduceFreshThenUseItAndSendNewOrder didn't run,
-                // then
-                // kT has to be in the process of doing a CD, we still will not be locked here.
+                // then kT has to be in the process of doing a CD, we still will not be locked here.
             }
 
             // If using variable ts size, only when a step is accepted can we move on
