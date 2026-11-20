@@ -258,11 +258,11 @@ enum class SPATIAL_DIR { X, Y, Z, NONE };
 // The info that should be present in the contact pair output files
 enum CNT_OUTPUT_CONTENT {
     CNT_TYPE = 0,   // Owner numbers and contact type
-    FORCE = 1,      // Force (that owner 1 feels) xyz components in global
+    FORCE = 1,      // Total forces on A and B in global coordinates
     CNT_POINT = 2,  // Contact point in global frame
     COMPONENT = 4,  // The component numbers (such as triangle number for a mesh) that involved in this contact
     NORMAL = 8,     // Contact normal direction in global frame
-    TORQUE = 16,    // This is a standalone force and produces torque only (typical example: rolling resistance force)
+    TORQUE = 16,    // Direct extra torques on A and B in global coordinates (excludes force moments)
     CNT_WILDCARD = 32,
     OWNER = 64,
     GEO_ID = 128,
@@ -449,8 +449,11 @@ struct DEMDataDT {
 
     // Some dT's own work array pointers
     float3* contactForces;
+    float3* contactForcesB;
+    float3* contactTorquesA;
+    float3* contactTorquesB;
     float3* contactNormals;
-    float3* contactTorque_convToForce;
+    float3* contactPointScratch;
     float3* contactPointGeometryA;
     float3* contactPointGeometryB;
     // float3* contactHistory;

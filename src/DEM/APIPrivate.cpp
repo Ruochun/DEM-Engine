@@ -1701,6 +1701,8 @@ inline void DEMSolver::equipForceModel(std::unordered_map<std::string, std::stri
     // Analyze this model... what does it require?
     std::string model = m_force_model->m_force_model;
     std::string model_prerequisites = m_force_model->m_model_prerequisites;
+    validateForceModelOutputs(model);
+    validateForceModelOutputs(model_prerequisites);
     const std::set<std::string> contact_wildcard_names = m_force_model->m_contact_wildcards;
     const std::set<std::string> owner_wildcard_names = m_force_model->m_owner_wildcards;
 
@@ -1782,11 +1784,10 @@ inline void DEMSolver::equipForceModel(std::unordered_map<std::string, std::stri
             "Owner wildcard(s) %s are not used/set in your custom force model. "
             "Your force model will probably not produce what you expect.",
             non_match.c_str());
-    if (!all_whole_word_match(model, {"force"}, non_match)) {
+    if (!any_whole_word_match(model, {"force", "A_only_force", "B_only_force", "A_only_torque", "B_only_torque"})) {
         DEME_WARNING(
-            "Your custom force model does not set the %s variable at all. "
-            "You probably will not see any contact in the simulation.",
-            non_match.c_str());
+            "Your custom force model does not reference any force or torque output. "
+            "You probably will not see any contact response in the simulation.");
     }
 
     // For contact wildcards, it needs to be brought from the global memory, and we expect the user's force model to use
@@ -2197,7 +2198,7 @@ inline void DEMSolver::equipMaterials(std::unordered_map<std::string, std::strin
             for (unsigned int i = 0; i < num_mats; i++) {
                 flag = flag && flags[i][i];
             }
-            if (!flag) {
+            if (!flag && !(m_force_model->type == FORCE_MODEL::HERTZIAN && prop_name == "Cspin")) {
                 DEME_WARNING(
                     "Material property %s is needed by the force model or is referred to by the user. However, at "
                     "least one material does not have it defined, so it is defaulted to 0 for that material.\nPlease "
@@ -2246,12 +2247,23 @@ inline void DEMSolver::equipMaterials(std::unordered_map<std::string, std::strin
                         }
                     }
                 }
-                if (!flag) {
+                if (!flag && !(m_force_model->type == FORCE_MODEL::HERTZIAN && prop_name == "Cspin")) {
                     DEME_WARNING(
                         "Material property %s should involve two materials. However, at least a pair of materials does "
                         "not have it defined, so it is defaulted to the average value between the two "
                         "materials.\nPlease be sure this is intentional.",
                         prop_name.c_str());
+                }
+            }
+        }
+
+        // Resistance coefficients are dimensionless, finite and nonnegative in the built-in law.
+        if (m_force_model->type == FORCE_MODEL::HERTZIAN && (prop_name == "Crr" || prop_name == "Cspin")) {
+            for (const auto& row : pair_mat) {
+                for (float value : row) {
+                    if (!std::isfinite(value) || value < 0.f) {
+                        DEME_ERROR("Material property %s must be finite and nonnegative.", prop_name.c_str());
+                    }
                 }
             }
         }

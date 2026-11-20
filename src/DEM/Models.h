@@ -14,6 +14,7 @@
 #include "Defines.h"
 #include "Structs.h"
 #include "utils/HostSideHelpers.hpp"
+#include "utils/ForceModelHelpers.hpp"
 #include "../core/utils/RuntimeData.h"
 #include "../core/utils/DEMEPaths.h"
 

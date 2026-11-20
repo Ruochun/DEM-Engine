@@ -17,6 +17,7 @@ SET(MODULAR_TESTS
 		DEMTest_AnalyticalCone
 		DEMTest_AnalyticalConePour
 		DEMTest_CombinedOwners
+		DEMTest_ContactResistance
 		DEMTest_ContactOutputSnapshot
 		DEMTest_ContactIslandFlooding
 		DEMTest_ConeGrazingPlane

@@ -315,6 +315,8 @@ PYBIND11_MODULE(_deme, obj) {
              "Get BOwnerFamily number from the container.")
         .def("GetForce", &deme::ContactInfoContainer::GetForce, "Get force as vectors from the container.")
         .def("GetTorque", &deme::ContactInfoContainer::GetTorque, "Get torque as vectors from the container.")
+        .def("GetForceB", &deme::ContactInfoContainer::GetForceB, "Get global contact forces on B.")
+        .def("GetTorqueB", &deme::ContactInfoContainer::GetTorqueB, "Get global direct extra torques on B.")
         .def("GetNormal", &deme::ContactInfoContainer::GetNormal, "Get contact normal as vectors from the container.");
 
     py::class_<deme::DEMInspector, std::shared_ptr<deme::DEMInspector>>(

@@ -248,13 +248,13 @@ class DEMDynamicThread {
     // Some of dT's own work arrays
     // Force of each contact event. It is the force that bodyA feels. They are in global.
     DualArray<float3> contactForces = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float3> contactForcesB = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float3> contactTorquesA = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float3> contactTorquesB = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Optional contact normals.
     DualArray<float3> contactNormals = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
-    // An imaginary `force' in each contact event that produces torque only, and does not affect the linear motion. It
-    // will rise in our default rolling resistance model, which is just a torque model; yet, our contact registration is
-    // contact pair-based, meaning we do not know the specs of each contact body, so we can register force only, not
-    // torque. Therefore, this vector arises. This force-like torque is in global.
-    DualArray<float3> contactTorque_convToForce = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Temporary global contact point used during primitive-to-patch geometry aggregation.
+    DualArray<float3> contactPointScratch = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Local position of contact point of contact w.r.t. the reference frame of body A and B
     DualArray<float3> contactPointGeometryA = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float3> contactPointGeometryB = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);

@@ -1761,7 +1761,9 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
         // -----------------------------------------------------------------------------------------------------------
 
         // Generate patch IDs (idPatchA/B) and geomToPatchMap (mapping between primitive contacts and patch-based
-        // contacts)
+        // contacts). An empty primitive set must publish an empty patch set; otherwise dT reduces the previous
+        // contact's stored force and direct torque despite no force kernel running for it this step.
+        *scratchPad.numContacts = 0;
         if (*scratchPad.numPrimitiveContacts > 0) {
             size_t numTotalCnts = *scratchPad.numPrimitiveContacts;
             if (solverFlags.useSimplePatchCombination) {
@@ -2966,12 +2968,11 @@ void contactDetection(std::shared_ptr<JitHelper::CachedProgram>& bin_sphere_kern
                                          primitive_type_arr_bytes, cudaMemcpyDeviceToDevice));
             }
 
-            // Update the patch contact map for the next iteration
-            typeStartCountPatchMap = typeStartCountPatchMap_thisStep;
-
         }  // End of history-based model mapping
 
     }  // End of contact sorting--mapping subroutine
+    // Reset type ranges even after an empty step so a later re-contact cannot inherit stale contact history.
+    typeStartCountPatchMap = typeStartCountPatchMap_thisStep;
     timers.GetTimer("Build history map").stop();
 
     // std::cout << "Patch Contacts: " << std::endl;

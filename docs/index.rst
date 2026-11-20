@@ -16,6 +16,7 @@ kernels.
    installation
    quickstart
    concepts
+   force-models
    mesh-particles
    examples
    visualization

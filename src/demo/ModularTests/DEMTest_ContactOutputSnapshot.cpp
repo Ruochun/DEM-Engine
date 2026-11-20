@@ -31,7 +31,15 @@ int main() try {
     solver.SetTimeStepSize(1.e-3);
     solver.SetExpandFactor(1.e-4f);
     solver.SetCDUpdateFreq(1);
-    solver.DefineContactForceModel("force = make_float3(0.f, 0.f, 1.f); sample_count += 1.f;");
+    solver.DefineContactForceModel(R"(
+        force = make_float3(0.f, 0.f, 1.f);
+        // Time-varying independent outputs must belong to the captured frame, not the writer's later frame.
+        A_only_force = make_float3(time * .01f, 0, 0);
+        B_only_force = make_float3(0, time * .02f, 0);
+        A_only_torque = make_float3(time * .0001f, 0, 0);
+        B_only_torque = make_float3(0, time * .0002f, 0);
+        sample_count += 1.f;
+    )");
     solver.SetContactWildcards({"sample_count"});
     solver.SetContactOutputContent({"OWNER", "GEO_ID", "FORCE", "POINT", "NORMAL", "TORQUE", "CNT_WILDCARD"});
     auto material = solver.LoadMaterial({{"E", 1.e7}, {"nu", 0.3}, {"CoR", 0.5}, {"mu", 0.4}});
@@ -60,6 +68,9 @@ int main() try {
         reference << reference_file.rdbuf();
         if (!reference_file || reference.str().empty())
             throw std::runtime_error("Cannot read reference contact output");
+        if (reference.str().find("ForceB_X") == std::string::npos ||
+            reference.str().find("TorqueB_X") == std::string::npos)
+            throw std::runtime_error("Missing independent B outputs in contact CSV");
         const auto pipe = dir / "delayed.csv";
         if (mkfifo(pipe.c_str(), 0600) != 0)
             throw std::runtime_error("Cannot create delayed-output FIFO");

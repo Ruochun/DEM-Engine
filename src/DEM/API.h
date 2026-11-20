@@ -993,12 +993,13 @@ class DEMSolver {
     /// number to, instead of getting all potential contacts, only get the ones that are currently confirmed to generate
     /// force.
     /// @return A map that may have the following keys: "ContactType", "Point", "AOwner", "BOwner", "AOwnerFamily",
-    /// "BOwnerFamily", "Force", "Torque", "Normal" and wildcard names, each corresponding to a vector of values. The
-    /// "ContactType" is a vector of strings, each indicating the type of contact (e.g., "sphere-sphere",
+    /// "BOwnerFamily", "Force", "ForceB", "Torque", "TorqueB", "Normal" and wildcard names, each mapping to a vector.
+    /// The "ContactType" is a vector of strings, each indicating the type of contact (e.g., "sphere-sphere",
     /// "sphere-triangle", etc.). The "Point" is a vector of float3s, each indicating the contact point location in
     /// global coordinates. The "AOwner" and "BOwner" are vectors of body IDs for the two bodies in contact. The "Force"
-    /// is a vector of float3s, each indicating the contact force at the contact point. The "Torque" is a vector of
-    /// float3s, each indicating the torque at the contact point. The "Normal" is a vector of float3s, each indicating
+    /// is a vector of float3s indicating the total force on A at the contact point; "ForceB" is the force on B.
+    /// "Torque" and "TorqueB" are global direct extra torques on A and B, excluding force-generated moments.
+    /// The "Normal" is a vector of float3s, each indicating
     /// the normal direction at the contact point.
     std::shared_ptr<ContactInfoContainer> GetContactDetailedInfo(float force_thres = -1.0) const;
 

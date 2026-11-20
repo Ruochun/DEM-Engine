@@ -2,10 +2,10 @@
 // kernel. Those values are computed locally for active contacts and explicitly zeroed with the forces for inactive
 // margin candidates, so this route cannot read an unwritten global contact-point slot. A separate zero-resultant guard
 // is therefore unnecessary for the stochastic contact-ramp fix.
-float3 forceA = force;
-float3 forceB = make_float3(-force.x, -force.y, -force.z);
-float3 torqueA = torque_only_force;
-float3 torqueB = make_float3(-torque_only_force.x, -torque_only_force.y, -torque_only_force.z);
+float3 forceA = force + A_only_force;
+float3 forceB = -force + B_only_force;
+float3 torqueA = A_only_torque;
+float3 torqueB = B_only_torque;
 
 // Take care of A
 {
@@ -23,12 +23,12 @@ float3 torqueB = make_float3(-torque_only_force.x, -torque_only_force.y, -torque
     atomicAdd(granData->aY + AOwner, forceA.y / AOwnerMass);
     atomicAdd(granData->aZ + AOwner, forceA.z / AOwnerMass);
 
-    // torque_inForceForm is usually the contribution of rolling resistance and it contributes to torque
-    // only, not linear velocity
-    float3 myF = (forceA + torqueA);
+    // Direct torque contributes angular acceleration independently of the contact force
+    float3 myF = forceA;
     // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
     applyOriQToVector3(myF, make_float4(-AOriQ.x, -AOriQ.y, -AOriQ.z, AOriQ.w));
-    const float3 angAcc = cross(locCPA, myF) / AOwnerMOI;
+    applyOriQToVector3(torqueA, make_float4(-AOriQ.x, -AOriQ.y, -AOriQ.z, AOriQ.w));
+    const float3 angAcc = (cross(locCPA, myF) + torqueA) / AOwnerMOI;
     atomicAdd(granData->alphaX + AOwner, angAcc.x);
     atomicAdd(granData->alphaY + AOwner, angAcc.y);
     atomicAdd(granData->alphaZ + AOwner, angAcc.z);
@@ -50,12 +50,12 @@ float3 torqueB = make_float3(-torque_only_force.x, -torque_only_force.y, -torque
     atomicAdd(granData->aY + BOwner, forceB.y / BOwnerMass);
     atomicAdd(granData->aZ + BOwner, forceB.z / BOwnerMass);
 
-    // torque_inForceForm is usually the contribution of rolling resistance and it contributes to torque
-    // only, not linear velocity
-    float3 myF = (forceB + torqueB);
+    // Direct torque contributes angular acceleration independently of the contact force
+    float3 myF = forceB;
     // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
     applyOriQToVector3(myF, make_float4(-BOriQ.x, -BOriQ.y, -BOriQ.z, BOriQ.w));
-    const float3 angAcc = cross(locCPB, myF) / BOwnerMOI;
+    applyOriQToVector3(torqueB, make_float4(-BOriQ.x, -BOriQ.y, -BOriQ.z, BOriQ.w));
+    const float3 angAcc = (cross(locCPB, myF) + torqueB) / BOwnerMOI;
     atomicAdd(granData->alphaX + BOwner, angAcc.x);
     atomicAdd(granData->alphaY + BOwner, angAcc.y);
     atomicAdd(granData->alphaZ + BOwner, angAcc.z);

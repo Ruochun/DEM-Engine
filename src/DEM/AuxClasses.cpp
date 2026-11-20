@@ -918,10 +918,10 @@ void DEMForceModel::SetForceModelType(FORCE_MODEL model_type) {
     switch (model_type) {
         case (FORCE_MODEL::HERTZIAN):
             m_must_have_mat_props = {"E", "nu", "CoR", "mu", "Crr"};
-            m_pairwise_mat_props = {"CoR", "mu", "Crr"};
+            m_pairwise_mat_props = {"CoR", "mu", "Crr", "Cspin"};
             m_force_model = HERTZIAN_FORCE_MODEL();
             // History-based model uses these history-related arrays
-            m_contact_wildcards = {"delta_time", "delta_tan_x", "delta_tan_y", "delta_tan_z"};
+            m_contact_wildcards = {"delta_tan_x", "delta_tan_y", "delta_tan_z"};
             break;
         case (FORCE_MODEL::HERTZIAN_FRICTIONLESS):
             m_must_have_mat_props = {"E", "nu", "CoR"};
@@ -937,6 +937,7 @@ void DEMForceModel::SetForceModelType(FORCE_MODEL model_type) {
 }
 
 void DEMForceModel::DefineCustomModel(const std::string& model) {
+    validateForceModelOutputs(model);
     // If custom model is set, we don't care what materials needs to be set
     m_must_have_mat_props.clear();
     type = FORCE_MODEL::CUSTOM;
@@ -947,21 +948,26 @@ int DEMForceModel::ReadCustomModelFile(const std::filesystem::path& sourcefile) 
     if (!std::filesystem::exists(sourcefile)) {
         return 1;
     }
-    // If custom model is set, we don't care what materials needs to be set
+    const std::string model = read_file_to_string(sourcefile);
+    validateForceModelOutputs(model);
+    // Commit metadata only after validating the replacement model.
     m_must_have_mat_props.clear();
     type = FORCE_MODEL::CUSTOM;
-    m_force_model = read_file_to_string(sourcefile);
+    m_force_model = model;
     return 0;
 }
 
 void DEMForceModel::DefineCustomModelPrerequisites(const std::string& util) {
+    validateForceModelOutputs(util);
     m_model_prerequisites = util;
 }
 int DEMForceModel::ReadCustomModelPrerequisitesFile(const std::filesystem::path& sourcefile) {
     if (!std::filesystem::exists(sourcefile)) {
         return 1;
     }
-    m_model_prerequisites = read_file_to_string(sourcefile);
+    const std::string util = read_file_to_string(sourcefile);
+    validateForceModelOutputs(util);
+    m_model_prerequisites = util;
     return 0;
 }
 

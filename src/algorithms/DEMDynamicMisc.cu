@@ -46,15 +46,13 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
             return;
         }
 
-        float3 force = granData->contactForces[i];
-        float3 torque_only_force = make_float3(0.f, 0.f, 0.f);
+        float3 force = AorB ? granData->contactForces[i] : granData->contactForcesB[i];
+        float3 direct_torque = make_float3(0);
         if (need_torque) {
-            torque_only_force = granData->contactTorque_convToForce[i];
+            direct_torque = AorB ? granData->contactTorquesA[i] : granData->contactTorquesB[i];
         }
-        {
-            float mag = length(force) + length(torque_only_force);
-            if (mag < DEME_TINY_FLOAT)
-                return;
+        if (length(force) < DEME_TINY_FLOAT && length(direct_torque) < DEME_TINY_FLOAT) {
+            return;
         }
 
         // It's a contact we need to output...
@@ -69,10 +67,6 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
         } else {
             cntPnt = granData->contactPointGeometryB[i];
             ownerID = ownerB;
-            // Force dir flipped
-            force = -force;
-            if (need_torque)
-                torque_only_force = -torque_only_force;
         }
         oriQ.w = granData->oriQw[ownerID];
         oriQ.x = granData->oriQx[ownerID];
@@ -89,12 +83,10 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
         CoM.y += simParams->LBFY;
         CoM.z += simParams->LBFZ;
         if (need_torque) {
-            // This is the contact-model "extra torque" represented as a force-like vector, not r x contact force.
-            // Force-generated torque can be reconstructed from the reported point and force by the caller.
-            applyOriQToVector3(torque_only_force, make_float4(-oriQ.x, -oriQ.y, -oriQ.z, oriQ.w));
-            float3 torque = cross(cntPnt, torque_only_force);
-            if (!torque_in_local) {
-                applyOriQToVector3(torque, oriQ);
+            // Report the direct extra torque; callers reconstruct the force moment from point and force.
+            float3 torque = direct_torque;
+            if (torque_in_local) {
+                applyOriQToVector3(torque, make_float4(-oriQ.x, -oriQ.y, -oriQ.z, oriQ.w));
             }
             d_torques[writeIndex] = torque;
         }
@@ -229,7 +221,7 @@ __global__ void computePerPrimitiveWeightedQuantities_impl(DEMDataDT* granData,
             pen = 0.0;
         }
         float3 normal = granData->contactForces[myContactID];
-        double3 cp = to_double3(granData->contactTorque_convToForce[myContactID]);
+        double3 cp = to_double3(granData->contactPointScratch[myContactID]);
 
         // Project onto patch-voted normal
         contactPairs_t localPatchIdx = keys[idx] - startOffsetPatch;
@@ -359,7 +351,7 @@ __global__ void findMaxPenetrationPrimitiveForZeroAreaPatches_impl(DEMDataDT* gr
             // calculation, this one is considered a non-contact.
 
             // Also store the contact point from this max-penetration primitive
-            double3 myContactPoint = to_double3(granData->contactTorque_convToForce[myContactID]);
+            double3 myContactPoint = to_double3(granData->contactPointScratch[myContactID]);
             zeroAreaContactPoints[localPatchIdx] = myContactPoint;
         }
     }
@@ -462,14 +454,14 @@ __global__ void computePatchPVScalars_impl(const DEMSimParams* simParams,
                                            const double3* finalContactPoints,
                                            contactPairs_t startOffsetPatch,
                                            contactPairs_t countPatch,
-                                           float* patchNormalForce,
+                                           float2* patchNormalForce,
                                            float* patchSlipSpeed) {
     contactPairs_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= countPatch || !patchNormalForce || !patchSlipSpeed || !finalContactPoints) {
         return;
     }
 
-    patchNormalForce[idx] = 0.f;
+    patchNormalForce[idx] = make_float2(0.f, 0.f);
     patchSlipSpeed[idx] = 0.f;
 
     const contactPairs_t patchContactID = startOffsetPatch + idx;
@@ -486,8 +478,10 @@ __global__ void computePatchPVScalars_impl(const DEMSimParams* simParams,
     normal *= rsqrtf(n2);
 
     const float3 patchForce = granData->contactForces[patchContactID];
-    const float normalForce = fabsf(dot(patchForce, normal));
-    if (!(normalForce > DEME_TINY_FLOAT)) {
+    // Independent forces may impose different normal loads on the two mesh owners.
+    const float2 normalForce =
+        make_float2(fabsf(dot(patchForce, normal)), fabsf(dot(granData->contactForcesB[patchContactID], normal)));
+    if (!(normalForce.x > DEME_TINY_FLOAT || normalForce.y > DEME_TINY_FLOAT)) {
         return;
     }
 
@@ -571,7 +565,7 @@ void computePatchPVScalars(DEMSimParams* simParams,
                            const double3* finalContactPoints,
                            contactPairs_t startOffsetPatch,
                            contactPairs_t countPatch,
-                           float* patchNormalForce,
+                           float2* patchNormalForce,
                            float* patchSlipSpeed,
                            cudaStream_t& this_stream) {
     size_t blocks_needed = (countPatch + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
@@ -588,7 +582,7 @@ __global__ void accumulateTrianglePVFromPatchContacts_impl(const DEMSimParams* s
                                                            const contactPairs_t* keys,
                                                            const double* primitiveWeights,
                                                            const double* patchWeights,
-                                                           const float* patchNormalForce,
+                                                           const float2* patchNormalForce,
                                                            const float* patchSlipSpeed,
                                                            contactPairs_t startOffsetPrimitive,
                                                            contactPairs_t startOffsetPatch,
@@ -620,13 +614,8 @@ __global__ void accumulateTrianglePVFromPatchContacts_impl(const DEMSimParams* s
     }
     share = fminf(share, 1.f);
 
-    const float normalForce = patchNormalForce[localPatchIdx];
-    if (!(normalForce > DEME_TINY_FLOAT)) {
-        return;
-    }
-    const float pContribution = normalForce * share;
+    const float2 normalForce = patchNormalForce[localPatchIdx];
     const float slipSpeed = patchSlipSpeed[localPatchIdx];
-    const float pvContribution = pContribution * slipSpeed;
 
     const contact_t primType = granData->contactTypePrimitive[primContactID];
     if (primType == NOT_A_CONTACT) {
@@ -637,6 +626,8 @@ __global__ void accumulateTrianglePVFromPatchContacts_impl(const DEMSimParams* s
     const geoType_t typeB = decodeTypeB(primType);
 
     if (typeA == GEO_T_TRIANGLE) {
+        const float pContribution = normalForce.x * share;
+        const float pvContribution = pContribution * slipSpeed;
         const bodyID_t triA = granData->idPrimitiveA[primContactID];
         if (triA < simParams->nTriGM) {
             const int localIdx = triGlobalToLocal[triA];
@@ -647,6 +638,8 @@ __global__ void accumulateTrianglePVFromPatchContacts_impl(const DEMSimParams* s
         }
     }
     if (typeB == GEO_T_TRIANGLE) {
+        const float pContribution = normalForce.y * share;
+        const float pvContribution = pContribution * slipSpeed;
         const bodyID_t triB = granData->idPrimitiveB[primContactID];
         if (triB < simParams->nTriGM) {
             const int localIdx = triGlobalToLocal[triB];
@@ -663,7 +656,7 @@ void accumulateTrianglePVFromPatchContacts(DEMSimParams* simParams,
                                            const contactPairs_t* keys,
                                            const double* primitiveWeights,
                                            const double* patchWeights,
-                                           const float* patchNormalForce,
+                                           const float2* patchNormalForce,
                                            const float* patchSlipSpeed,
                                            contactPairs_t startOffsetPrimitive,
                                            contactPairs_t startOffsetPatch,
@@ -688,7 +681,9 @@ void accumulateTrianglePVFromPatchContacts(DEMSimParams* simParams,
 inline __device__ void cleanUpContactForces(size_t thisContact, DEMSimParams* simParams, DEMDataDT* granData) {
     const float3 zeros = make_float3(0, 0, 0);
     granData->contactForces[thisContact] = zeros;
-    granData->contactTorque_convToForce[thisContact] = zeros;
+    granData->contactForcesB[thisContact] = zeros;
+    granData->contactTorquesA[thisContact] = zeros;
+    granData->contactTorquesB[thisContact] = zeros;
 }
 
 inline __device__ void cleanUpAcc(size_t thisClump, DEMSimParams* simParams, DEMDataDT* granData) {

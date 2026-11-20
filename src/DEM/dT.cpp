@@ -71,7 +71,10 @@ void DEMDynamicThread::packDataPointers() {
     ownerCombinedMasterMOI.bindDevicePointer(&(granData->ownerCombinedMasterMOI));
 
     contactForces.bindDevicePointer(&(granData->contactForces));
-    contactTorque_convToForce.bindDevicePointer(&(granData->contactTorque_convToForce));
+    contactForcesB.bindDevicePointer(&(granData->contactForcesB));
+    contactTorquesA.bindDevicePointer(&(granData->contactTorquesA));
+    contactTorquesB.bindDevicePointer(&(granData->contactTorquesB));
+    contactPointScratch.bindDevicePointer(&(granData->contactPointScratch));
     contactNormals.bindDevicePointer(&(granData->contactNormals));
     contactPointGeometryA.bindDevicePointer(&(granData->contactPointGeometryA));
     contactPointGeometryB.bindDevicePointer(&(granData->contactPointGeometryB));
@@ -178,8 +181,11 @@ void DEMDynamicThread::migrateDataToDevice() {
     }
 
     contactForces.toDeviceAsync(streamInfo.stream);
+    contactForcesB.toDeviceAsync(streamInfo.stream);
+    contactTorquesA.toDeviceAsync(streamInfo.stream);
+    contactTorquesB.toDeviceAsync(streamInfo.stream);
     contactNormals.toDeviceAsync(streamInfo.stream);
-    contactTorque_convToForce.toDeviceAsync(streamInfo.stream);
+    contactPointScratch.toDeviceAsync(streamInfo.stream);
     contactPointGeometryA.toDeviceAsync(streamInfo.stream);
     contactPointGeometryB.toDeviceAsync(streamInfo.stream);
 
@@ -290,8 +296,11 @@ void DEMDynamicThread::migrateContactInfoToHost() {
 
     // Contact results
     contactForces.toHost();
+    contactForcesB.toHost();
+    contactTorquesA.toHost();
+    contactTorquesB.toHost();
     contactNormals.toHost();
-    contactTorque_convToForce.toHost();
+    contactPointScratch.toHost();
     contactPointGeometryA.toHost();
     contactPointGeometryB.toHost();
     for (unsigned int i = 0; i < simParams->nContactWildcards; i++) {
@@ -612,7 +621,10 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
         // need to store forces, we can choose to not resize these arrays.
         if (!(solverFlags.useNoContactRecord && simParams->nTriGM == 0)) {
             DEME_DUAL_ARRAY_RESIZE(contactForces, cnt_arr_size, make_float3(0));
-            DEME_DUAL_ARRAY_RESIZE(contactTorque_convToForce, cnt_arr_size, make_float3(0));
+            DEME_DUAL_ARRAY_RESIZE(contactForcesB, cnt_arr_size, make_float3(0));
+            DEME_DUAL_ARRAY_RESIZE(contactTorquesA, cnt_arr_size, make_float3(0));
+            DEME_DUAL_ARRAY_RESIZE(contactTorquesB, cnt_arr_size, make_float3(0));
+            DEME_DUAL_ARRAY_RESIZE(contactPointScratch, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactPointGeometryA, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactPointGeometryB, cnt_arr_size, make_float3(0));
             if (simParams->storeNormal) {
@@ -1811,9 +1823,10 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
         }
 
         float3 forcexyz = contactForces[i];
-        float3 torque = contactTorque_convToForce[i];
+        float3 torque = contactTorquesA[i];
         // If this force+torque is too small, then it's not an active contact
-        if (length(forcexyz + torque) < force_thres) {
+        if (length(forcexyz) < force_thres && length(contactForcesB[i]) < force_thres && length(torque) < force_thres &&
+            length(contactTorquesB[i]) < force_thres) {
             continue;
         }
 
@@ -1844,12 +1857,13 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
         // Force is already in global...
         if (solverFlags.cntOutFlags & CNT_OUTPUT_CONTENT::FORCE) {
             contactInfo.Get<float3>("Force")[useful_cnt] = forcexyz;
+            contactInfo.Get<float3>("ForceB")[useful_cnt] = contactForcesB[i];
         }
 
         // Contact point is in local frame. To make it global, first map that vector to axis-aligned global frame, then
         // add the location of body A CoM
         float4 oriQA;
-        float3 CoM, cntPntA, cntPntALocal;
+        float3 CoM, cntPntA;
         {
             oriQA.w = oriQw[ownerA];
             oriQA.x = oriQx[ownerA];
@@ -1866,7 +1880,6 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
             CoM.y += simParams->LBFY;
             CoM.z += simParams->LBFZ;
             cntPntA = contactPointGeometryA[i];
-            cntPntALocal = cntPntA;
             applyOriQToVector3(cntPntA.x, cntPntA.y, cntPntA.z, oriQA.w, oriQA.x, oriQA.y, oriQA.z);
             cntPntA += CoM;
         }
@@ -1884,15 +1897,8 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
 
         // Torque is in global already...
         if (solverFlags.cntOutFlags & CNT_OUTPUT_CONTENT::TORQUE) {
-            // Must derive torque in local...
-            {
-                applyOriQToVector3(torque.x, torque.y, torque.z, oriQA.w, -oriQA.x, -oriQA.y, -oriQA.z);
-                // Force times point...
-                torque = cross(cntPntALocal, torque);
-                // back to global
-                applyOriQToVector3(torque.x, torque.y, torque.z, oriQA.w, oriQA.x, oriQA.y, oriQA.z);
-            }
             contactInfo.Get<float3>("Torque")[useful_cnt] = torque;
+            contactInfo.Get<float3>("TorqueB")[useful_cnt] = contactTorquesB[i];
         }
 
         // Contact wildcards
@@ -2351,7 +2357,10 @@ inline void DEMDynamicThread::contactPrimitivesArraysResize(size_t nContactPairs
     // to store forces, we can choose to not resize these arrays.
     if (!(solverFlags.useNoContactRecord && simParams->nTriGM == 0)) {
         DEME_DUAL_ARRAY_RESIZE(contactForces, nContactPairs, make_float3(0));
-        DEME_DUAL_ARRAY_RESIZE(contactTorque_convToForce, nContactPairs, make_float3(0));
+        DEME_DUAL_ARRAY_RESIZE(contactForcesB, nContactPairs, make_float3(0));
+        DEME_DUAL_ARRAY_RESIZE(contactTorquesA, nContactPairs, make_float3(0));
+        DEME_DUAL_ARRAY_RESIZE(contactTorquesB, nContactPairs, make_float3(0));
+        DEME_DUAL_ARRAY_RESIZE(contactPointScratch, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactPointGeometryA, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactPointGeometryB, nContactPairs, make_float3(0));
         if (simParams->storeNormal) {
@@ -3124,8 +3133,8 @@ inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
                 // granData->contactForces contains patch-level forces, while primitiveWeights/totalWeights still
                 // describe how each primitive contributed to its patch contact.
                 if (triPVTrackingEnabled && triPVNumTrackedTriangles > 0) {
-                    float* patchNormalForce =
-                        (float*)solverScratchSpace.allocateTempVector("patchNormalForce", countPatch * sizeof(float));
+                    float2* patchNormalForce =
+                        (float2*)solverScratchSpace.allocateTempVector("patchNormalForce", countPatch * sizeof(float2));
                     float* patchSlipSpeed =
                         (float*)solverScratchSpace.allocateTempVector("patchSlipSpeed", countPatch * sizeof(float));
                     computePatchPVScalars(&simParams, &granData, finalNormals, finalContactPoints, startOffsetPatch,
@@ -3197,12 +3206,14 @@ void DEMDynamicThread::calculateForces() {
         if (!solverFlags.useForceCollectInPlace) {
             timers.StartGpuTimer("Optional force reduction", streamInfo.stream);
             // Reflect those body-wise forces on their owner clumps
+            // Independent A/B torques add registers; keep this launch below the 1024-thread limit.
+            constexpr unsigned int CONTACT_FORCE_REDUCTION_BLOCK = 256;
             size_t blocks_needed_for_contacts =
-                (nContactPairs + DEME_MAX_THREADS_PER_BLOCK - 1) / DEME_MAX_THREADS_PER_BLOCK;
+                (nContactPairs + CONTACT_FORCE_REDUCTION_BLOCK - 1) / CONTACT_FORCE_REDUCTION_BLOCK;
             // This does both acc and ang acc
             collect_force_kernels->kernel("forceToAcc")
                 .instantiate()
-                .configure(dim3(blocks_needed_for_contacts), dim3(DEME_MAX_THREADS_PER_BLOCK), 0, streamInfo.stream)
+                .configure(dim3(blocks_needed_for_contacts), dim3(CONTACT_FORCE_REDUCTION_BLOCK), 0, streamInfo.stream)
                 .launch(&simParams, &granData, nContactPairs);
             DEME_GPU_DEBUG_SYNC(streamInfo.stream);
             // displayDeviceArray<float>(granData->aZ, simParams->nOwnerBodies);

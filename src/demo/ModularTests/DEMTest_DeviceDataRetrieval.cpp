@@ -156,12 +156,14 @@ bool testFixedOwnerData(int visible_devices) {
     solver.SetGravitationalAcceleration(make_float3(0, 0, 0));
     solver.SetCDUpdateFreq(1);
 
-    // Use a deterministic force-only torque contribution so the wrench comparison covers extra torque without
-    // depending on the Hertz model's collision-age gate for rolling resistance.
+    // Independent forces and direct torques exercise asymmetric contact wrench reporting.
     auto force_model = solver.DefineContactForceModel(R"(
 if (overlapDepth > 0.0) {
     force = B2A * (1.0e3f * static_cast<float>(overlapDepth));
-    torque_only_force = make_float3(0.f, 17.f, 0.f);
+    A_only_torque = make_float3(0.f, 17.f, 0.f);
+    B_only_torque = make_float3(3.f, -11.f, 2.f);
+    A_only_force = make_float3(1.f, 2.f, 3.f);
+    B_only_force = make_float3(-4.f, 5.f, 6.f);
 }
 )");
     force_model->SetPerOwnerWildcards({"retrieval_tag"});

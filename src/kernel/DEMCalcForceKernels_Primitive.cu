@@ -433,7 +433,9 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
 
         // Essentials for storing and calculating contact info
         float3 force = make_float3(0, 0, 0);
-        float3 torque_only_force = make_float3(0, 0, 0);
+        // Additive global-frame forces at the contact point and direct owner torques.
+        float3 A_only_force = make_float3(0), B_only_force = make_float3(0);
+        float3 A_only_torque = make_float3(0), B_only_torque = make_float3(0);
         // Local position of the contact point is always a piece of info we require... regardless of force model
         float3 locCPA = to_float3(contactPnt - AOwnerPos);
         float3 locCPB = to_float3(contactPnt - BOwnerPos);
@@ -456,7 +458,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
             // force record). This design has implications in our new two-step patch-based force calculation algorithm,
             // as we re-use some force-storing arrays for intermediate values.
             force = make_float3(0.f, 0.f, 0.f);
-            torque_only_force = make_float3(0.f, 0.f, 0.f);
+            A_only_force = B_only_force = A_only_torque = B_only_torque = make_float3(0);
             locCPA = make_float3(0.f, 0.f, 0.f);
             locCPB = make_float3(0.f, 0.f, 0.f);
             _forceModelContactWildcardDestroy_;
@@ -475,7 +477,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         // Use contactForces, contactPointGeometryAB to store the contact info for the next
         // kernel to compute forces. contactForces is used to store the contact normal. contactPointGeometryA is used to
         // store the (double) contact penetration. contactPointGeometryB is used to store the (double) contact area
-        // contactTorque_convToForce is used to store the contact point position (cast from double3 to float3)
+        // contactPointScratch is used to store the contact point position (cast from double3 to float3)
 
         // For tri-tri contacts, atomically update the per-triangle shallowest-penetration array so kT can size its
         // contact-detection margins. Each triangle receives its own shallowest (minimum) vertex penetration depth,
@@ -514,7 +516,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         //         "wrong.\n",
         //         myPrimitiveContactID, ContactType);
         // }
-        granData->contactTorque_convToForce[myPrimitiveContactID] = to_float3(contactPnt);
+        granData->contactPointScratch[myPrimitiveContactID] = to_float3(contactPnt);
     }
 }
 

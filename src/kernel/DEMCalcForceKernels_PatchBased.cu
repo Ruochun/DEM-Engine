@@ -196,7 +196,9 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
 
     // Essentials for storing and calculating contact info
     float3 force = make_float3(0, 0, 0);
-    float3 torque_only_force = make_float3(0, 0, 0);
+    // Additive global-frame forces at the contact point and direct owner torques.
+    float3 A_only_force = make_float3(0), B_only_force = make_float3(0);
+    float3 A_only_torque = make_float3(0), B_only_torque = make_float3(0);
     // Local position of the contact point
     float3 locCPA = to_float3(contactPnt - AOwnerPos);
     float3 locCPB = to_float3(contactPnt - BOwnerPos);
@@ -217,7 +219,7 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
         // This design has implications in our new two-step patch-based force calculation algorithm, as we re-use some
         // force-storing arrays for intermediate values.
         force = make_float3(0.f, 0.f, 0.f);
-        torque_only_force = make_float3(0.f, 0.f, 0.f);
+        A_only_force = B_only_force = A_only_torque = B_only_torque = make_float3(0);
         locCPA = make_float3(0.f, 0.f, 0.f);
         locCPB = make_float3(0.f, 0.f, 0.f);
         _forceModelContactWildcardDestroy_;

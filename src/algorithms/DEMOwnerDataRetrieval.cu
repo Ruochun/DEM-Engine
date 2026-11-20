@@ -188,20 +188,20 @@ __device__ void AccumulateOwnerContactWrench(float3* forces,
                                              const DEMDataDT* data,
                                              bodyID_t owner,
                                              const float3& force_a,
-                                             const float3& extra_torque_force_a,
-                                             float sign,
+                                             const float3& direct_torque,
                                              const float3& local_contact_point) {
     if (owner < owner_begin || static_cast<size_t>(owner - owner_begin) >= count) {
         return;
     }
     const size_t output = static_cast<size_t>(owner - owner_begin);
-    const float3 signed_force = force_a * sign;
-    float3 total_force_form = (force_a + extra_torque_force_a) * sign;
+    const float3 signed_force = force_a;
+    float3 total_force_form = force_a;
     const float4 orientation =
         make_float4(data->oriQx[owner], data->oriQy[owner], data->oriQz[owner], data->oriQw[owner]);
     applyOriQToVector3(total_force_form, make_float4(-orientation.x, -orientation.y, -orientation.z, orientation.w));
     float3 global_torque = cross(local_contact_point, total_force_form);
     applyOriQToVector3(global_torque, orientation);
+    global_torque += direct_torque;
 
     atomicAdd(&forces[output].x, signed_force.x);
     atomicAdd(&forces[output].y, signed_force.y);
@@ -229,17 +229,18 @@ __global__ void ReduceOwnerContactWrenchesKernel(float3* forces,
     const bodyID_t owner_a = DEME_GET_PATCH_OWNER_ID(granData->idPatchA[contact], decodeTypeA(contact_type));
     const bodyID_t owner_b = DEME_GET_PATCH_OWNER_ID(granData->idPatchB[contact], decodeTypeB(contact_type));
     const float3 force_a = granData->contactForces[contact];
-    const float3 extra_torque_force_a = granData->contactTorque_convToForce[contact];
-    if (length(force_a) + length(extra_torque_force_a) < DEME_TINY_FLOAT) {
+    const float3 force_b = granData->contactForcesB[contact];
+    const float3 torque_a = granData->contactTorquesA[contact];
+    const float3 torque_b = granData->contactTorquesB[contact];
+    if (length(force_a) + length(force_b) + length(torque_a) + length(torque_b) < DEME_TINY_FLOAT) {
         return;
     }
 
-    // contactTorque_convToForce is DEME's force-like representation of force-model-only torque. Using the same
-    // contact arm as forceToAcc yields r x force plus rolling-resistance (or other model-provided) torque.
-    AccumulateOwnerContactWrench(forces, torques, owner_begin, count, granData, owner_a, force_a, extra_torque_force_a,
-                                 1.f, granData->contactPointGeometryA[contact]);
-    AccumulateOwnerContactWrench(forces, torques, owner_begin, count, granData, owner_b, force_a, extra_torque_force_a,
-                                 -1.f, granData->contactPointGeometryB[contact]);
+    // Each owner has an independent contact force and direct torque in global coordinates.
+    AccumulateOwnerContactWrench(forces, torques, owner_begin, count, granData, owner_a, force_a, torque_a,
+                                 granData->contactPointGeometryA[contact]);
+    AccumulateOwnerContactWrench(forces, torques, owner_begin, count, granData, owner_b, force_b, torque_b,
+                                 granData->contactPointGeometryB[contact]);
 }
 
 }  // namespace

@@ -18,6 +18,30 @@
 // A few helper functions specific to DEM module
 ////////////////////////////////////////////////////////////////////////////////
 
+// Dissipative contact couple on A. Inputs are global, n is a unit normal, and radius is the
+// equivalent-area contact radius. Independent rolling/spinning laws approximate a finite patch;
+// they do not model static moments or coupled sliding/twisting traction limits.
+inline __host__ __device__ float3 contactResistanceTorque(const float3& relative_omega,
+                                                          const float3& n,
+                                                          float normal_load,
+                                                          float radius,
+                                                          float overlap,
+                                                          float rolling,
+                                                          float spinning) {
+    if (overlap <= 0.f || normal_load <= 0.f) {
+        return make_float3(0);
+    }
+    const float3 spin = dot(relative_omega, n) * n;
+    const float3 roll = relative_omega - spin;
+    // Linear regularization below 1e-3 rad/s avoids a discontinuous sign change at rest.
+    // It is not a timestep-dependent stopping cap: explicit integration still needs a suitable timestep.
+    constexpr float omega_regularization = 1e-3f;
+    const float rolling_moment = fmaxf(rolling, 0.f) * normal_load * radius * radius / overlap;
+    const float spinning_moment = (3.f * deme::PI / 16.f) * fmaxf(spinning, 0.f) * normal_load * radius;
+    return -(rolling_moment / fmaxf(length(roll), omega_regularization)) * roll -
+           (spinning_moment / fmaxf(length(spin), omega_regularization)) * spin;
+}
+
 // Sign function
 template <typename T1>
 __host__ __device__ int sgn(const T1& val) {

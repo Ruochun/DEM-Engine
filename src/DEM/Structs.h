@@ -78,19 +78,35 @@ const std::string OUTPUT_FILE_SPH_ANAL_CONTACT_NAME = std::string("SA");
 const std::string OUTPUT_FILE_SPH_MESH_CONTACT_NAME = std::string("SM");
 const std::string OUTPUT_FILE_TRIANGLE_TRIANGLE_CONTACT_NAME = std::string("MM");
 const std::string OUTPUT_FILE_MESH_ANAL_CONTACT_NAME = std::string("MA");
-const std::set<std::string> CNT_FILE_KNOWN_COL_NAMES = {
-    OUTPUT_FILE_OWNER_1_NAME,          OUTPUT_FILE_OWNER_2_NAME,
-    OUTPUT_FILE_COMP_1_NAME,           OUTPUT_FILE_COMP_2_NAME,
-    OUTPUT_FILE_GEO_ID_1_NAME,         OUTPUT_FILE_GEO_ID_2_NAME,
-    OUTPUT_FILE_OWNER_NICKNAME_1_NAME, OUTPUT_FILE_OWNER_NICKNAME_2_NAME,
-    OUTPUT_FILE_CNT_TYPE_NAME,         OUTPUT_FILE_FORCE_X_NAME,
-    OUTPUT_FILE_FORCE_Y_NAME,          OUTPUT_FILE_FORCE_Z_NAME,
-    OUTPUT_FILE_TORQUE_X_NAME,         OUTPUT_FILE_TORQUE_Y_NAME,
-    OUTPUT_FILE_TORQUE_Z_NAME,         OUTPUT_FILE_NORMAL_X_NAME,
-    OUTPUT_FILE_NORMAL_Y_NAME,         OUTPUT_FILE_NORMAL_Z_NAME,
-    OUTPUT_FILE_SPH_SPH_CONTACT_NAME,  OUTPUT_FILE_SPH_ANAL_CONTACT_NAME,
-    OUTPUT_FILE_SPH_MESH_CONTACT_NAME, OUTPUT_FILE_TRIANGLE_TRIANGLE_CONTACT_NAME,
-    OUTPUT_FILE_MESH_ANAL_CONTACT_NAME};
+const std::set<std::string> CNT_FILE_KNOWN_COL_NAMES = {OUTPUT_FILE_OWNER_1_NAME,
+                                                        OUTPUT_FILE_OWNER_2_NAME,
+                                                        OUTPUT_FILE_COMP_1_NAME,
+                                                        OUTPUT_FILE_COMP_2_NAME,
+                                                        OUTPUT_FILE_GEO_ID_1_NAME,
+                                                        OUTPUT_FILE_GEO_ID_2_NAME,
+                                                        OUTPUT_FILE_OWNER_NICKNAME_1_NAME,
+                                                        OUTPUT_FILE_OWNER_NICKNAME_2_NAME,
+                                                        OUTPUT_FILE_CNT_TYPE_NAME,
+                                                        OUTPUT_FILE_FORCE_X_NAME,
+                                                        OUTPUT_FILE_FORCE_Y_NAME,
+                                                        OUTPUT_FILE_FORCE_Z_NAME,
+                                                        OUTPUT_FILE_TORQUE_X_NAME,
+                                                        OUTPUT_FILE_TORQUE_Y_NAME,
+                                                        OUTPUT_FILE_TORQUE_Z_NAME,
+                                                        OUTPUT_FILE_NORMAL_X_NAME,
+                                                        OUTPUT_FILE_NORMAL_Y_NAME,
+                                                        OUTPUT_FILE_NORMAL_Z_NAME,
+                                                        OUTPUT_FILE_SPH_SPH_CONTACT_NAME,
+                                                        OUTPUT_FILE_SPH_ANAL_CONTACT_NAME,
+                                                        OUTPUT_FILE_SPH_MESH_CONTACT_NAME,
+                                                        OUTPUT_FILE_TRIANGLE_TRIANGLE_CONTACT_NAME,
+                                                        OUTPUT_FILE_MESH_ANAL_CONTACT_NAME,
+                                                        "ForceB_X",
+                                                        "ForceB_Y",
+                                                        "ForceB_Z",
+                                                        "TorqueB_X",
+                                                        "TorqueB_Y",
+                                                        "TorqueB_Z"};
 
 // Map contact type identifier to their names
 const std::unordered_map<contact_t, std::string> contact_type_out_name_map = {
@@ -102,23 +118,12 @@ const std::unordered_map<contact_t, std::string> contact_type_out_name_map = {
     {TRIANGLE_ANALYTICAL_CONTACT, OUTPUT_FILE_MESH_ANAL_CONTACT_NAME}};
 
 // Possible force model ingredients. This map is used to ensure we don't double-add them.
-const std::unordered_map<std::string, bool> force_kernel_ingredient_stats = {{"ts", false},
-                                                                             {"time", false},
-                                                                             {"AOwnerFamily", true},
-                                                                             {"BOwnerFamily", true},
-                                                                             {"ALinVel", false},
-                                                                             {"BLinVel", false},
-                                                                             {"ARotVel", false},
-                                                                             {"BRotVel", false},
-                                                                             {"AOwner", false},
-                                                                             {"BOwner", false},
-                                                                             {"AOwnerMOI", false},
-                                                                             {"BOwnerMOI", false},
-                                                                             {"AGeo", false},
-                                                                             {"BGeo", false},
-                                                                             {"ContactType", true},
-                                                                             {"force", true},
-                                                                             {"torque_only_force", true}};
+const std::unordered_map<std::string, bool> force_kernel_ingredient_stats = {
+    {"ts", false},          {"time", false},        {"AOwnerFamily", true},  {"BOwnerFamily", true},
+    {"ALinVel", false},     {"BLinVel", false},     {"ARotVel", false},      {"BRotVel", false},
+    {"AOwner", false},      {"BOwner", false},      {"AOwnerMOI", false},    {"BOwnerMOI", false},
+    {"AGeo", false},        {"BGeo", false},        {"ContactType", true},   {"force", true},
+    {"A_only_force", true}, {"B_only_force", true}, {"A_only_torque", true}, {"B_only_torque", true}};
 
 // =============================================================================
 // SOME HOST-SIDE ENUMS
@@ -1221,10 +1226,14 @@ class ContactInfoContainer : public DataContainer {
             Insert<family_t>("AOwnerFamily", {});
             Insert<family_t>("BOwnerFamily", {});
         }
-        if (cnt_out_content & CNT_OUTPUT_CONTENT::FORCE)
+        if (cnt_out_content & CNT_OUTPUT_CONTENT::FORCE) {
             Insert<float3>("Force", {});
-        if (cnt_out_content & CNT_OUTPUT_CONTENT::TORQUE)
+            Insert<float3>("ForceB", {});
+        }
+        if (cnt_out_content & CNT_OUTPUT_CONTENT::TORQUE) {
             Insert<float3>("Torque", {});
+            Insert<float3>("TorqueB", {});
+        }
         if (cnt_out_content & CNT_OUTPUT_CONTENT::NORMAL)
             Insert<float3>("Normal", {});
 
@@ -1245,6 +1254,9 @@ class ContactInfoContainer : public DataContainer {
     std::vector<family_t>& GetAOwnerFamily() { return Get<family_t>("AOwnerFamily"); }
     std::vector<family_t>& GetBOwnerFamily() { return Get<family_t>("BOwnerFamily"); }
     std::vector<float3>& GetForce() { return Get<float3>("Force"); }
+    /// Global contact force on B and direct extra torque on B (not inferred from A).
+    std::vector<float3>& GetForceB() { return Get<float3>("ForceB"); }
+    std::vector<float3>& GetTorqueB() { return Get<float3>("TorqueB"); }
     std::vector<float3>& GetTorque() { return Get<float3>("Torque"); }
     std::vector<float3>& GetNormal() { return Get<float3>("Normal"); }
 

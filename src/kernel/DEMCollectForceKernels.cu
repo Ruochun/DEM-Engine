@@ -45,13 +45,12 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
             return;
         }
         const float3 F = granData->contactForces[myID];
-        const float3 torque_only_force = granData->contactTorque_convToForce[myID];
         const deme::bodyID_t idPatchA = granData->idPatchA[myID];
         const deme::bodyID_t idPatchB = granData->idPatchB[myID];
         float3 forceA = F;
-        float3 forceB = make_float3(-F.x, -F.y, -F.z);
-        float3 torqueA = torque_only_force;
-        float3 torqueB = make_float3(-torque_only_force.x, -torque_only_force.y, -torque_only_force.z);
+        float3 forceB = granData->contactForcesB[myID];
+        float3 torqueA = granData->contactTorquesA[myID];
+        float3 torqueB = granData->contactTorquesB[myID];
         const deme::geoType_t typeA = deme::decodeTypeA(thisCntType);
         const deme::geoType_t typeB = deme::decodeTypeB(thisCntType);
         const deme::bodyID_t ownerA = getPatchOwnerSafe(simParams, granData, idPatchA, typeA);
@@ -81,14 +80,10 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
             atomicAdd(granData->aY + myOwner, forceA.y / myMass);
             atomicAdd(granData->aZ + myOwner, forceA.z / myMass);
 
-            // torque_inForceForm is usually the contribution of rolling resistance and it contributes to torque
-            // only, not linear velocity. A zero resultant cannot produce angular acceleration, so do not read a
-            // contact-point slot that a margin-only pair may never have written. Besides avoiding cross(NaN, 0), this
-            // skips the orientation and angular atomics for the common zero-force case without dropping linear force.
-            // The in-force-kernel collection policy does not need this memory-safety guard because it consumes the
-            // locally computed contact point instead of reading a persistent contact-point array.
-            float3 myF = forceA + torqueA;
-            if (myF.x != 0.0f || myF.y != 0.0f || myF.z != 0.0f) {
+            // Check force and direct torque separately: their components have different units and may cancel.
+            float3 myF = forceA;
+            if (myF.x != 0.f || myF.y != 0.f || myF.z != 0.f || torqueA.x != 0.f || torqueA.y != 0.f ||
+                torqueA.z != 0.f) {
                 float3 myMOI;
                 { _moiAcqStrat_; }
                 const float3 myCntPnt = granData->contactPointGeometryA[myID];
@@ -105,7 +100,8 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
                 const deme::oriQ_t myOriQz = granData->oriQz[myOwner];
                 // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
                 applyOriQToVector3(myF, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
-                const float3 angAcc = cross(myCntPnt, myF) / myMOI;
+                applyOriQToVector3(torqueA, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
+                const float3 angAcc = (cross(myCntPnt, myF) + torqueA) / myMOI;
                 atomicAdd(granData->alphaX + myOwner, angAcc.x);
                 atomicAdd(granData->alphaY + myOwner, angAcc.y);
                 atomicAdd(granData->alphaZ + myOwner, angAcc.z);
@@ -133,10 +129,10 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
             atomicAdd(granData->aY + myOwner, forceB.y / myMass);
             atomicAdd(granData->aZ + myOwner, forceB.z / myMass);
 
-            // torque_inForceForm is usually the contribution of rolling resistance and it contributes to torque
-            // only, not linear velocity. Keep B's guard independent because its contact point has separate storage.
-            float3 myF = forceB + torqueB;
-            if (myF.x != 0.0f || myF.y != 0.0f || myF.z != 0.0f) {
+            // Check force and direct torque separately: their components have different units and may cancel.
+            float3 myF = forceB;
+            if (myF.x != 0.f || myF.y != 0.f || myF.z != 0.f || torqueB.x != 0.f || torqueB.y != 0.f ||
+                torqueB.z != 0.f) {
                 float3 myMOI;
                 { _moiAcqStrat_; }
                 const float3 myCntPnt = granData->contactPointGeometryB[myID];
@@ -153,7 +149,8 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
                 const deme::oriQ_t myOriQz = granData->oriQz[myOwner];
                 // F is in global frame, but it needs to be in local to coordinate with moi and cntPnt
                 applyOriQToVector3(myF, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
-                const float3 angAcc = cross(myCntPnt, myF) / myMOI;
+                applyOriQToVector3(torqueB, make_float4(-myOriQx, -myOriQy, -myOriQz, myOriQw));
+                const float3 angAcc = (cross(myCntPnt, myF) + torqueB) / myMOI;
                 atomicAdd(granData->alphaX + myOwner, angAcc.x);
                 atomicAdd(granData->alphaY + myOwner, angAcc.y);
                 atomicAdd(granData->alphaZ + myOwner, angAcc.z);

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -130,30 +131,45 @@ int main(int argc, char* argv[]) {
     auto sphere_type = DEMSim.LoadSphereType(sphere_mass, radius_sphere, mat_spheres);
 
     // Build the complete bed before Initialize so mesh topology and mass tables are available during JIT compilation.
-    // An anisotropic grid leaves gaps between horizontal cylinders. Sorting by height fills the lower layers first.
+    // Bounding-sphere spacing leaves gaps for every cylinder orientation. Sorting fills the lower layers first.
     const float half_width = smoke_test ? 0.02f : 0.10f;
     const float half_depth = smoke_test ? 0.013f : 0.02f;
-    GridSampler cylinder_sampler(make_float3(1.1 * cylinder_length, 2.2 * radius_cylinder, 2.2 * radius_cylinder));
+    const float cylinder_bound = std::sqrt(cylinder_length * cylinder_length / 4 + radius_cylinder * radius_cylinder);
+    const float cylinder_spacing = 2.2f * cylinder_bound;
+    GridSampler cylinder_sampler(cylinder_spacing);
     auto cylinder_positions = cylinder_sampler.SampleBox(
-        make_float3(0, 0, 0.16),
-        make_float3(half_width - 0.55 * cylinder_length, half_depth - 1.1 * radius_cylinder, 0.14));
+        make_float3(0, 0, 0.41),
+        make_float3(half_width - cylinder_spacing / 2, half_depth - cylinder_spacing / 2, 0.39));
     std::stable_sort(cylinder_positions.begin(), cylinder_positions.end(),
                      [](const float3& a, const float3& b) { return a.z < b.z; });
     if (cylinder_positions.size() < total_cylinders) {
         DEME_ERROR("Cylinder loading region is too small for %zu particles.", total_cylinders);
     }
     cylinder_positions.resize(total_cylinders);
+    // Normalizing four independent Gaussian samples gives uniform rotations; a fixed seed keeps runs reproducible.
+    std::mt19937 orientation_rng(42);
+    std::normal_distribution<float> orientation_component(0.f, 1.f);
     std::shared_ptr<DEMTracker> first_cylinder_tracker;
     for (const auto& pos : cylinder_positions) {
         auto cylinder = DEMSim.AddMeshFromTemplate(cylinder_type, pos);
+        float4 orientation;
+        float norm;
+        do {
+            orientation = make_float4(orientation_component(orientation_rng), orientation_component(orientation_rng),
+                                      orientation_component(orientation_rng), orientation_component(orientation_rng));
+            norm = std::sqrt(orientation.x * orientation.x + orientation.y * orientation.y +
+                             orientation.z * orientation.z + orientation.w * orientation.w);
+        } while (norm == 0.f);
+        cylinder->SetInitQuat(
+            make_float4(orientation.x / norm, orientation.y / norm, orientation.z / norm, orientation.w / norm));
         if (!first_cylinder_tracker) {
             first_cylinder_tracker = DEMSim.Track(cylinder);
         }
     }
 
     // Place analytical spheres above the cylinders with a gap; both particle types move from the first step.
-    const float sphere_bottom = cylinder_positions.back().z + radius_cylinder + radius_sphere + 0.01;
-    const float sphere_top = 0.60f;
+    const float sphere_bottom = cylinder_positions.back().z + cylinder_bound + radius_sphere + 0.01;
+    const float sphere_top = 0.95f;
     GridSampler sphere_sampler(2.2 * radius_sphere);
     auto sphere_positions =
         sphere_sampler.SampleBox(make_float3(0, 0, (sphere_bottom + sphere_top) / 2),

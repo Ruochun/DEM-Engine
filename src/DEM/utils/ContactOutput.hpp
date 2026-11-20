@@ -30,6 +30,7 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
     if (output_flags & CNT_OUTPUT_CONTENT::FORCE) {
         outstrstream << "," + OUTPUT_FILE_FORCE_X_NAME + "," + OUTPUT_FILE_FORCE_Y_NAME + "," +
                             OUTPUT_FILE_FORCE_Z_NAME;
+        outstrstream << ",ForceB_X,ForceB_Y,ForceB_Z";
     }
     if (output_flags & CNT_OUTPUT_CONTENT::CNT_POINT) {
         outstrstream << "," + OUTPUT_FILE_X_COL_NAME + "," + OUTPUT_FILE_Y_COL_NAME + "," + OUTPUT_FILE_Z_COL_NAME;
@@ -47,6 +48,7 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
     if (output_flags & CNT_OUTPUT_CONTENT::TORQUE) {
         outstrstream << "," + OUTPUT_FILE_TORQUE_X_NAME + "," + OUTPUT_FILE_TORQUE_Y_NAME + "," +
                             OUTPUT_FILE_TORQUE_Z_NAME;
+        outstrstream << ",TorqueB_X,TorqueB_Y,TorqueB_Z";
     }
     if (output_flags & CNT_OUTPUT_CONTENT::CNT_WILDCARD) {
         // Write all wildcard names as header
@@ -73,6 +75,8 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
         if (output_flags & CNT_OUTPUT_CONTENT::FORCE) {
             outstrstream << "," << contact_info.Get<float3>("Force")[i].x << ","
                          << contact_info.Get<float3>("Force")[i].y << "," << contact_info.Get<float3>("Force")[i].z;
+            outstrstream << "," << contact_info.Get<float3>("ForceB")[i].x << ","
+                         << contact_info.Get<float3>("ForceB")[i].y << "," << contact_info.Get<float3>("ForceB")[i].z;
         }
 
         if (output_flags & CNT_OUTPUT_CONTENT::CNT_POINT) {
@@ -91,6 +95,8 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
         if (output_flags & CNT_OUTPUT_CONTENT::TORQUE) {
             outstrstream << "," << contact_info.Get<float3>("Torque")[i].x << ","
                          << contact_info.Get<float3>("Torque")[i].y << "," << contact_info.Get<float3>("Torque")[i].z;
+            outstrstream << "," << contact_info.Get<float3>("TorqueB")[i].x << ","
+                         << contact_info.Get<float3>("TorqueB")[i].y << "," << contact_info.Get<float3>("TorqueB")[i].z;
         }
 
         // Contact wildcards
