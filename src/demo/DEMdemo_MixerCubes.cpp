@@ -64,6 +64,7 @@ int main() {
     walls->AddCylinder(make_float3(0), make_float3(0, 0, 1), world_size / 2., mat_type_mixer, 0);
 
     auto mixer = DEMSim.AddWavefrontMeshObject((GET_DATA_PATH() / "mesh/internal_mixer.obj").string(), mat_type_mixer);
+    mixer->SetContactRadius(0.f);  // Container geometry retains zero contact curvature.
     std::cout << "Total num of mixer triangles: " << mixer->GetNumTriangles() << std::endl;
     mixer->Scale(make_float3(world_size / 2, world_size / 2, chamber_height));
     mixer->SetFamily(10);

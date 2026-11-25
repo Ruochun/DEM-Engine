@@ -282,6 +282,10 @@ class DEMKinematicThread {
         // spawning the child thread.
         DEME_GPU_CALL(cudaStreamCreate(&streamInfo.stream));
 
+        // Public setup APIs can access fixed-size arrays immediately after construction. Allocate them before
+        // starting the worker, otherwise SetFamilyExtraMargin can race its first allocation.
+        initAllocation();
+
         // Launch a worker thread bound to this instance
         th = std::move(std::thread([this]() { this->workerThread(); }));
     }

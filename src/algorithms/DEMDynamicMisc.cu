@@ -46,7 +46,7 @@ __global__ void getContactForcesConcerningOwners_impl(float3* d_points,
             return;
         }
 
-        float3 force = AorB ? granData->contactForces[i] : granData->contactForcesB[i];
+        float3 force = AorB ? granData->contactForcesA[i] : granData->contactForcesB[i];
         float3 direct_torque = make_float3(0);
         if (need_torque) {
             direct_torque = AorB ? granData->contactTorquesA[i] : granData->contactTorquesB[i];
@@ -129,7 +129,7 @@ __global__ void prepareWeightedNormalsForVoting_impl(DEMDataDT* granData,
     if (idx < count) {
         contactPairs_t myContactID = startOffset + idx;
 
-        const float3 normal = granData->contactForces[myContactID];
+        const float3 normal = granData->contactForcesA[myContactID];
         const float3 areaStorage = granData->contactPointGeometryB[myContactID];
         const double area = float3StorageToDouble(areaStorage);
 
@@ -220,8 +220,9 @@ __global__ void computePerPrimitiveWeightedQuantities_impl(DEMDataDT* granData,
         if (pen <= 0.0) {
             pen = 0.0;
         }
-        float3 normal = granData->contactForces[myContactID];
-        double3 cp = to_double3(granData->contactPointScratch[myContactID]);
+        float3 normal = granData->contactForcesA[myContactID];
+        // Read the temporary point before patch force writeback reuses B storage.
+        double3 cp = to_double3(granData->contactForcesB[myContactID]);
 
         // Project onto patch-voted normal
         contactPairs_t localPatchIdx = keys[idx] - startOffsetPatch;
@@ -341,7 +342,7 @@ __global__ void findMaxPenetrationPrimitiveForZeroAreaPatches_impl(DEMDataDT* gr
             // This primitive has the max penetration - use its normal, penetration, and contact point
             // Note: if multiple primitives have the same max, any one of them is fine
             // The race condition is acceptable since all competing values are valid
-            float3 myNormal = granData->contactForces[myContactID];
+            float3 myNormal = granData->contactForcesA[myContactID];
             zeroAreaNormals[localPatchIdx] = myNormal;
             zeroAreaPenetrations[localPatchIdx] = myPenetration < 0.0 ? myPenetration : -DEME_HUGE_FLOAT;
             // This zeroAreaPenetrations should store a negative number, as when it is needed, it's usually the
@@ -351,7 +352,7 @@ __global__ void findMaxPenetrationPrimitiveForZeroAreaPatches_impl(DEMDataDT* gr
             // calculation, this one is considered a non-contact.
 
             // Also store the contact point from this max-penetration primitive
-            double3 myContactPoint = to_double3(granData->contactPointScratch[myContactID]);
+            double3 myContactPoint = to_double3(granData->contactForcesB[myContactID]);
             zeroAreaContactPoints[localPatchIdx] = myContactPoint;
         }
     }
@@ -477,10 +478,10 @@ __global__ void computePatchPVScalars_impl(const DEMSimParams* simParams,
     }
     normal *= rsqrtf(n2);
 
-    const float3 patchForce = granData->contactForces[patchContactID];
+    const float3 patchForceA = granData->contactForcesA[patchContactID];
+    const float3 patchForceB = granData->contactForcesB[patchContactID];
     // Independent forces may impose different normal loads on the two mesh owners.
-    const float2 normalForce =
-        make_float2(fabsf(dot(patchForce, normal)), fabsf(dot(granData->contactForcesB[patchContactID], normal)));
+    const float2 normalForce = make_float2(fabsf(dot(patchForceA, normal)), fabsf(dot(patchForceB, normal)));
     if (!(normalForce.x > DEME_TINY_FLOAT || normalForce.y > DEME_TINY_FLOAT)) {
         return;
     }
@@ -680,7 +681,7 @@ void accumulateTrianglePVFromPatchContacts(DEMSimParams* simParams,
 
 inline __device__ void cleanUpContactForces(size_t thisContact, DEMSimParams* simParams, DEMDataDT* granData) {
     const float3 zeros = make_float3(0, 0, 0);
-    granData->contactForces[thisContact] = zeros;
+    granData->contactForcesA[thisContact] = zeros;
     granData->contactForcesB[thisContact] = zeros;
     granData->contactTorquesA[thisContact] = zeros;
     granData->contactTorquesB[thisContact] = zeros;

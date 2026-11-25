@@ -1408,6 +1408,12 @@ void DEMSolver::setSimParams() {
             }
         }
     }
+    // Geometry-dependent settings are applied only by Initialize/full Update.
+    if (!sys_initialized) {
+        dT->simParams->rollingLengthBoundsEnabled = m_rolling_length_bounds_enabled;
+        dT->simParams->rollingLengthMultiplier = m_rolling_length_multiplier;
+        dT->simParams->rollingLengthMax = m_rolling_length_max;
+    }
     dT->setSimParams(nvXp2, nvYp2, nvZp2, l, m_voxelSize, m_binSize, nbX, nbY, nbZ, m_boxLBF, m_user_box_min,
                      m_user_box_max, G, m_ts_size, m_expand_factor, m_approx_max_vel, m_max_tritri_penetration,
                      m_triTriContactRejectionRatio, m_expand_safety_multi, m_expand_base_vel, m_use_angvel_margin,
@@ -1420,7 +1426,9 @@ void DEMSolver::setSimParams() {
 
 void DEMSolver::allocateGPUArrays() {
     size_t tri_neighbors = 0;
-    for (const auto& mesh_obj : cached_mesh_objs) {
+    // Full Update must preserve existing mesh adjacency even when the pending load cache is empty.
+    // m_meshes contains every initialized mesh (and newly preprocessed meshes during initialization).
+    for (const auto& mesh_obj : m_meshes) {
         if (!mesh_obj) {
             continue;
         }
@@ -2198,7 +2206,7 @@ inline void DEMSolver::equipMaterials(std::unordered_map<std::string, std::strin
             for (unsigned int i = 0; i < num_mats; i++) {
                 flag = flag && flags[i][i];
             }
-            if (!flag && !(m_force_model->type == FORCE_MODEL::HERTZIAN && prop_name == "Cspin")) {
+            if (!flag) {
                 DEME_WARNING(
                     "Material property %s is needed by the force model or is referred to by the user. However, at "
                     "least one material does not have it defined, so it is defaulted to 0 for that material.\nPlease "
@@ -2247,23 +2255,12 @@ inline void DEMSolver::equipMaterials(std::unordered_map<std::string, std::strin
                         }
                     }
                 }
-                if (!flag && !(m_force_model->type == FORCE_MODEL::HERTZIAN && prop_name == "Cspin")) {
+                if (!flag) {
                     DEME_WARNING(
                         "Material property %s should involve two materials. However, at least a pair of materials does "
                         "not have it defined, so it is defaulted to the average value between the two "
                         "materials.\nPlease be sure this is intentional.",
                         prop_name.c_str());
-                }
-            }
-        }
-
-        // Resistance coefficients are dimensionless, finite and nonnegative in the built-in law.
-        if (m_force_model->type == FORCE_MODEL::HERTZIAN && (prop_name == "Crr" || prop_name == "Cspin")) {
-            for (const auto& row : pair_mat) {
-                for (float value : row) {
-                    if (!std::isfinite(value) || value < 0.f) {
-                        DEME_ERROR("Material property %s must be finite and nonnegative.", prop_name.c_str());
-                    }
                 }
             }
         }

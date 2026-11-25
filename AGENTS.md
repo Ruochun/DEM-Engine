@@ -11,6 +11,8 @@ DEM-Engine is a performance-sensitive CUDA/C++ DEM solver with a Chrono-like pub
 - Prefer local patterns over new abstractions. If an existing class, helper, `DualArray`, timer, error macro, or CMake pattern already solves the problem, use it.
 - Keep changes narrow. DEM-Engine has many tightly coupled host/device data paths; avoid broad refactors unless the task explicitly calls for them.
 - Make data movement obvious. When adding simulation state, follow the full path deliberately: API/cache data, dT/kT storage, `DEMData*` pointer binding, host-to-device transfer, JIT substitution if needed, and runtime refresh/update behavior.
+- Allocate fixed-size state used by public setup APIs before worker construction returns. Background worker startup
+  must not race an immediate API call (for example, setting family contact margins).
 - Preserve the setup/runtime boundary. Template/cache data is usually resolved during `Initialize()` or `Update()`, not rebuilt inside high-frequency `DoDynamics()` paths.
 - Keep CPU-side convenience separate from GPU hot paths. Public APIs can be friendly; kernels and per-step loops should be boring, direct, and allocation-free.
 - Prefer explicit names over cleverness. Names like `COMBINED_OWNER_REIMPOSITION_BLOCK` are good because they describe the kernel context and the tuning purpose.
@@ -46,6 +48,11 @@ DEM-Engine is a performance-sensitive CUDA/C++ DEM solver with a Chrono-like pub
 
 ## Simulation Semantics
 
+- Contact force arrays double as primitive geometry scratch. Complete each contact type in array-segment order
+  (primitive geometry, patch aggregation, force writeback) before advancing. A wholesale primitive pass can
+  overwrite earlier mesh geometry with later types' compacted patch outputs. Keep patch count <= primitive count
+  and matching type order in both lists; see calculateForces() for the storage-lifetime invariant.
+
 - Respect owner/member distinctions. Clumps, meshes, templates, combined owners, and tracked objects have different lifetimes and ownership rules.
 - Combined-owner behavior should preserve rigid relative motion among members unless a feature explicitly says otherwise.
 - Contact suppression, family prescriptions, user-added acceleration, and custom force models can interact. Check the order in `calculateForces()`, integration, and re-imposition paths before changing behavior.
@@ -69,10 +76,15 @@ DEM-Engine is a performance-sensitive CUDA/C++ DEM solver with a Chrono-like pub
 - Demos should remain useful examples, not only regression tests. If adding assertions to a demo-style file, keep the printed output readable.
 - For CUDA-dependent tests, at least verify the target builds locally. If runtime execution is blocked by driver/toolkit availability, report the exact CUDA error.
 - When fixing a bug, add a test that would have failed before the fix whenever feasible.
+- On WSL/dxg, run deliberate GPU-trap tests last, after ordinary GPU tests. Even an isolated subprocess can hang
+  adapter teardown after a CUDA trap and block subsequent GPU work.
 
 ## Build And Verification
 
 - Use focused builds first, for example `cmake --build build --target DEMTest_CombinedOwners -- -j1`, then broaden only if the touched surface warrants it.
+- When runtime-included header ABI or behavior changes without a release-version bump, increment
+  `kJitCacheVersion` in `src/core/utils/JitHelper.cpp`. Its compiler flag invalidates both compiled kernels and
+  persistent header text; copying kernel sources alone does not invalidate either cache reliably.
 - Do not assume generated runtime data has refreshed after changing kernel source or force-model text. Clean rebuilds or copying generated assets may be required for some issues.
 - Run `sync_kernels` before a focused native build, not alongside or after it. Its directory copy refreshes generated header timestamps and can otherwise trigger another full CUDA rebuild on the next invocation.
 - Be careful with files under `build/`; they may contain generated outputs or local experiment artifacts and usually should not be edited.

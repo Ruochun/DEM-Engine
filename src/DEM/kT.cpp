@@ -301,9 +301,6 @@ void DEMKinematicThread::workerThread() {
     // Set the device for this thread
     DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
 
-    // Allocate arrays whose length does not depend on user inputs
-    initAllocation();
-
     while (!pSchedSupport->kinematicShouldJoin) {
         {
             std::unique_lock<std::mutex> lock(pSchedSupport->kinematicStartLock);

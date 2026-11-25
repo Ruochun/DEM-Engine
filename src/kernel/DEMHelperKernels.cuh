@@ -4,6 +4,10 @@
 #define DEME_HELPER_KERNELS_CUH
 
 #include "CUDAMathHelpers.cuh"
+#include <cmath>
+#if !defined(__CUDACC_RTC__)
+    #include <stdexcept>
+#endif
 // If being statically compiled using CMake, then include DEM/Defines.h using relative path.
 // Otherwise, use the angle bracket form for jitify to pick it up from the build dir.
 #if __has_include("../DEM/Defines.h")
@@ -18,28 +22,71 @@
 // A few helper functions specific to DEM module
 ////////////////////////////////////////////////////////////////////////////////
 
+// Resolve projected-contact RR length before invoking user force code. A negative value means that
+// bounds were requested but neither intrinsic curvature nor an absolute limit supplies a finite scale.
+// Validate in double precision and before narrowing: NaN must never evade the force model's sign check.
+template <typename T>
+inline __host__ __device__ T resolveRollingResistanceLength(T effective_radius,
+                                                            T area,
+                                                            T penetration,
+                                                            T multiplier,
+                                                            T absolute_max,
+                                                            bool bounds_enabled = true) {
+#if !defined(__CUDA_ARCH__)
+    using std::isfinite;
+#endif
+    double result = 0.;
+    const bool valid_inputs = isfinite(effective_radius) && isfinite(area) && isfinite(penetration) &&
+                              isfinite(multiplier) && isfinite(absolute_max);
+    if (valid_inputs && penetration > T(0)) {
+        result = fmax(double(area), 0.) / (double(deme::PI) * double(penetration));
+        if (bounds_enabled) {
+            if (effective_radius <= T(0) && absolute_max <= T(0))
+                return T(-1);
+            if (effective_radius > T(0))
+                result = fmin(result, double(multiplier) * double(effective_radius));
+            if (absolute_max > T(0))
+                result = fmin(result, double(absolute_max));
+        }
+    }
+    const T length = T(result);
+    if (!valid_inputs || !isfinite(result) || !isfinite(length)) {
+#if defined(__CUDA_ARCH__)
+        DEME_ABORT_KERNEL("Non-finite rollingResistanceLength: check contact geometry and rolling-length limits.\n");
+#else
+        throw std::runtime_error("Non-finite rollingResistanceLength");
+#endif
+    }
+    return length;
+}
+
 // Dissipative contact couple on A. Inputs are global, n is a unit normal, and radius is the
 // equivalent-area contact radius. Independent rolling/spinning laws approximate a finite patch;
 // they do not model static moments or coupled sliding/twisting traction limits.
-inline __host__ __device__ float3 contactResistanceTorque(const float3& relative_omega,
-                                                          const float3& n,
-                                                          float normal_load,
-                                                          float radius,
-                                                          float overlap,
-                                                          float rolling,
-                                                          float spinning) {
-    if (overlap <= 0.f || normal_load <= 0.f) {
-        return make_float3(0);
+// Scalar and vector types are independent template parameters; float/float3 and double/double3
+// retain their own arithmetic precision, including the regularization and moment scales.
+template <typename T, typename V>
+inline __host__ __device__ V contactResistanceTorque(const V& relative_omega,
+                                                     const V& n,
+                                                     T normal_load,
+                                                     T radius,
+                                                     T overlap,
+                                                     T rolling,
+                                                     T spinning,
+                                                     T resolved_rolling_length) {
+    if (overlap <= T(0) || normal_load <= T(0)) {
+        return V{};
     }
-    const float3 spin = dot(relative_omega, n) * n;
-    const float3 roll = relative_omega - spin;
+    const V spin = dot(relative_omega, n) * n;
+    const V roll = relative_omega - spin;
     // Linear regularization below 1e-3 rad/s avoids a discontinuous sign change at rest.
     // It is not a timestep-dependent stopping cap: explicit integration still needs a suitable timestep.
-    constexpr float omega_regularization = 1e-3f;
-    const float rolling_moment = fmaxf(rolling, 0.f) * normal_load * radius * radius / overlap;
-    const float spinning_moment = (3.f * deme::PI / 16.f) * fmaxf(spinning, 0.f) * normal_load * radius;
-    return -(rolling_moment / fmaxf(length(roll), omega_regularization)) * roll -
-           (spinning_moment / fmaxf(length(spin), omega_regularization)) * spin;
+    constexpr T omega_regularization = T(1e-3);
+    // The caller validates the length only when RR is active. Spin-only models need no rolling scale.
+    const T rolling_moment = rolling > T(0) ? rolling * normal_load * resolved_rolling_length : T(0);
+    const T spinning_moment = T(3.0 * deme::PI / 16.0) * fmax(spinning, T(0)) * normal_load * radius;
+    return -(rolling_moment / fmax(length(roll), omega_regularization)) * roll -
+           (spinning_moment / fmax(length(spin), omega_regularization)) * spin;
 }
 
 // Sign function

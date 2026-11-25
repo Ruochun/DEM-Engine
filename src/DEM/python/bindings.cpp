@@ -313,8 +313,12 @@ PYBIND11_MODULE(_deme, obj) {
              "Get AOwnerFamily number from the container.")
         .def("GetBOwnerFamily", &deme::ContactInfoContainer::GetBOwnerFamily,
              "Get BOwnerFamily number from the container.")
-        .def("GetForce", &deme::ContactInfoContainer::GetForce, "Get force as vectors from the container.")
-        .def("GetTorque", &deme::ContactInfoContainer::GetTorque, "Get torque as vectors from the container.")
+        .def("GetForce", &deme::ContactInfoContainer::GetForce,
+             "Legacy alias of GetForceA: global total contact forces on A.")
+        .def("GetTorque", &deme::ContactInfoContainer::GetTorque,
+             "Legacy alias of GetTorqueA: global direct extra torques on A.")
+        .def("GetForceA", &deme::ContactInfoContainer::GetForceA, "Get global total contact forces on A.")
+        .def("GetTorqueA", &deme::ContactInfoContainer::GetTorqueA, "Get global direct extra torques on A.")
         .def("GetForceB", &deme::ContactInfoContainer::GetForceB, "Get global contact forces on B.")
         .def("GetTorqueB", &deme::ContactInfoContainer::GetTorqueB, "Get global direct extra torques on B.")
         .def("GetNormal", &deme::ContactInfoContainer::GetNormal, "Get contact normal as vectors from the container.");
@@ -1277,8 +1281,13 @@ enabled. A zero count is a no-op.)doc",
              "Get the simulation time passed since the start of simulation.")
         .def("SetSimTime", &deme::DEMSolver::SetSimTime,
              "Get the simulation time passed since the start of simulation.")
+        .def("Update", &deme::DEMSolver::Update,
+             "From a synchronized stance, preserve current state and incorporate pending clumps/meshes, refresh "
+             "deformed mesh radii and rolling-length bounds, transfer arrays, and request fresh contacts. "
+             "Does not recompile policies; new materials, clump templates, analytical objects or family prescriptions "
+             "require initialization.")
         .def("UpdateClumps", &deme::DEMSolver::UpdateClumps,
-             "Transfer newly loaded clumps to the GPU-side in mid-simulation.")
+             "Legacy alias of Update: incorporate pending objects and refresh full simulation metadata.")
         .def("SetAdaptiveTimeStepType", &deme::DEMSolver::SetAdaptiveTimeStepType,
              "Set the strategy for auto-adapting time step size. Currently, hertz_const computes one fixed setup-time "
              "timestep; max_vel and int_diff are accepted but not implemented.")
@@ -1354,9 +1363,19 @@ enabled. A zero count is a no-op.)doc",
              "true, then this expand factor does not change even if the user uses variable time step size. After "
              "initialization, call UpdateSimParams() for this change to take effect in the workers.",
              py::arg("beta"), py::arg("fix") = true)
+        .def("SetRollingResistanceLengthBoundsEnabled", &deme::DEMSolver::SetRollingResistanceLengthBoundsEnabled,
+             py::arg("enabled") = true,
+             "Enable rolling-length bounds (default true). False uses raw area/(pi*penetration), including large "
+             "finite lengths; nonfinite results still error. Apply runtime changes with full Update.")
+        .def("SetRollingResistanceLengthLimit", &deme::DEMSolver::SetRollingResistanceLengthLimit,
+             py::arg("multiplier") = 1.f, py::arg("absolute_max") = 0.f,
+             "Bound rolling length by multiplier times the intrinsic effective radius and an optional absolute "
+             "maximum. Zero disables only the absolute bound. Apply runtime changes with full Update.")
         .def("SetMeshUniversalContact", &deme::DEMSolver::SetMeshUniversalContact,
-             "Set whether mesh-mesh contacts should be universally detected. Set to false to speedup simulation if "
-             "meshes are not expected to have contacts. Default is false.",
+             "Enable mesh-mesh and mesh-analytical contacts in addition to mesh-clump contacts. Set to false if "
+             "meshes are not expected to have contacts. Default is false. When enabled, Initialize/Update infer "
+             "volume-equivalent radii for watertight solid meshes unless explicitly overridden. Open/shell meshes "
+             "remain walls. When disabled, meshes default to walls without automatic radius inference.",
              py::arg("use") = true)
         .def("SetDEME2MeshBehavior", &deme::DEMSolver::SetDEME2MeshBehavior,
              "When enabled, assign every triangle of subsequently loaded meshes to its own patch. Disabling restores "
@@ -2077,7 +2096,7 @@ enabled. A zero count is a no-op.)doc",
         .def("Initialize", &deme::DEMSolver::Initialize,
              "Finalize cached setup data, allocate runtime state, and prepare JIT CUDA kernels. Call once after "
              "materials, geometry, particles, and solver options have been configured. ``dry_run=True`` performs "
-             "initialization without starting normal dynamics.",
+             "initial contact detection without advancing time, so contact wildcards can be initialized.",
              py::arg("dry_run") = false)
         .def("WriteSphereFile",
              static_cast<void (deme::DEMSolver::*)(const std::string&) const>(&deme::DEMSolver::WriteSphereFile),
@@ -2433,6 +2452,12 @@ enabled. A zero count is a no-op.)doc",
              "Instruct that when the mesh is initialized into the system, it will re-order the nodes of each triangle "
              "so that the normals derived from right-hand-rule are the same as the normals in the mesh file",
              py::arg("use") = true)
+        .def("SetContactRadius", &deme::DEMMesh::SetContactRadius, py::arg("radius"),
+             "Override intrinsic radius; zero explicitly selects a wall. Apply live changes with Update.")
+        .def("ClearContactRadius", &deme::DEMMesh::ClearContactRadius,
+             "Restore automatic radius selection at the next Initialize or full Update.")
+        .def("GetContactRadius", &deme::DEMMesh::GetContactRadius,
+             "Return the last resolved intrinsic radius; zero denotes a wall or unresolved radius.")
         .def("SetShellThickness", &deme::DEMMeshConnected::SetShellThickness,
              "Treat this mesh as a finite-thickness shell.", py::arg("thickness"))
         .def("DisableShell", &deme::DEMMeshConnected::DisableShell, "Disable finite-thickness shell mode.")

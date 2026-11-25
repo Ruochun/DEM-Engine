@@ -359,6 +359,9 @@ struct DEMSimParams {
     // Ratio threshold for rejecting suspicious tri-tri contacts: a contact is rejected when the penetration depth
     // exceeds this fraction of the distance from the contact point to a mesh's geometric center.
     float triTriContactRejectionRatio = 0.8f;
+    bool rollingLengthBoundsEnabled = true;
+    float rollingLengthMultiplier = 1.f;
+    float rollingLengthMax = 0.f;  // zero means no absolute cap
 
     // The max vel at which the solver errors out
     float errOutVel = DEME_HUGE_FLOAT;
@@ -448,12 +451,11 @@ struct DEMDataDT {
     float3* ownerCombinedMasterMOI = nullptr;
 
     // Some dT's own work array pointers
-    float3* contactForces;
+    float3* contactForcesA;
     float3* contactForcesB;
     float3* contactTorquesA;
     float3* contactTorquesB;
     float3* contactNormals;
-    float3* contactPointScratch;
     float3* contactPointGeometryA;
     float3* contactPointGeometryB;
     // float3* contactHistory;
@@ -471,6 +473,7 @@ struct DEMDataDT {
     notStupidBool_t* ownerMeshConvex = nullptr;
     notStupidBool_t* ownerMeshNeverWinner = nullptr;
     notStupidBool_t* ownerMeshWatertight = nullptr;
+    float* ownerContactCurvature;  // zero represents an unspecified/wall radius
     float* ownerMeshShellHalfThickness = nullptr;
     bodyID_t* triPatchID;
     // Map global triangle ID -> compact neighbor index (NULL_BODYID if neighbors are not stored).

@@ -191,6 +191,18 @@ __device__ __forceinline__ void calculatePatchContactForces_impl(deme::DEMSimPar
         }
     }
 
+    const double curvatureA = AType == deme::GEO_T_SPHERE
+                                  ? 1. / ARadius
+                                  : (AType == deme::GEO_T_TRIANGLE ? granData->ownerContactCurvature[ownerA] : 0.);
+    const double curvatureB = BType == deme::GEO_T_SPHERE
+                                  ? 1. / BRadius
+                                  : (BType == deme::GEO_T_TRIANGLE ? granData->ownerContactCurvature[ownerB] : 0.);
+    const double intrinsicEffectiveRadius = curvatureA + curvatureB > 0. ? 1. / (curvatureA + curvatureB) : 0.;
+    // Supply a finite length or a negative unresolved-bound marker to the force model.
+    const float rollingResistanceLength = resolveRollingResistanceLength<float>(
+        intrinsicEffectiveRadius, overlapArea, overlapDepth, simParams->rollingLengthMultiplier,
+        simParams->rollingLengthMax, simParams->rollingLengthBoundsEnabled);
+
     // Now compute forces using the patch-based contact data
     _forceModelContactWildcardAcq_;
 

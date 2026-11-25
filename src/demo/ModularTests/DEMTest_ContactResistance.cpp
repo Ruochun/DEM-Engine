@@ -9,6 +9,7 @@
 
 #include "DEM/API.h"
 #include "DEM/utils/ForceModelHelpers.hpp"
+#include "DEM/utils/ContactOutput.hpp"
 #include "kernel/DEMHelperKernels.cuh"
 
 using namespace deme;
@@ -27,12 +28,45 @@ void near(float3 actual, float3 expected, const std::string& message, float tole
     }
 }
 
+// Distinct A/B values expose swapped sides and verify that legacy accessors alias A storage.
+void testContactOutputFields() {
+    const unsigned int flags = CNT_OUTPUT_CONTENT::FORCE | CNT_OUTPUT_CONTENT::TORQUE;
+    ContactInfoContainer info(flags, {});
+    info.ResizeAll(1);
+    info.GetContactType()[0] = "SS";
+    info.GetForceA()[0] = make_float3(1, 2, 3);
+    info.GetForceB()[0] = make_float3(4, 5, 6);
+    info.GetTorqueA()[0] = make_float3(7, 8, 9);
+    info.GetTorqueB()[0] = make_float3(10, 11, 12);
+    require(&info.GetForce() == &info.GetForceA(), "legacy force accessor must alias A");
+    require(&info.GetTorque() == &info.GetTorqueA(), "legacy torque accessor must alias A");
+    require(&info.Get<float3>("Force") == &info.GetForceA(), "legacy force key must alias A");
+    require(&info.Get<float3>("Torque") == &info.GetTorqueA(), "legacy torque key must alias A");
+    std::ostringstream output;
+    writeContactSnapshotAsCsv(output, info, flags, {});
+    require(output.str().find("contact_type,f_a_x,f_a_y,f_a_z,f_b_x,f_b_y,f_b_z,"
+                              "torque_a_x,torque_a_y,torque_a_z,torque_b_x,torque_b_y,torque_b_z\n") == 0,
+            "CSV headers must identify both sides explicitly");
+    for (const auto& column : {"f_a_x", "f_b_z", "torque_a_y", "torque_b_z"})
+        require(CNT_FILE_KNOWN_COL_NAMES.count(column) != 0, "built-in A/B columns must not become wildcards");
+    require(output.str().find("SS,1,2,3,4,5,6,7,8,9,10,11,12\n") != std::string::npos,
+            "CSV must preserve both independent forces and torques");
+}
+
 // CPU checks exercise the exact helper compiled into the force kernels, including its rest/regularization branches.
 void testConstitutiveLaw() {
     const float3 n = make_float3(1, 0, 0);
     auto torque = [&](float3 omega, float load = 10.f, float overlap = .02f) {
-        return contactResistanceTorque(omega, n, load, .1f, overlap, .2f, .3f);
+        return contactResistanceTorque<float>(omega, n, load, .1f, overlap, .2f, .3f, .5f);
     };
+    // Double instantiation must preserve precision rather than silently taking a float-only math path.
+    const double3 double_torque =
+        contactResistanceTorque<double>(make_double3(2, 3, 0), make_double3(1, 0, 0), 10., .1, .02, .2, .3, .5);
+    require(length(double_torque - make_double3(-(3. * PI / 16.) * .3, -1., 0.)) < 1e-12,
+            "double-precision resistance magnitude");
+    const double3 double_zero =
+        contactResistanceTorque<double>(make_double3(2, 3, 0), make_double3(1, 0, 0), 0., .1, .02, .2, .3, .5);
+    require(length(double_zero) == 0., "double-precision zero load");
     const float spin = (3.f * PI / 16.f) * .3f;
     near(torque(make_float3(2, 3, 0)), make_float3(-spin, -1, 0), "mixed rolling/spinning magnitude", 1e-6f);
     near(torque(make_float3(0)), make_float3(0), "zero motion", 1e-6f);
@@ -166,7 +200,7 @@ void testSolver(bool in_place, bool custom, bool no_record = false) {
             // Existing sphere geometry supplies area pi*(R*delta-delta^2/4), not pi*R_eff*delta.
             const float radius = std::sqrt(.5f * .02f - .02f * .02f / 4.f);
             const float load = dot(fa, n);
-            near(ta, contactResistanceTorque(relative, n, load, radius, .02f, .2f, .3f),
+            near(ta, contactResistanceTorque<float>(relative, n, load, radius, .02f, .2f, .3f, .25f),
                  "Hertzian resistance magnitude and direction");
             require(dot(ta, relative) <= 1e-5f, "contact couple dissipates energy");
         }
@@ -279,6 +313,7 @@ void testPatchOutputs(bool in_place) {
 
 int main(int argc, char** argv) {
     try {
+        testContactOutputFields();
         testConstitutiveLaw();
         testDeprecation();
         if (argc > 1 && std::string(argv[1]) == "--host-only") {

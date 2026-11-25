@@ -12,6 +12,8 @@
 #include "jitify/jitify.hpp"
 
 namespace {
+const std::string base_signature = jitify::detail::make_header_cache_signature({}, {});
+
 // Read the serialized records directly so successful saves cannot be mistaken for in-memory cache reuse.
 void checkCache(const std::filesystem::path& path, uint64_t expected_count) {
     std::ifstream input(path, std::ios::binary);
@@ -20,7 +22,7 @@ void checkCache(const std::filesystem::path& path, uint64_t expected_count) {
     jitify::detail::read_string_record(input, &signature);
     uint64_t count = 0;
     input.read(reinterpret_cast<char*>(&count), sizeof(count));
-    if (!input || magic != "JITIFY_HEADER_CACHE_V2" || signature != "cache-test" || count != expected_count)
+    if (!input || magic != "JITIFY_HEADER_CACHE_V2" || signature != base_signature || count != expected_count)
         throw std::runtime_error("Persistent header cache did not contain the expected saved records");
     for (uint64_t i = 0; i < count; ++i) {
         std::string name, source, fullpath;
@@ -56,10 +58,10 @@ int main() {
         jitify::detail::global_header_fullpath_cache().clear();
         jitify::detail::persistent_header_cache_saved_count() = 0;
         sources["first.h"] = "// first.h";
-        jitify::detail::save_persistent_header_cache_if_needed("cache-test");
+        jitify::detail::save_persistent_header_cache_if_needed(base_signature);
         checkCache(cache_path, 1);
         sources["second.h"] = "// second.h";
-        jitify::detail::save_persistent_header_cache_if_needed("cache-test");
+        jitify::detail::save_persistent_header_cache_if_needed(base_signature);
         checkCache(cache_path, 2);
 
         // Windows input streams deny delete sharing. Hold the old cache open to force replacement to fail;
@@ -74,7 +76,7 @@ int main() {
         setCachePath(blocked_path);
 #endif
         sources["third.h"] = "// third.h";
-        jitify::detail::save_persistent_header_cache_if_needed("cache-test");
+        jitify::detail::save_persistent_header_cache_if_needed(base_signature);
 #ifdef _WIN32
         blocked_file.close();
 #else
@@ -85,7 +87,7 @@ int main() {
             throw std::runtime_error("Failed publication changed the destination or marked the cache saved");
         checkCache(cache_path, 2);
         setCachePath(cache_path);
-        jitify::detail::save_persistent_header_cache_if_needed("cache-test");
+        jitify::detail::save_persistent_header_cache_if_needed(base_signature);
         checkCache(cache_path, 3);
         if (std::filesystem::exists(cache_path.string() + ".tmp"))
             throw std::runtime_error("Successful publication left its temporary file behind");
@@ -94,9 +96,17 @@ int main() {
         sources.clear();
         jitify::detail::persistent_header_cache_saved_count() = 0;
         jitify::detail::persistent_header_cache_loaded() = false;
-        jitify::detail::load_persistent_header_cache_once("cache-test");
+        jitify::detail::load_persistent_header_cache_once(base_signature);
         if (sources.size() != 3 || sources.at("third.h") != "// third.h")
             throw std::runtime_error("Expanded header cache did not reload correctly");
+        // A changed compiler cache-revision flag must reject old persistent header text, including old struct ABI.
+        sources.clear();
+        jitify::detail::persistent_header_cache_loaded() = false;
+        const std::string revised_signature =
+            jitify::detail::make_header_cache_signature({}, {"-DDEME_JIT_CACHE_VERSION=1"});
+        jitify::detail::load_persistent_header_cache_once(revised_signature);
+        if (!sources.empty())
+            throw std::runtime_error("Changed cache revision reused stale header text");
         std::filesystem::remove_all(directory);
         std::cout << "PASS: header-cache creation, replacement, failed publication, retry and reload.\n";
         return 0;

@@ -1119,6 +1119,34 @@ std::vector<float3> DEMMesh::ComputePatchLocations(float alpha, float beta, floa
     return locations;
 }
 
+// Contact curvature is independent of user mass/density and never inferred from a shell's artificial volume.
+void DEMMesh::SetContactRadius(float radius) {
+    if (!std::isfinite(radius) || radius < 0.f || (radius > 0.f && !std::isfinite(1.f / radius)))
+        DEME_ERROR(
+            "Contact radius must be nonnegative with finite radius and reciprocal; zero explicitly selects a wall.");
+    contact_radius = radius;
+    contact_radius_explicit = true;
+}
+
+void DEMMesh::ResolveContactRadius(bool universal_contact) {
+    if (contact_radius_explicit)
+        return;
+    contact_radius = 0.f;
+    if (!universal_contact || is_shell || !IsWatertight())
+        return;
+    double volume;
+    float3 center, inertia;
+    ComputeMassProperties(volume, center, inertia);
+    if (std::isfinite(volume) && volume > 0. && std::isfinite(center.x) && std::isfinite(center.y) &&
+        std::isfinite(center.z) && std::isfinite(inertia.x) && std::isfinite(inertia.y) && std::isfinite(inertia.z) &&
+        inertia.x > 0.f && inertia.y > 0.f && inertia.z > 0.f) {
+        const double radius = std::cbrt(3. * volume / (4. * PI));
+        if (std::isfinite(radius) && radius > 0. && radius <= std::numeric_limits<float>::max() &&
+            std::isfinite(1.f / static_cast<float>(radius)))
+            contact_radius = static_cast<float>(radius);
+    }
+}
+
 // Compute volume, centroid and MOI in CoM frame (unit density).
 // ATTENTION: For solid meshes, this assumes a watertight mesh with fine and non-degenerate triangles.
 void DEMMesh::ComputeMassProperties(double& volume, float3& center, float3& inertia) const {

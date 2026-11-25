@@ -228,7 +228,7 @@ __global__ void ReduceOwnerContactWrenchesKernel(float3* forces,
 
     const bodyID_t owner_a = DEME_GET_PATCH_OWNER_ID(granData->idPatchA[contact], decodeTypeA(contact_type));
     const bodyID_t owner_b = DEME_GET_PATCH_OWNER_ID(granData->idPatchB[contact], decodeTypeB(contact_type));
-    const float3 force_a = granData->contactForces[contact];
+    const float3 force_a = granData->contactForcesA[contact];
     const float3 force_b = granData->contactForcesB[contact];
     const float3 torque_a = granData->contactTorquesA[contact];
     const float3 torque_b = granData->contactTorquesB[contact];

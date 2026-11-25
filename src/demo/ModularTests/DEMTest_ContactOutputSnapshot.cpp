@@ -68,8 +68,8 @@ int main() try {
         reference << reference_file.rdbuf();
         if (!reference_file || reference.str().empty())
             throw std::runtime_error("Cannot read reference contact output");
-        if (reference.str().find("ForceB_X") == std::string::npos ||
-            reference.str().find("TorqueB_X") == std::string::npos)
+        if (reference.str().find("f_b_x") == std::string::npos ||
+            reference.str().find("torque_b_x") == std::string::npos)
             throw std::runtime_error("Missing independent B outputs in contact CSV");
         const auto pipe = dir / "delayed.csv";
         if (mkfifo(pipe.c_str(), 0600) != 0)

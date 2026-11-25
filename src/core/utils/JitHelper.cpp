@@ -41,6 +41,9 @@ namespace {
 
 constexpr uint64_t kFNVOffset = 0xcbf29ce484222325ULL;
 constexpr uint64_t kFNVPrime = 0x100000001b3ULL;
+// Bump when runtime-included headers change ABI or behavior without a release-version change.
+// Revision 4 removes area-mode/validity state and validates the explicit rolling-length contract in JIT kernels.
+constexpr unsigned int kJitCacheVersion = 4;
 
 constexpr int getCudaVersion() {
 #ifdef CUDA_VERSION
@@ -254,6 +257,9 @@ JitHelper::CachedProgram JitHelper::buildProgram(const std::string& name,
         flags.push_back("-arch=" + arch_tag);
     }
 
+    // A compiler option participates in BOTH the disk-kernel fingerprint and Jitify's persistent-header signature.
+    // Changing only the outer program key could still recompile against stale cached header text.
+    flags.push_back("-DDEME_JIT_CACHE_VERSION=" + std::to_string(kJitCacheVersion));
     std::vector<std::string> flags_sorted = flags;
     std::sort(flags_sorted.begin(), flags_sorted.end());
     const std::string flags_sig = jitify::reflection::reflect_list(flags_sorted);

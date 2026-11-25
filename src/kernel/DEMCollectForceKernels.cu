@@ -44,10 +44,9 @@ DEME_KERNEL void forceToAcc(deme::DEMSimParams* simParams, deme::DEMDataDT* gran
         if (!deme::isSupportedContactType(thisCntType)) {
             return;
         }
-        const float3 F = granData->contactForces[myID];
         const deme::bodyID_t idPatchA = granData->idPatchA[myID];
         const deme::bodyID_t idPatchB = granData->idPatchB[myID];
-        float3 forceA = F;
+        float3 forceA = granData->contactForcesA[myID];
         float3 forceB = granData->contactForcesB[myID];
         float3 torqueA = granData->contactTorquesA[myID];
         float3 torqueB = granData->contactTorquesB[myID];

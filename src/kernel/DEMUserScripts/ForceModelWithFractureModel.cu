@@ -172,8 +172,15 @@ if (unbroken > DEME_TINY_FLOAT) {
                 float3 omegaA = ARotVel, omegaB = BRotVel;
                 applyOriQToVector3(omegaA, AOriQ);
                 applyOriQToVector3(omegaB, BOriQ);
-                const float3 resistance = contactResistanceTorque(omegaA - omegaB, B2A, fmaxf(dot(force, B2A), 0.f),
-                                                                  cnt_rad, overlapDepth, Crr_cnt, 0.f);
+                // A negative ingredient means the producer could not resolve a requested rolling bound.
+                if (Crr_cnt > 0.f && overlapDepth > 0.f && dot(force, B2A) > 0.f && rollingResistanceLength < 0.f) {
+                    DEME_ABORT_KERNEL(
+                        "Rolling resistance requires an intrinsic SetContactRadius or an absolute "
+                        "SetRollingResistanceLengthLimit; alternatively disable rolling-length bounds.\n");
+                }
+                const float3 resistance =
+                    contactResistanceTorque<float>(omegaA - omegaB, B2A, fmaxf(dot(force, B2A), 0.f), cnt_rad,
+                                                   overlapDepth, Crr_cnt, 0.f, rollingResistanceLength);
                 A_only_torque += resistance;
                 B_only_torque -= resistance;
             }

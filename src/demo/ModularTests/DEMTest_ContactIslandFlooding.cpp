@@ -45,6 +45,7 @@ int main() {
     strip.nTri = kNumTriangles;
     strip.SetMaterial(mat);
     strip.SetMass(1.f);
+    strip.SetContactRadius(.5f * kWidth);  // The moving open strip needs an explicit particle radius.
     strip.SetMOI(make_float3(1.f));
     auto strip_handle = sim.AddMesh(strip);
     strip_handle->SetFamily(1);

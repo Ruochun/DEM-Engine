@@ -402,6 +402,9 @@ class DEMMesh : public DEMInitializer {
     // Mesh's MOI
     float3 MOI = make_float3(1.f);
     // Whether mass/MOI were explicitly specified by the user.
+    // Overrides survive geometry updates; the resolved radius is refreshed only at setup/full Update.
+    bool contact_radius_explicit = false;
+    float contact_radius = 0.f;  // zero is the exact zero-curvature wall convention
     bool mass_specified = false;
     bool moi_specified = false;
     // API-level mesh template identity. Mesh instances created from LoadMeshType/AddMeshFromTemplate keep this mark so
@@ -546,6 +549,18 @@ class DEMMesh : public DEMInitializer {
     void SetMaterial(const std::shared_ptr<DEMMaterial>& input) {
         SetMaterial(std::vector<std::shared_ptr<DEMMaterial>>(nPatches, input));
     }
+
+    /// Set a positive intrinsic contact radius (length units). Zero explicitly selects a wall (zero curvature).
+    /// Template settings are copied into subsequently instantiated meshes. Call Update after changing a live mesh.
+    void SetContactRadius(float radius);
+    /// Restore automatic radius selection at the next Initialize/Update.
+    void ClearContactRadius() { contact_radius_explicit = false; }
+    /// Last resolved intrinsic radius; zero denotes a wall/unresolved radius, never a numerical huge radius.
+    float GetContactRadius() const { return contact_radius; }
+    /// Resolve automatic volume-equivalent radius only for watertight solids with universal contact enabled.
+    /// Open meshes, shells and failed mass-property calculations retain zero curvature. Queries of mass properties
+    /// do not change this state; lightweight mesh deformation deliberately leaves it unchanged.
+    void ResolveContactRadius(bool universal_contact);
 
     /// Compute volume, centroid and MOI in CoM frame (unit density).
     /// For shells (`SetShellThickness`), uses a centered-thickening shell model: volume = surface area * thickness.

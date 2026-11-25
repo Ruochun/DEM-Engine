@@ -64,12 +64,18 @@ const std::string OUTPUT_FILE_GEO_ID_2_NAME = std::string("geoB");
 const std::string OUTPUT_FILE_OWNER_NICKNAME_1_NAME = std::string("nameA");
 const std::string OUTPUT_FILE_OWNER_NICKNAME_2_NAME = std::string("nameB");
 const std::string OUTPUT_FILE_CNT_TYPE_NAME = std::string("contact_type");
-const std::string OUTPUT_FILE_FORCE_X_NAME = std::string("f_x");
-const std::string OUTPUT_FILE_FORCE_Y_NAME = std::string("f_y");
-const std::string OUTPUT_FILE_FORCE_Z_NAME = std::string("f_z");
-const std::string OUTPUT_FILE_TORQUE_X_NAME = std::string("torque_x");
-const std::string OUTPUT_FILE_TORQUE_Y_NAME = std::string("torque_y");
-const std::string OUTPUT_FILE_TORQUE_Z_NAME = std::string("torque_z");
+const std::string OUTPUT_FILE_FORCE_A_X_NAME = std::string("f_a_x");
+const std::string OUTPUT_FILE_FORCE_A_Y_NAME = std::string("f_a_y");
+const std::string OUTPUT_FILE_FORCE_A_Z_NAME = std::string("f_a_z");
+const std::string OUTPUT_FILE_FORCE_B_X_NAME = std::string("f_b_x");
+const std::string OUTPUT_FILE_FORCE_B_Y_NAME = std::string("f_b_y");
+const std::string OUTPUT_FILE_FORCE_B_Z_NAME = std::string("f_b_z");
+const std::string OUTPUT_FILE_TORQUE_A_X_NAME = std::string("torque_a_x");
+const std::string OUTPUT_FILE_TORQUE_A_Y_NAME = std::string("torque_a_y");
+const std::string OUTPUT_FILE_TORQUE_A_Z_NAME = std::string("torque_a_z");
+const std::string OUTPUT_FILE_TORQUE_B_X_NAME = std::string("torque_b_x");
+const std::string OUTPUT_FILE_TORQUE_B_Y_NAME = std::string("torque_b_y");
+const std::string OUTPUT_FILE_TORQUE_B_Z_NAME = std::string("torque_b_z");
 const std::string OUTPUT_FILE_NORMAL_X_NAME = std::string("n_x");
 const std::string OUTPUT_FILE_NORMAL_Y_NAME = std::string("n_y");
 const std::string OUTPUT_FILE_NORMAL_Z_NAME = std::string("n_z");
@@ -87,12 +93,12 @@ const std::set<std::string> CNT_FILE_KNOWN_COL_NAMES = {OUTPUT_FILE_OWNER_1_NAME
                                                         OUTPUT_FILE_OWNER_NICKNAME_1_NAME,
                                                         OUTPUT_FILE_OWNER_NICKNAME_2_NAME,
                                                         OUTPUT_FILE_CNT_TYPE_NAME,
-                                                        OUTPUT_FILE_FORCE_X_NAME,
-                                                        OUTPUT_FILE_FORCE_Y_NAME,
-                                                        OUTPUT_FILE_FORCE_Z_NAME,
-                                                        OUTPUT_FILE_TORQUE_X_NAME,
-                                                        OUTPUT_FILE_TORQUE_Y_NAME,
-                                                        OUTPUT_FILE_TORQUE_Z_NAME,
+                                                        OUTPUT_FILE_FORCE_A_X_NAME,
+                                                        OUTPUT_FILE_FORCE_A_Y_NAME,
+                                                        OUTPUT_FILE_FORCE_A_Z_NAME,
+                                                        OUTPUT_FILE_TORQUE_A_X_NAME,
+                                                        OUTPUT_FILE_TORQUE_A_Y_NAME,
+                                                        OUTPUT_FILE_TORQUE_A_Z_NAME,
                                                         OUTPUT_FILE_NORMAL_X_NAME,
                                                         OUTPUT_FILE_NORMAL_Y_NAME,
                                                         OUTPUT_FILE_NORMAL_Z_NAME,
@@ -101,12 +107,12 @@ const std::set<std::string> CNT_FILE_KNOWN_COL_NAMES = {OUTPUT_FILE_OWNER_1_NAME
                                                         OUTPUT_FILE_SPH_MESH_CONTACT_NAME,
                                                         OUTPUT_FILE_TRIANGLE_TRIANGLE_CONTACT_NAME,
                                                         OUTPUT_FILE_MESH_ANAL_CONTACT_NAME,
-                                                        "ForceB_X",
-                                                        "ForceB_Y",
-                                                        "ForceB_Z",
-                                                        "TorqueB_X",
-                                                        "TorqueB_Y",
-                                                        "TorqueB_Z"};
+                                                        OUTPUT_FILE_FORCE_B_X_NAME,
+                                                        OUTPUT_FILE_FORCE_B_Y_NAME,
+                                                        OUTPUT_FILE_FORCE_B_Z_NAME,
+                                                        OUTPUT_FILE_TORQUE_B_X_NAME,
+                                                        OUTPUT_FILE_TORQUE_B_Y_NAME,
+                                                        OUTPUT_FILE_TORQUE_B_Z_NAME};
 
 // Map contact type identifier to their names
 const std::unordered_map<contact_t, std::string> contact_type_out_name_map = {
@@ -1227,12 +1233,17 @@ class ContactInfoContainer : public DataContainer {
             Insert<family_t>("BOwnerFamily", {});
         }
         if (cnt_out_content & CNT_OUTPUT_CONTENT::FORCE) {
-            Insert<float3>("Force", {});
+            Insert<float3>("ForceA", {});
             Insert<float3>("ForceB", {});
+            // Preserve generic-key readers without duplicating the underlying A-side array.
+            data_["Force"] = data_.at("ForceA");
+            types_["Force"] = types_.at("ForceA");
         }
         if (cnt_out_content & CNT_OUTPUT_CONTENT::TORQUE) {
-            Insert<float3>("Torque", {});
+            Insert<float3>("TorqueA", {});
             Insert<float3>("TorqueB", {});
+            data_["Torque"] = data_.at("TorqueA");
+            types_["Torque"] = types_.at("TorqueA");
         }
         if (cnt_out_content & CNT_OUTPUT_CONTENT::NORMAL)
             Insert<float3>("Normal", {});
@@ -1253,11 +1264,18 @@ class ContactInfoContainer : public DataContainer {
     std::vector<bodyID_t>& GetBGeo() { return Get<bodyID_t>("BGeo"); }
     std::vector<family_t>& GetAOwnerFamily() { return Get<family_t>("AOwnerFamily"); }
     std::vector<family_t>& GetBOwnerFamily() { return Get<family_t>("BOwnerFamily"); }
-    std::vector<float3>& GetForce() { return Get<float3>("Force"); }
-    /// Global contact force on B and direct extra torque on B (not inferred from A).
+    /// Global total contact force on A; B is stored independently.
+    std::vector<float3>& GetForceA() { return Get<float3>("ForceA"); }
+    /// Legacy name retained for compatibility: returns the force on A.
+    std::vector<float3>& GetForce() { return GetForceA(); }
+    /// Global total contact force on B (not inferred from A).
     std::vector<float3>& GetForceB() { return Get<float3>("ForceB"); }
+    /// Global direct extra torque on B, excluding the moment of its contact force.
     std::vector<float3>& GetTorqueB() { return Get<float3>("TorqueB"); }
-    std::vector<float3>& GetTorque() { return Get<float3>("Torque"); }
+    /// Global direct extra torque on A, excluding the moment of its contact force.
+    std::vector<float3>& GetTorqueA() { return Get<float3>("TorqueA"); }
+    /// Legacy name retained for compatibility: returns the direct extra torque on A.
+    std::vector<float3>& GetTorque() { return GetTorqueA(); }
     std::vector<float3>& GetNormal() { return Get<float3>("Normal"); }
 
   protected:

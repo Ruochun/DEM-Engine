@@ -101,12 +101,15 @@ int main(int argc, char* argv[]) {
     const auto funnel_file = GetDEMEDataFile("mesh/funnel_left.obj");
     const float4 funnel_rotation = make_float4(std::sqrt(0.5f), 0, 0, std::sqrt(0.5f));
     auto left = DEMSim.AddWavefrontMeshObject(funnel_file, mat_flume);
+    left->SetContactRadius(0.f);  // Container geometry retains zero contact curvature.
     left->Move(make_float3(-hopper_width / 2, 0, -0.01), funnel_rotation);
     left->SetFamily(fixed_family);
     auto right = DEMSim.AddWavefrontMeshObject(funnel_file, mat_flume);
+    right->SetContactRadius(0.f);  // Container geometry retains zero contact curvature.
     right->Move(make_float3(gate_width + hopper_width / 2, 0, -0.01), funnel_rotation);
     right->SetFamily(fixed_family);
     auto gate = DEMSim.AddWavefrontMeshObject(funnel_file, mat_flume);
+    gate->SetContactRadius(0.f);  // Container geometry retains zero contact curvature.
     gate->Move(make_float3(gate_width / 2, 0, -0.011), funnel_rotation);
     gate->SetFamily(closed_gate_family);
     auto gate_tracker = DEMSim.Track(gate);

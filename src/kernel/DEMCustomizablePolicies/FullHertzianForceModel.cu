@@ -1,10 +1,13 @@
 // DEM force calculation strategies, modifiable
+// This law expects dimensionless, finite, nonnegative pairwise Crr and Cspin coefficients.
+// Missing material values use the generic zero default; missing pair overrides use the arithmetic mean.
+// These physical requirements belong to this model, not the generic material-equipping machinery.
 
 // No need to do any contact force calculation if no contact. And it can happen,
 // when we added extra contact margins
 if (overlapDepth > 0) {
     // Material properties
-    float E_cnt, G_cnt, CoR_cnt, mu_cnt, Crr_cnt;
+    float E_cnt, G_cnt, CoR_cnt, mu_cnt, Crr_cnt, Cspin_cnt;
     {
         // E and nu are associated with each material, so obtain them this way
         float E_A = E[bodyAMatType];
@@ -12,10 +15,11 @@ if (overlapDepth > 0) {
         float E_B = E[bodyBMatType];
         float nu_B = nu[bodyBMatType];
         matProxy2ContactParam<float>(E_cnt, G_cnt, E_A, nu_A, E_B, nu_B);
-        // CoR, mu and Crr are pair-wise, so obtain them this way
+        // CoR, mu, Crr and Cspin are pair-wise, so obtain them this way
         CoR_cnt = CoR[bodyAMatType][bodyBMatType];
         mu_cnt = mu[bodyAMatType][bodyBMatType];
         Crr_cnt = Crr[bodyAMatType][bodyBMatType];
+        Cspin_cnt = Cspin[bodyAMatType][bodyBMatType];
     }
 
     // We also need the relative velocity between A and B in global frame to use in the damping terms
@@ -62,12 +66,19 @@ if (overlapDepth > 0) {
     }
 
     // Relative rolling and spin generate equal-and-opposite direct contact couples.
-    if (Crr_cnt > 0.f || Cspin[bodyAMatType][bodyBMatType] > 0.f) {
+    if (Crr_cnt > 0.f || Cspin_cnt > 0.f) {
         float3 omegaA = ARotVel, omegaB = BRotVel;
         applyOriQToVector3(omegaA, AOriQ);
         applyOriQToVector3(omegaB, BOriQ);
-        const float3 resistance = contactResistanceTorque(omegaA - omegaB, B2A, fmaxf(dot(force, B2A), 0.f), cnt_rad,
-                                                          overlapDepth, Crr_cnt, Cspin[bodyAMatType][bodyBMatType]);
+        // A negative ingredient means the producer could not resolve a requested rolling bound.
+        if (Crr_cnt > 0.f && overlapDepth > 0.f && dot(force, B2A) > 0.f && rollingResistanceLength < 0.f) {
+            DEME_ABORT_KERNEL(
+                "Rolling resistance requires an intrinsic SetContactRadius or an absolute "
+                "SetRollingResistanceLengthLimit; alternatively disable rolling-length bounds.\n");
+        }
+        const float3 resistance =
+            contactResistanceTorque<float>(omegaA - omegaB, B2A, fmaxf(dot(force, B2A), 0.f), cnt_rad, overlapDepth,
+                                           Crr_cnt, Cspin_cnt, rollingResistanceLength);
         A_only_torque += resistance;
         B_only_torque -= resistance;
     }

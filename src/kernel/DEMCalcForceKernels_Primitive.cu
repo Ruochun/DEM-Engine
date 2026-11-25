@@ -39,9 +39,9 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     float3 B2A = make_float3(0.f, 0.f, 1.f);           // contact normal felt by A, pointing from B to A, unit vector
     // Penetration depth
     // Positive number for overlapping cases, negative for non-overlapping cases
-    double overlapDepth = 0.0;
+    double overlapDepth = -DEME_HUGE_FLOAT;
     // Area of the contact surface, or in the mesh--mesh case, area of the clipping polygon projection
-    double overlapArea = 0.0;
+    double overlapArea = 0.;
     // Per-triangle shallowest vertex penetration into the other triangle's plane. Each is non-zero only when that
     // triangle is completely submerged, in which case kT needs this depth to keep it traceable by the broad phase.
     double minDepthA = 0.0;
@@ -421,6 +421,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
                                                   objSize3[analyticalID], objNormal[analyticalID], contactPnt, B2A,
                                                   overlapDepth, overlapArea);
             overlapDepth += static_cast<double>(ownerShellHalfThickness(simParams, granData, ownerA));
+            // A separated mid-surface can still contact through shell thickness.
             // Fix ContactType if needed
             if (overlapDepth <= -extraMarginSize) {
                 ContactType = deme::NOT_A_CONTACT;
@@ -429,6 +430,18 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
     }
 
     if constexpr (CONTACT_TYPE == deme::SPHERE_SPHERE_CONTACT || CONTACT_TYPE == deme::SPHERE_ANALYTICAL_CONTACT) {
+        const double curvatureA = AType == deme::GEO_T_SPHERE
+                                      ? 1. / ARadius
+                                      : (AType == deme::GEO_T_TRIANGLE ? granData->ownerContactCurvature[ownerA] : 0.);
+        const double curvatureB = BType == deme::GEO_T_SPHERE
+                                      ? 1. / BRadius
+                                      : (BType == deme::GEO_T_TRIANGLE ? granData->ownerContactCurvature[ownerB] : 0.);
+        const double intrinsicEffectiveRadius = curvatureA + curvatureB > 0. ? 1. / (curvatureA + curvatureB) : 0.;
+        // Supply a finite length or a negative unresolved-bound marker to the force model.
+        const float rollingResistanceLength = resolveRollingResistanceLength<float>(
+            intrinsicEffectiveRadius, overlapArea, overlapDepth, simParams->rollingLengthMultiplier,
+            simParams->rollingLengthMax, simParams->rollingLengthBoundsEnabled);
+
         _forceModelContactWildcardAcq_;
 
         // Essentials for storing and calculating contact info
@@ -474,10 +487,12 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         // to be destroyed for non-contact, so it has to go last.
         _forceModelContactWildcardWrite_;
     } else {  // If this is the kernel for a mesh-related contact, another follow-up kernel is needed to compute force
-        // Use contactForces, contactPointGeometryAB to store the contact info for the next
-        // kernel to compute forces. contactForces is used to store the contact normal. contactPointGeometryA is used to
-        // store the (double) contact penetration. contactPointGeometryB is used to store the (double) contact area
-        // contactPointScratch is used to store the contact point position (cast from double3 to float3)
+        // Use contactForcesA, contactPointGeometryAB to store the contact info for the next
+        // kernel to compute forces. contactForcesA is used to store the contact normal. contactPointGeometryA is used
+        // to store the (double) contact penetration. contactPointGeometryB is used to store the (double) contact area
+        // contactForcesB temporarily stores the global contact point (cast from double3 to float3).
+        // The host completes aggregation for this type before launching another type: compacted patch writes
+        // from later types would otherwise overwrite this still-live primitive geometry.
 
         // For tri-tri contacts, atomically update the per-triangle shallowest-penetration array so kT can size its
         // contact-detection margins. Each triangle receives its own shallowest (minimum) vertex penetration depth,
@@ -501,7 +516,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         }
 
         // Store contact normal (B2A is already a float3)
-        granData->contactForces[myPrimitiveContactID] = B2A;
+        granData->contactForcesA[myPrimitiveContactID] = B2A;
         // Store contact penetration depth (double) in contactPointGeometryA (float3)
         granData->contactPointGeometryA[myPrimitiveContactID] = doubleToFloat3Storage(overlapDepth);
         // Store contact area (double) in contactPointGeometryB (float3)
@@ -516,7 +531,7 @@ __device__ __forceinline__ void calculatePrimitiveContactForces_impl(deme::DEMSi
         //         "wrong.\n",
         //         myPrimitiveContactID, ContactType);
         // }
-        granData->contactPointScratch[myPrimitiveContactID] = to_float3(contactPnt);
+        granData->contactForcesB[myPrimitiveContactID] = to_float3(contactPnt);
     }
 }
 

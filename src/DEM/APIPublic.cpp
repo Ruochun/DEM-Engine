@@ -410,6 +410,19 @@ void DEMSolver::SetContactOutputContent(const std::vector<std::string>& content)
     }
 }
 
+// Resolve the policy at Initialize/full Update, alongside its configurable length bounds.
+void DEMSolver::SetRollingResistanceLengthBoundsEnabled(bool enabled) {
+    m_rolling_length_bounds_enabled = enabled;
+}
+
+void DEMSolver::SetRollingResistanceLengthLimit(float multiplier, float absolute_max) {
+    if (!std::isfinite(multiplier) || multiplier <= 0.f || !std::isfinite(absolute_max) || absolute_max < 0.f)
+        DEME_ERROR(
+            "Rolling length multiplier must be finite and positive; absolute maximum must be finite and nonnegative.");
+    m_rolling_length_multiplier = multiplier;
+    m_rolling_length_max = absolute_max;
+}
+
 void DEMSolver::SetMeshUniversalContact(bool use) {
     kT->solverFlags.meshUniversalContact = use;
     dT->solverFlags.meshUniversalContact = use;
@@ -4458,6 +4471,15 @@ void DEMSolver::Update() {
 
     // NOTE!!! This step in Update is extremely important, as we'll soon modify device-major arrays on host!
     migrateArrayDataToHost();
+    // migrateArrayDataToHost synchronizes deformation caches. Recompute only on this full update boundary.
+    for (const auto& mesh : m_meshes) {
+        mesh->ResolveContactRadius(dT->solverFlags.meshUniversalContact);
+        const float radius = mesh->GetContactRadius();
+        dT->ownerContactCurvature[mesh->owner] = radius > 0.f ? 1.f / radius : 0.f;
+    }
+    dT->simParams->rollingLengthBoundsEnabled = m_rolling_length_bounds_enabled;
+    dT->simParams->rollingLengthMultiplier = m_rolling_length_multiplier;
+    dT->simParams->rollingLengthMax = m_rolling_length_max;
 
     // Record the number of entities, before adding to the system
     size_t nOwners_old = nOwnerBodies;

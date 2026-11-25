@@ -141,6 +141,7 @@ int main() {
         drum_mesh_data.SetMaterial(mat_type_drum);
         drum_mesh_data.Scale(mm_to_m);
         auto drum = DEMSim.AddMesh(drum_mesh_data);
+        drum->SetContactRadius(0.f);  // Container geometry retains zero contact curvature.
 
         auto [drum_min, drum_max] = ComputeBounds(drum->GetCoordsVertices());
         drum_bottom_z = drum_min.z;

@@ -70,11 +70,10 @@ void DEMDynamicThread::packDataPointers() {
     ownerCombinedMasterMass.bindDevicePointer(&(granData->ownerCombinedMasterMass));
     ownerCombinedMasterMOI.bindDevicePointer(&(granData->ownerCombinedMasterMOI));
 
-    contactForces.bindDevicePointer(&(granData->contactForces));
+    contactForcesA.bindDevicePointer(&(granData->contactForcesA));
     contactForcesB.bindDevicePointer(&(granData->contactForcesB));
     contactTorquesA.bindDevicePointer(&(granData->contactTorquesA));
     contactTorquesB.bindDevicePointer(&(granData->contactTorquesB));
-    contactPointScratch.bindDevicePointer(&(granData->contactPointScratch));
     contactNormals.bindDevicePointer(&(granData->contactNormals));
     contactPointGeometryA.bindDevicePointer(&(granData->contactPointGeometryA));
     contactPointGeometryB.bindDevicePointer(&(granData->contactPointGeometryB));
@@ -108,6 +107,7 @@ void DEMDynamicThread::packDataPointers() {
     ownerMeshConvex.bindDevicePointer(&(granData->ownerMeshConvex));
     ownerMeshNeverWinner.bindDevicePointer(&(granData->ownerMeshNeverWinner));
     ownerMeshWatertight.bindDevicePointer(&(granData->ownerMeshWatertight));
+    ownerContactCurvature.bindDevicePointer(&(granData->ownerContactCurvature));
     ownerMeshShellHalfThickness.bindDevicePointer(&(granData->ownerMeshShellHalfThickness));
     triNeighborIndex.bindDevicePointer(&(granData->triNeighborIndex));
     triNeighbor1.bindDevicePointer(&(granData->triNeighbor1));
@@ -180,12 +180,11 @@ void DEMDynamicThread::migrateDataToDevice() {
         ownerCombinedMasterMOI.toDeviceAsync(streamInfo.stream);
     }
 
-    contactForces.toDeviceAsync(streamInfo.stream);
+    contactForcesA.toDeviceAsync(streamInfo.stream);
     contactForcesB.toDeviceAsync(streamInfo.stream);
     contactTorquesA.toDeviceAsync(streamInfo.stream);
     contactTorquesB.toDeviceAsync(streamInfo.stream);
     contactNormals.toDeviceAsync(streamInfo.stream);
-    contactPointScratch.toDeviceAsync(streamInfo.stream);
     contactPointGeometryA.toDeviceAsync(streamInfo.stream);
     contactPointGeometryB.toDeviceAsync(streamInfo.stream);
 
@@ -214,6 +213,7 @@ void DEMDynamicThread::migrateDataToDevice() {
     ownerMeshConvex.toDeviceAsync(streamInfo.stream);
     ownerMeshNeverWinner.toDeviceAsync(streamInfo.stream);
     ownerMeshWatertight.toDeviceAsync(streamInfo.stream);
+    ownerContactCurvature.toDeviceAsync(streamInfo.stream);
     ownerMeshShellHalfThickness.toDeviceAsync(streamInfo.stream);
     triNeighborIndex.toDeviceAsync(streamInfo.stream);
     triNeighbor1.toDeviceAsync(streamInfo.stream);
@@ -295,12 +295,11 @@ void DEMDynamicThread::migrateContactInfoToHost() {
     contactPatchIsland.toHost();
 
     // Contact results
-    contactForces.toHost();
+    contactForcesA.toHost();
     contactForcesB.toHost();
     contactTorquesA.toHost();
     contactTorquesB.toHost();
     contactNormals.toHost();
-    contactPointScratch.toHost();
     contactPointGeometryA.toHost();
     contactPointGeometryB.toHost();
     for (unsigned int i = 0; i < simParams->nContactWildcards; i++) {
@@ -517,6 +516,7 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
     DEME_DUAL_ARRAY_RESIZE(ownerMeshConvex, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshNeverWinner, nOwnerBodies, 0);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshWatertight, nOwnerBodies, 0);
+    DEME_DUAL_ARRAY_RESIZE(ownerContactCurvature, nOwnerBodies, 0.f);
     DEME_DUAL_ARRAY_RESIZE(ownerMeshShellHalfThickness, nOwnerBodies, 0);
 
     // Resize the family mask `matrix' (in fact it is flattened)
@@ -620,11 +620,10 @@ void DEMDynamicThread::allocateGPUArrays(size_t nOwnerBodies,
         // If there are meshes, then sph--mesh case always use force storage, no getting around; if no mesh, then if no
         // need to store forces, we can choose to not resize these arrays.
         if (!(solverFlags.useNoContactRecord && simParams->nTriGM == 0)) {
-            DEME_DUAL_ARRAY_RESIZE(contactForces, cnt_arr_size, make_float3(0));
+            DEME_DUAL_ARRAY_RESIZE(contactForcesA, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactForcesB, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactTorquesA, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactTorquesB, cnt_arr_size, make_float3(0));
-            DEME_DUAL_ARRAY_RESIZE(contactPointScratch, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactPointGeometryA, cnt_arr_size, make_float3(0));
             DEME_DUAL_ARRAY_RESIZE(contactPointGeometryB, cnt_arr_size, make_float3(0));
             if (simParams->storeNormal) {
@@ -1058,6 +1057,9 @@ void DEMDynamicThread::populateEntityArrays(const std::vector<std::shared_ptr<DE
         ownerTypes[owner_id] = OWNER_T_MESH;
         ownerMeshConvex[owner_id] = input_mesh_obj_convex.at(i);
         ownerMeshNeverWinner[owner_id] = input_mesh_obj_never_winner.at(i);
+        input_mesh_objs.at(i)->ResolveContactRadius(solverFlags.meshUniversalContact);
+        const float contact_radius = input_mesh_objs.at(i)->GetContactRadius();
+        ownerContactCurvature[owner_id] = contact_radius > 0.f ? 1.f / contact_radius : 0.f;
         ownerMeshWatertight[owner_id] = input_mesh_objs.at(i)->IsWatertight() ? 1 : 0;
         ownerMeshShellHalfThickness[owner_id] = std::max(input_mesh_objs.at(i)->GetShellHalfThickness(), 0.f);
 
@@ -1822,11 +1824,13 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
             DEME_ERROR("NOT_A_CONTACT reached dT contact output; kT should compact null contacts before handoff.");
         }
 
-        float3 forcexyz = contactForces[i];
-        float3 torque = contactTorquesA[i];
+        const float3 forceA = contactForcesA[i];
+        const float3 forceB = contactForcesB[i];
+        const float3 torqueA = contactTorquesA[i];
+        const float3 torqueB = contactTorquesB[i];
         // If this force+torque is too small, then it's not an active contact
-        if (length(forcexyz) < force_thres && length(contactForcesB[i]) < force_thres && length(torque) < force_thres &&
-            length(contactTorquesB[i]) < force_thres) {
+        if (length(forceA) < force_thres && length(forceB) < force_thres && length(torqueA) < force_thres &&
+            length(torqueB) < force_thres) {
             continue;
         }
 
@@ -1856,8 +1860,8 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
 
         // Force is already in global...
         if (solverFlags.cntOutFlags & CNT_OUTPUT_CONTENT::FORCE) {
-            contactInfo.Get<float3>("Force")[useful_cnt] = forcexyz;
-            contactInfo.Get<float3>("ForceB")[useful_cnt] = contactForcesB[i];
+            contactInfo.Get<float3>("ForceA")[useful_cnt] = forceA;
+            contactInfo.Get<float3>("ForceB")[useful_cnt] = forceB;
         }
 
         // Contact point is in local frame. To make it global, first map that vector to axis-aligned global frame, then
@@ -1897,8 +1901,8 @@ std::shared_ptr<ContactInfoContainer> DEMDynamicThread::generateContactInfoFromH
 
         // Torque is in global already...
         if (solverFlags.cntOutFlags & CNT_OUTPUT_CONTENT::TORQUE) {
-            contactInfo.Get<float3>("Torque")[useful_cnt] = torque;
-            contactInfo.Get<float3>("TorqueB")[useful_cnt] = contactTorquesB[i];
+            contactInfo.Get<float3>("TorqueA")[useful_cnt] = torqueA;
+            contactInfo.Get<float3>("TorqueB")[useful_cnt] = torqueB;
         }
 
         // Contact wildcards
@@ -2356,11 +2360,10 @@ inline void DEMDynamicThread::contactPrimitivesArraysResize(size_t nContactPairs
     // If there are meshes, then sph--mesh case always use force storage, no getting around; if no mesh, then if no need
     // to store forces, we can choose to not resize these arrays.
     if (!(solverFlags.useNoContactRecord && simParams->nTriGM == 0)) {
-        DEME_DUAL_ARRAY_RESIZE(contactForces, nContactPairs, make_float3(0));
+        DEME_DUAL_ARRAY_RESIZE(contactForcesA, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactForcesB, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactTorquesA, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactTorquesB, nContactPairs, make_float3(0));
-        DEME_DUAL_ARRAY_RESIZE(contactPointScratch, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactPointGeometryA, nContactPairs, make_float3(0));
         DEME_DUAL_ARRAY_RESIZE(contactPointGeometryB, nContactPairs, make_float3(0));
         if (simParams->storeNormal) {
@@ -2892,270 +2895,264 @@ inline void DEMDynamicThread::migrateEnduringContacts(const LostContactDebugSnap
 // The argument is two maps: contact type -> (start offset, count), contact type -> list of [(program bundle name,
 // kernel name)]
 inline void DEMDynamicThread::dispatchPrimitiveForceKernels(
+    contact_t contact_type,
     const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountMap,
     const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
         typeKernelMap) {
-    // For each contact type that exists, call its corresponding kernel(s)
-    for (size_t i = 0; i < m_numExistingTypes; i++) {
-        contact_t contact_type = existingContactTypes[i];
-        const auto& start_count = typeStartCountMap.at(contact_type);
-        // Offset and count being contactPairs_t is very important, as CUDA kernel arguments cannot safely implicitly
-        // convert type (from size_t to unsigned int, for example)
-        contactPairs_t startOffset = start_count.first;
-        contactPairs_t count = start_count.second;
+    // Dispatch only this type; its temporary geometry must be consumed before the next type runs.
+    const auto& start_count = typeStartCountMap.at(contact_type);
+    // Offset and count being contactPairs_t is very important, as CUDA kernel arguments cannot safely implicitly
+    // convert type (from size_t to unsigned int, for example)
+    contactPairs_t startOffset = start_count.first;
+    contactPairs_t count = start_count.second;
 
-        // For this contact type, get its list of (program bundle name, kernel name)
-        if (typeKernelMap.count(contact_type) == 0) {
-            // displayDeviceArray<bodyID_t>(granData->idPrimitiveA, *solverScratchSpace.numPrimitiveContacts);
-            // displayDeviceArray<bodyID_t>(granData->idPrimitiveB, *solverScratchSpace.numPrimitiveContacts);
-            // displayDeviceArray<contact_t>(granData->contactTypePrimitive, *solverScratchSpace.numPrimitiveContacts);
-            // for (size_t j = 0; j < m_numExistingTypes; j++) {
-            //     DEME_PRINTF("existingContactTypes[%zu] = %d\n", j, existingContactTypes[j]);
-            // }
-            DEME_ERROR("Contact type %d has no associated force kernel in to execute!", contact_type);
-        }
-        const auto& kernelList = typeKernelMap.at(contact_type);
-        for (const auto& [progName, kernelName] : kernelList) {
-            size_t blocks = (count + DT_FORCE_CALC_NTHREADS_PER_BLOCK - 1) / DT_FORCE_CALC_NTHREADS_PER_BLOCK;
-            if (blocks > 0) {
-                progName->kernel(kernelName)
-                    .instantiate()
-                    .configure(dim3(blocks), dim3(DT_FORCE_CALC_NTHREADS_PER_BLOCK), 0, streamInfo.stream)
-                    .launch(&simParams, &granData, startOffset, count);
-            }
+    // For this contact type, get its list of (program bundle name, kernel name)
+    if (typeKernelMap.count(contact_type) == 0) {
+        // displayDeviceArray<bodyID_t>(granData->idPrimitiveA, *solverScratchSpace.numPrimitiveContacts);
+        // displayDeviceArray<bodyID_t>(granData->idPrimitiveB, *solverScratchSpace.numPrimitiveContacts);
+        // displayDeviceArray<contact_t>(granData->contactTypePrimitive, *solverScratchSpace.numPrimitiveContacts);
+        // for (size_t j = 0; j < m_numExistingTypes; j++) {
+        //     DEME_PRINTF("existingContactTypes[%zu] = %d\n", j, existingContactTypes[j]);
+        // }
+        DEME_ERROR("Contact type %d has no associated force kernel in to execute!", contact_type);
+    }
+    const auto& kernelList = typeKernelMap.at(contact_type);
+    for (const auto& [progName, kernelName] : kernelList) {
+        size_t blocks = (count + DT_FORCE_CALC_NTHREADS_PER_BLOCK - 1) / DT_FORCE_CALC_NTHREADS_PER_BLOCK;
+        if (blocks > 0) {
+            progName->kernel(kernelName)
+                .instantiate()
+                .configure(dim3(blocks), dim3(DT_FORCE_CALC_NTHREADS_PER_BLOCK), 0, streamInfo.stream)
+                .launch(&simParams, &granData, startOffset, count);
         }
     }
     DEME_GPU_DEBUG_SYNC(streamInfo.stream);
 }
 
 inline void DEMDynamicThread::dispatchPatchBasedForceCorrections(
+    contact_t contact_type,
     const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPrimitiveMap,
     const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPatchMap,
     const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
         typeKernelMap) {
-    // For each contact type that exists, check if it is patch(mesh)-related type...
-    for (size_t i = 0; i < m_numExistingTypes; i++) {
-        contact_t contact_type = existingContactTypes[i];
-        if (contact_type == SPHERE_TRIANGLE_CONTACT || contact_type == TRIANGLE_TRIANGLE_CONTACT ||
-            contact_type == TRIANGLE_ANALYTICAL_CONTACT) {
-            const auto& start_count_primitive = typeStartCountPrimitiveMap.at(contact_type);
-            const auto& start_count_patch = typeStartCountPatchMap.at(contact_type);
-            contactPairs_t startOffsetPrimitive = start_count_primitive.first;
-            contactPairs_t countPrimitive = start_count_primitive.second;
-            contactPairs_t startOffsetPatch = start_count_patch.first;
-            contactPairs_t countPatch = start_count_patch.second;
+    // Aggregate this type completely before overwriting primitive scratch with patch-level outputs.
+    if (contact_type == SPHERE_TRIANGLE_CONTACT || contact_type == TRIANGLE_TRIANGLE_CONTACT ||
+        contact_type == TRIANGLE_ANALYTICAL_CONTACT) {
+        const auto& start_count_primitive = typeStartCountPrimitiveMap.at(contact_type);
+        const auto& start_count_patch = typeStartCountPatchMap.at(contact_type);
+        contactPairs_t startOffsetPrimitive = start_count_primitive.first;
+        contactPairs_t countPrimitive = start_count_primitive.second;
+        contactPairs_t startOffsetPatch = start_count_patch.first;
+        contactPairs_t countPatch = start_count_patch.second;
 
-            // Vote for the contact direction; voting power depends on the contact area.
-            // Multiple contact quantities (areas, penetrations, contact points) are computed by a single fused kernel,
-            // then reduced independently per contact type.
-            if (countPrimitive > 0) {
-                // geomToPatchMap maps each primitive contact to its patch pair. Contacts are type-sorted, so the
-                // segment beginning at startOffsetPrimitive can be used directly as the reduce key stream.
-                contactPairs_t* keys = granData->geomToPatchMap + startOffsetPrimitive;
+        // Vote for the contact direction; voting power depends on the contact area.
+        // Multiple contact quantities (areas, penetrations, contact points) are computed by a single fused kernel,
+        // then reduced independently per contact type.
+        if (countPrimitive > 0) {
+            // geomToPatchMap maps each primitive contact to its patch pair. Contacts are type-sorted, so the
+            // segment beginning at startOffsetPrimitive can be used directly as the reduce key stream.
+            contactPairs_t* keys = granData->geomToPatchMap + startOffsetPrimitive;
 
-                // Allocate arrays for reduce-by-key results (uniqueKeys uses contactPairs_t, not patchIDPair_t)
-                contactPairs_t* uniqueKeys = (contactPairs_t*)solverScratchSpace.allocateTempVector(
-                    "uniqueKeys", countPrimitive * sizeof(contactPairs_t));
-                solverScratchSpace.allocateDualStruct("numUniqueKeys");
-                size_t* numUniqueKeys = solverScratchSpace.getDualStructDevice("numUniqueKeys");
+            // Allocate arrays for reduce-by-key results (uniqueKeys uses contactPairs_t, not patchIDPair_t)
+            contactPairs_t* uniqueKeys = (contactPairs_t*)solverScratchSpace.allocateTempVector(
+                "uniqueKeys", countPrimitive * sizeof(contactPairs_t));
+            solverScratchSpace.allocateDualStruct("numUniqueKeys");
+            size_t* numUniqueKeys = solverScratchSpace.getDualStructDevice("numUniqueKeys");
 
-                // Step 1: Prepare weighted normals for voting (normal * area).
-                float3* weightedNormals =
-                    (float3*)solverScratchSpace.allocateTempVector("weightedNormals", countPrimitive * sizeof(float3));
-                prepareWeightedNormalsForVoting(&granData, weightedNormals, startOffsetPrimitive, countPrimitive,
-                                                streamInfo.stream);
+            // Step 1: Prepare weighted normals for voting (normal * area).
+            float3* weightedNormals =
+                (float3*)solverScratchSpace.allocateTempVector("weightedNormals", countPrimitive * sizeof(float3));
+            prepareWeightedNormalsForVoting(&granData, weightedNormals, startOffsetPrimitive, countPrimitive,
+                                            streamInfo.stream);
 
-                // Step 2: Reduce-by-key for weighted normals (sum)
-                // The keys are geomToPatchMap values (contactPairs_t), which group primitives by patch pair
-                float3* votedWeightedNormals =
-                    (float3*)solverScratchSpace.allocateTempVector("votedWeightedNormals", countPatch * sizeof(float3));
-                cubSumReduceByKey<contactPairs_t, float3>(keys, uniqueKeys, weightedNormals, votedWeightedNormals,
-                                                          numUniqueKeys, countPrimitive, streamInfo.stream,
-                                                          solverScratchSpace);
-                solverScratchSpace.finishUsingTempVector("weightedNormals");
-                DEME_DEBUG_EXEC({
-                    solverScratchSpace.syncDualStructDeviceToHost("numUniqueKeys");
-                    size_t numUniqueKeysHost = *(solverScratchSpace.getDualStructHost("numUniqueKeys"));
-                    if (numUniqueKeysHost != countPatch) {
-                        DEME_ERROR(
-                            "Patch-based contact voting produced %zu unique patch pairs, but expected %zu pairs for "
-                            "contact type %d!",
-                            numUniqueKeysHost, countPatch, contact_type);
-                    }
-                });
-
-                // Step 3: Normalize the voted normals by total area and scatter back to a temp array.
-                float3* votedNormals =
-                    (float3*)solverScratchSpace.allocateTempVector("votedNormals", countPatch * sizeof(float3));
-                normalizeAndScatterVotedNormals(votedWeightedNormals, votedNormals, countPatch, streamInfo.stream);
-                solverScratchSpace.finishUsingTempVector("votedWeightedNormals");
-                // displayDeviceFloat3(votedNormals, countPatch);
-
-                // Step 4: Fused kernel: compute projected areas, projected penetrations, contact-point weights, and
-                // weighted contact points in one pass.
-                double* primitiveProjectedAreas = (double*)solverScratchSpace.allocateTempVector(
-                    "primitiveProjectedAreas", countPrimitive * sizeof(double));
-                double* primitiveProjectedPens = (double*)solverScratchSpace.allocateTempVector(
-                    "primitiveProjectedPens", countPrimitive * sizeof(double));
-                double* primitiveWeights =
-                    (double*)solverScratchSpace.allocateTempVector("primitiveWeights", countPrimitive * sizeof(double));
-                double3* primitiveWeightedCPs = (double3*)solverScratchSpace.allocateTempVector(
-                    "primitiveWeightedCPs", countPrimitive * sizeof(double3));
-                computePerPrimitiveWeightedQuantities(
-                    &granData, votedNormals, keys, primitiveProjectedAreas, primitiveProjectedPens, primitiveWeights,
-                    primitiveWeightedCPs, startOffsetPrimitive, startOffsetPatch, countPrimitive, streamInfo.stream);
-
-                // Step 5a: Sum-reduce-by-key for total projected areas per patch.
-                double* totalProjAreas =
-                    (double*)solverScratchSpace.allocateTempVector("totalProjAreas", countPatch * sizeof(double));
-                cubSumReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitiveProjectedAreas, totalProjAreas,
-                                                          numUniqueKeys, countPrimitive, streamInfo.stream,
-                                                          solverScratchSpace);
-                solverScratchSpace.finishUsingTempVector("primitiveProjectedAreas");
-
-                // Step 5b: Max-reduce-by-key for per-patch max projected penetration.
-                // finalPen is the max (deepest) projected penetration among all primitives in the patch.
-                double* maxProjPens =
-                    (double*)solverScratchSpace.allocateTempVector("maxProjPens", countPatch * sizeof(double));
-                cubMaxReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitiveProjectedPens, maxProjPens,
-                                                          numUniqueKeys, countPrimitive, streamInfo.stream,
-                                                          solverScratchSpace);
-                solverScratchSpace.finishUsingTempVector("primitiveProjectedPens");
-
-                // Step 5c: Sum-reduce-by-key for total weights per patch (used for contact point averaging).
-                double* totalWeights =
-                    (double*)solverScratchSpace.allocateTempVector("totalWeights", countPatch * sizeof(double));
-                cubSumReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitiveWeights, totalWeights,
-                                                          numUniqueKeys, countPrimitive, streamInfo.stream,
-                                                          solverScratchSpace);
-
-                // Step 5d: Sum-reduce-by-key for total weighted contact points per patch.
-                double3* totalWeightedCPs =
-                    (double3*)solverScratchSpace.allocateTempVector("totalWeightedCPs", countPatch * sizeof(double3));
-                cubSumReduceByKey<contactPairs_t, double3>(keys, uniqueKeys, primitiveWeightedCPs, totalWeightedCPs,
-                                                           numUniqueKeys, countPrimitive, streamInfo.stream,
-                                                           solverScratchSpace);
-                solverScratchSpace.finishUsingTempVector("primitiveWeightedCPs");
-
-                // Step 6a: Extract primitive penetrations for the zero-area fallback (max-negative reduce).
-                double* primitivePenetrations = (double*)solverScratchSpace.allocateTempVector(
-                    "primitivePenetrations", countPrimitive * sizeof(double));
-                extractPrimitivePenetrations(&granData, primitivePenetrations, startOffsetPrimitive, countPrimitive,
-                                             streamInfo.stream);
-
-                // Step 6b: Max-negative-reduce-by-key to get max negative penetration per patch.
-                // This finds the largest negative value (smallest absolute value among negatives).
-                // Positive values are treated as very negative to indicate invalid/non-physical state.
-                double* maxPenetrations =
-                    (double*)solverScratchSpace.allocateTempVector("maxPenetrations", countPatch * sizeof(double));
-                cubMaxNegativeReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitivePenetrations,
-                                                                  maxPenetrations, numUniqueKeys, countPrimitive,
-                                                                  streamInfo.stream, solverScratchSpace);
-                solverScratchSpace.finishUsingTempVector("primitivePenetrations");
-
-                // Step 6c: Find max-penetration primitives for zero-area patches and extract their normals,
-                // penetrations, and contact points.
-                float3* zeroAreaNormals =
-                    (float3*)solverScratchSpace.allocateTempVector("zeroAreaNormals", countPatch * sizeof(float3));
-                double* zeroAreaPenetrations =
-                    (double*)solverScratchSpace.allocateTempVector("zeroAreaPenetrations", countPatch * sizeof(double));
-                double3* zeroAreaContactPoints = (double3*)solverScratchSpace.allocateTempVector(
-                    "zeroAreaContactPoints", countPatch * sizeof(double3));
-                findMaxPenetrationPrimitiveForZeroAreaPatches(
-                    &granData, maxPenetrations, zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, keys,
-                    startOffsetPrimitive, startOffsetPatch, countPrimitive, streamInfo.stream);
-                solverScratchSpace.finishUsingTempVector("maxPenetrations");
-
-                // Clean up: uniqueKeys and numUniqueKeys are no longer needed after all reductions.
-                // keys is a direct pointer into granData->geomToPatchMap and does not need cleanup.
-                solverScratchSpace.finishUsingTempVector("uniqueKeys");
-                solverScratchSpace.finishUsingDualStruct("numUniqueKeys");
-
-                // Step 7: Finalize patch results.
-                // finalPen = max projected penetration (maxProjPens), not an average.
-                // finalCP  = weight-averaged contact point (weight = projArea * projPen).
-                // Zero-area patches use the max-penetration primitive's fallback values.
-                double* finalAreas =
-                    (double*)solverScratchSpace.allocateTempVector("finalAreas", countPatch * sizeof(double));
-                float3* finalNormals =
-                    (float3*)solverScratchSpace.allocateTempVector("finalNormals", countPatch * sizeof(float3));
-                // Resize permanent finalPenetrations array for this patch contact batch.
-                // Note: I made it a permanent array in case that in the future, we want to transfer this entire array
-                // to kT for better margin derivation.
-                DEME_DEVICE_ARRAY_RESIZE(finalPenetrations, countPatch);
-
-                double3* finalContactPoints =
-                    (double3*)solverScratchSpace.allocateTempVector("finalContactPoints", countPatch * sizeof(double3));
-                finalizePatchResults(totalProjAreas, maxProjPens, totalWeights, votedNormals, totalWeightedCPs,
-                                     zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, finalAreas,
-                                     finalNormals, finalPenetrations.data(), finalContactPoints, countPatch,
-                                     streamInfo.stream);
-                solverScratchSpace.finishUsingTempVector("zeroAreaNormals");
-                solverScratchSpace.finishUsingTempVector("zeroAreaPenetrations");
-                solverScratchSpace.finishUsingTempVector("zeroAreaContactPoints");
-                solverScratchSpace.finishUsingTempVector("totalProjAreas");
-                solverScratchSpace.finishUsingTempVector("maxProjPens");
-                solverScratchSpace.finishUsingTempVector("totalWeightedCPs");
-
-                // Now we have:
-                // - finalAreas: final contact area per patch pair (countPatch elements)
-                // - finalNormals: final normal direction per patch pair (countPatch elements)
-                // - finalPenetrations: final penetration depth per patch pair (countPatch elements)
-                // - finalContactPoints: final contact point per patch pair (countPatch elements)
-                // These can be used for subsequent force calculations
-                // std::cout << "Patch-based contact penetration, area, normal, contact point for contact type "
-                //           << (int)contact_type << ":" << std::endl;
-                // displayDeviceArray<double>(finalPenetrations.data(), countPatch);
-                // displayDeviceArray<double>(finalAreas, countPatch);
-                // displayDeviceFloat3(finalNormals, countPatch);
-                // displayDeviceFloat3<double3>(finalContactPoints, countPatch);
-
-                // Call specialized patch-based force correction kernels here
-                if (contactTypePatchKernelMap.count(contact_type) > 0) {
-                    const auto& kernelList = contactTypePatchKernelMap.at(contact_type);
-                    for (const auto& [progName, kernelName] : kernelList) {
-                        size_t blocks =
-                            (countPatch + DT_FORCE_CALC_NTHREADS_PER_BLOCK - 1) / DT_FORCE_CALC_NTHREADS_PER_BLOCK;
-                        if (blocks > 0) {
-                            progName->kernel(kernelName)
-                                .instantiate()
-                                .configure(dim3(blocks), dim3(DT_FORCE_CALC_NTHREADS_PER_BLOCK), 0, streamInfo.stream)
-                                .launch(&simParams, &granData, finalAreas, finalNormals, finalPenetrations.data(),
-                                        finalContactPoints, startOffsetPatch, countPatch);
-                        }
-                    }
-                } else {
-                    DEME_ERROR("Patch contact type %d has no associated force kernel to execute!", contact_type);
+            // Step 2: Reduce-by-key for weighted normals (sum)
+            // The keys are geomToPatchMap values (contactPairs_t), which group primitives by patch pair
+            float3* votedWeightedNormals =
+                (float3*)solverScratchSpace.allocateTempVector("votedWeightedNormals", countPatch * sizeof(float3));
+            cubSumReduceByKey<contactPairs_t, float3>(keys, uniqueKeys, weightedNormals, votedWeightedNormals,
+                                                      numUniqueKeys, countPrimitive, streamInfo.stream,
+                                                      solverScratchSpace);
+            solverScratchSpace.finishUsingTempVector("weightedNormals");
+            DEME_DEBUG_EXEC({
+                solverScratchSpace.syncDualStructDeviceToHost("numUniqueKeys");
+                size_t numUniqueKeysHost = *(solverScratchSpace.getDualStructHost("numUniqueKeys"));
+                if (numUniqueKeysHost != countPatch) {
+                    DEME_ERROR(
+                        "Patch-based contact voting produced %zu unique patch pairs, but expected %zu pairs for "
+                        "contact type %d!",
+                        numUniqueKeysHost, countPatch, contact_type);
                 }
-                DEME_GPU_DEBUG_SYNC(streamInfo.stream);
+            });
 
-                // Optional per-triangle wear/tracking diagnostics. This runs after patch force correction so
-                // granData->contactForces contains patch-level forces, while primitiveWeights/totalWeights still
-                // describe how each primitive contributed to its patch contact.
-                if (triPVTrackingEnabled && triPVNumTrackedTriangles > 0) {
-                    float2* patchNormalForce =
-                        (float2*)solverScratchSpace.allocateTempVector("patchNormalForce", countPatch * sizeof(float2));
-                    float* patchSlipSpeed =
-                        (float*)solverScratchSpace.allocateTempVector("patchSlipSpeed", countPatch * sizeof(float));
-                    computePatchPVScalars(&simParams, &granData, finalNormals, finalContactPoints, startOffsetPatch,
-                                          countPatch, patchNormalForce, patchSlipSpeed, streamInfo.stream);
-                    accumulateTrianglePVFromPatchContacts(
-                        &simParams, &granData, keys, primitiveWeights, totalWeights, patchNormalForce, patchSlipSpeed,
-                        startOffsetPrimitive, startOffsetPatch, countPrimitive, triPVGlobalTriToLocal.device(),
-                        triPVAccumP.device(), triPVAccumPV.device(), streamInfo.stream);
-                    solverScratchSpace.finishUsingTempVector("patchNormalForce");
-                    solverScratchSpace.finishUsingTempVector("patchSlipSpeed");
+            // Step 3: Normalize the voted normals by total area and scatter back to a temp array.
+            float3* votedNormals =
+                (float3*)solverScratchSpace.allocateTempVector("votedNormals", countPatch * sizeof(float3));
+            normalizeAndScatterVotedNormals(votedWeightedNormals, votedNormals, countPatch, streamInfo.stream);
+            solverScratchSpace.finishUsingTempVector("votedWeightedNormals");
+            // displayDeviceFloat3(votedNormals, countPatch);
+
+            // Step 4: Fused kernel: compute projected areas, projected penetrations, contact-point weights, and
+            // weighted contact points in one pass.
+            double* primitiveProjectedAreas = (double*)solverScratchSpace.allocateTempVector(
+                "primitiveProjectedAreas", countPrimitive * sizeof(double));
+            double* primitiveProjectedPens = (double*)solverScratchSpace.allocateTempVector(
+                "primitiveProjectedPens", countPrimitive * sizeof(double));
+            double* primitiveWeights =
+                (double*)solverScratchSpace.allocateTempVector("primitiveWeights", countPrimitive * sizeof(double));
+            double3* primitiveWeightedCPs = (double3*)solverScratchSpace.allocateTempVector(
+                "primitiveWeightedCPs", countPrimitive * sizeof(double3));
+            computePerPrimitiveWeightedQuantities(
+                &granData, votedNormals, keys, primitiveProjectedAreas, primitiveProjectedPens, primitiveWeights,
+                primitiveWeightedCPs, startOffsetPrimitive, startOffsetPatch, countPrimitive, streamInfo.stream);
+
+            // Step 5a: Sum-reduce-by-key for total projected areas per patch.
+            double* totalProjAreas =
+                (double*)solverScratchSpace.allocateTempVector("totalProjAreas", countPatch * sizeof(double));
+            cubSumReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitiveProjectedAreas, totalProjAreas,
+                                                      numUniqueKeys, countPrimitive, streamInfo.stream,
+                                                      solverScratchSpace);
+            solverScratchSpace.finishUsingTempVector("primitiveProjectedAreas");
+
+            // Step 5b: Max-reduce-by-key for per-patch max projected penetration.
+            // finalPen is the max (deepest) projected penetration among all primitives in the patch.
+            double* maxProjPens =
+                (double*)solverScratchSpace.allocateTempVector("maxProjPens", countPatch * sizeof(double));
+            cubMaxReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitiveProjectedPens, maxProjPens,
+                                                      numUniqueKeys, countPrimitive, streamInfo.stream,
+                                                      solverScratchSpace);
+            solverScratchSpace.finishUsingTempVector("primitiveProjectedPens");
+
+            // Step 5c: Sum-reduce-by-key for total weights per patch (used for contact point averaging).
+            double* totalWeights =
+                (double*)solverScratchSpace.allocateTempVector("totalWeights", countPatch * sizeof(double));
+            cubSumReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitiveWeights, totalWeights, numUniqueKeys,
+                                                      countPrimitive, streamInfo.stream, solverScratchSpace);
+
+            // Step 5d: Sum-reduce-by-key for total weighted contact points per patch.
+            double3* totalWeightedCPs =
+                (double3*)solverScratchSpace.allocateTempVector("totalWeightedCPs", countPatch * sizeof(double3));
+            cubSumReduceByKey<contactPairs_t, double3>(keys, uniqueKeys, primitiveWeightedCPs, totalWeightedCPs,
+                                                       numUniqueKeys, countPrimitive, streamInfo.stream,
+                                                       solverScratchSpace);
+            solverScratchSpace.finishUsingTempVector("primitiveWeightedCPs");
+
+            // Step 6a: Extract primitive penetrations for the zero-area fallback (max-negative reduce).
+            double* primitivePenetrations = (double*)solverScratchSpace.allocateTempVector(
+                "primitivePenetrations", countPrimitive * sizeof(double));
+            extractPrimitivePenetrations(&granData, primitivePenetrations, startOffsetPrimitive, countPrimitive,
+                                         streamInfo.stream);
+
+            // Step 6b: Max-negative-reduce-by-key to get max negative penetration per patch.
+            // This finds the largest negative value (smallest absolute value among negatives).
+            // Positive values are treated as very negative to indicate invalid/non-physical state.
+            double* maxPenetrations =
+                (double*)solverScratchSpace.allocateTempVector("maxPenetrations", countPatch * sizeof(double));
+            cubMaxNegativeReduceByKey<contactPairs_t, double>(keys, uniqueKeys, primitivePenetrations, maxPenetrations,
+                                                              numUniqueKeys, countPrimitive, streamInfo.stream,
+                                                              solverScratchSpace);
+            solverScratchSpace.finishUsingTempVector("primitivePenetrations");
+
+            // Step 6c: Find max-penetration primitives for zero-area patches and extract their normals,
+            // penetrations, and contact points.
+            float3* zeroAreaNormals =
+                (float3*)solverScratchSpace.allocateTempVector("zeroAreaNormals", countPatch * sizeof(float3));
+            double* zeroAreaPenetrations =
+                (double*)solverScratchSpace.allocateTempVector("zeroAreaPenetrations", countPatch * sizeof(double));
+            double3* zeroAreaContactPoints =
+                (double3*)solverScratchSpace.allocateTempVector("zeroAreaContactPoints", countPatch * sizeof(double3));
+            findMaxPenetrationPrimitiveForZeroAreaPatches(
+                &granData, maxPenetrations, zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, keys,
+                startOffsetPrimitive, startOffsetPatch, countPrimitive, streamInfo.stream);
+            solverScratchSpace.finishUsingTempVector("maxPenetrations");
+
+            // Clean up: uniqueKeys and numUniqueKeys are no longer needed after all reductions.
+            // keys is a direct pointer into granData->geomToPatchMap and does not need cleanup.
+            solverScratchSpace.finishUsingTempVector("uniqueKeys");
+            solverScratchSpace.finishUsingDualStruct("numUniqueKeys");
+
+            // Step 7: Finalize patch results.
+            // finalPen = max projected penetration (maxProjPens), not an average.
+            // finalCP  = weight-averaged contact point (weight = projArea * projPen).
+            // Zero-area patches use the max-penetration primitive's fallback values.
+            double* finalAreas =
+                (double*)solverScratchSpace.allocateTempVector("finalAreas", countPatch * sizeof(double));
+            float3* finalNormals =
+                (float3*)solverScratchSpace.allocateTempVector("finalNormals", countPatch * sizeof(float3));
+            // Resize permanent finalPenetrations array for this patch contact batch.
+            // Note: I made it a permanent array in case that in the future, we want to transfer this entire array
+            // to kT for better margin derivation.
+            DEME_DEVICE_ARRAY_RESIZE(finalPenetrations, countPatch);
+
+            double3* finalContactPoints =
+                (double3*)solverScratchSpace.allocateTempVector("finalContactPoints", countPatch * sizeof(double3));
+            finalizePatchResults(totalProjAreas, maxProjPens, totalWeights, votedNormals, totalWeightedCPs,
+                                 zeroAreaNormals, zeroAreaPenetrations, zeroAreaContactPoints, finalAreas, finalNormals,
+                                 finalPenetrations.data(), finalContactPoints, countPatch, streamInfo.stream);
+            solverScratchSpace.finishUsingTempVector("zeroAreaNormals");
+            solverScratchSpace.finishUsingTempVector("zeroAreaPenetrations");
+            solverScratchSpace.finishUsingTempVector("zeroAreaContactPoints");
+            solverScratchSpace.finishUsingTempVector("totalProjAreas");
+            solverScratchSpace.finishUsingTempVector("maxProjPens");
+            solverScratchSpace.finishUsingTempVector("totalWeightedCPs");
+
+            // Now we have:
+            // - finalAreas: final contact area per patch pair (countPatch elements)
+            // - finalNormals: final normal direction per patch pair (countPatch elements)
+            // - finalPenetrations: final penetration depth per patch pair (countPatch elements)
+            // - finalContactPoints: final contact point per patch pair (countPatch elements)
+            // These can be used for subsequent force calculations
+            // std::cout << "Patch-based contact penetration, area, normal, contact point for contact type "
+            //           << (int)contact_type << ":" << std::endl;
+            // displayDeviceArray<double>(finalPenetrations.data(), countPatch);
+            // displayDeviceArray<double>(finalAreas, countPatch);
+            // displayDeviceFloat3(finalNormals, countPatch);
+            // displayDeviceFloat3<double3>(finalContactPoints, countPatch);
+
+            // Call specialized patch-based force correction kernels here
+            if (contactTypePatchKernelMap.count(contact_type) > 0) {
+                const auto& kernelList = contactTypePatchKernelMap.at(contact_type);
+                for (const auto& [progName, kernelName] : kernelList) {
+                    size_t blocks =
+                        (countPatch + DT_FORCE_CALC_NTHREADS_PER_BLOCK - 1) / DT_FORCE_CALC_NTHREADS_PER_BLOCK;
+                    if (blocks > 0) {
+                        progName->kernel(kernelName)
+                            .instantiate()
+                            .configure(dim3(blocks), dim3(DT_FORCE_CALC_NTHREADS_PER_BLOCK), 0, streamInfo.stream)
+                            .launch(&simParams, &granData, finalAreas, finalNormals, finalPenetrations.data(),
+                                    finalContactPoints, startOffsetPatch, countPatch);
+                    }
                 }
-
-                // Final clean up
-                solverScratchSpace.finishUsingTempVector("totalWeights");
-                solverScratchSpace.finishUsingTempVector("primitiveWeights");
-                solverScratchSpace.finishUsingTempVector("votedNormals");
-                solverScratchSpace.finishUsingTempVector("finalAreas");
-                solverScratchSpace.finishUsingTempVector("finalNormals");
-                // Note: finalPenetrations is now a permanent array, not freed here
-                solverScratchSpace.finishUsingTempVector("finalContactPoints");
+            } else {
+                DEME_ERROR("Patch contact type %d has no associated force kernel to execute!", contact_type);
             }
+            DEME_GPU_DEBUG_SYNC(streamInfo.stream);
+
+            // Optional per-triangle wear/tracking diagnostics. This runs after patch force correction so
+            // granData->contactForcesA contains patch-level forces, while primitiveWeights/totalWeights still
+            // describe how each primitive contributed to its patch contact.
+            if (triPVTrackingEnabled && triPVNumTrackedTriangles > 0) {
+                float2* patchNormalForce =
+                    (float2*)solverScratchSpace.allocateTempVector("patchNormalForce", countPatch * sizeof(float2));
+                float* patchSlipSpeed =
+                    (float*)solverScratchSpace.allocateTempVector("patchSlipSpeed", countPatch * sizeof(float));
+                computePatchPVScalars(&simParams, &granData, finalNormals, finalContactPoints, startOffsetPatch,
+                                      countPatch, patchNormalForce, patchSlipSpeed, streamInfo.stream);
+                accumulateTrianglePVFromPatchContacts(&simParams, &granData, keys, primitiveWeights, totalWeights,
+                                                      patchNormalForce, patchSlipSpeed, startOffsetPrimitive,
+                                                      startOffsetPatch, countPrimitive, triPVGlobalTriToLocal.device(),
+                                                      triPVAccumP.device(), triPVAccumPV.device(), streamInfo.stream);
+                solverScratchSpace.finishUsingTempVector("patchNormalForce");
+                solverScratchSpace.finishUsingTempVector("patchSlipSpeed");
+            }
+
+            // Final clean up
+            solverScratchSpace.finishUsingTempVector("totalWeights");
+            solverScratchSpace.finishUsingTempVector("primitiveWeights");
+            solverScratchSpace.finishUsingTempVector("votedNormals");
+            solverScratchSpace.finishUsingTempVector("finalAreas");
+            solverScratchSpace.finishUsingTempVector("finalNormals");
+            // Note: finalPenetrations is now a permanent array, not freed here
+            solverScratchSpace.finishUsingTempVector("finalContactPoints");
         }
     }
     // std::cout << "===========================" << std::endl;
@@ -3187,16 +3184,22 @@ void DEMDynamicThread::calculateForces() {
     if (nContactPairs > 0) {
         timers.StartGpuTimer("Calculate contact forces", streamInfo.stream);
 
-        // Call specialized kernels for each contact type that exists
-        dispatchPrimitiveForceKernels(typeStartCountPrimitiveMap, contactTypePrimitiveKernelMap);
-        // Note: dispatchPrimitiveForceKernels calculates forces induced by the most basic primitives, aka spheres,
-        // triangles... However, for contacts to be truely physical, sometimes such contact pairs within a patch (which
-        // marks a convex component of a owner) need to vote to decide the true contact. This is where the second step
-        // comes in.
-        dispatchPatchBasedForceCorrections(typeStartCountPrimitiveMap, typeStartCountPatchMap,
-                                           contactTypePatchKernelMap);
+        // Complete each type in increasing array-segment order: geometry -> aggregation -> patch forces.
+        // Use existingContactTypes, not numeric type codes: legacy and universal contact order types differently.
+        // Force A/B and local-point arrays hold primitive normals/points/depth/area until aggregation consumes
+        // them. Running ALL primitives first is unsafe: a later sphere-analytical contact writes its compacted
+        // patch index into an earlier mesh type's still-live primitive geometry. For each type, patch count <=
+        // primitive count, so its patch prefix ends no later than the next primitive range starts. Consequently,
+        // this sweep neither overwrites future geometry nor lets future primitives overwrite completed forces.
+        // Same-stream ordering finishes aggregation reads before patch writeback; no host barrier is needed.
+        for (size_t i = 0; i < m_numExistingTypes; ++i) {
+            const contact_t contact_type = existingContactTypes[i];
+            dispatchPrimitiveForceKernels(contact_type, typeStartCountPrimitiveMap, contactTypePrimitiveKernelMap);
+            dispatchPatchBasedForceCorrections(contact_type, typeStartCountPrimitiveMap, typeStartCountPatchMap,
+                                               contactTypePatchKernelMap);
+        }
 
-        // displayDeviceFloat3(granData->contactForces, nContactPairs);
+        // displayDeviceFloat3(granData->contactForcesA, nContactPairs);
         // displayDeviceArray<contact_t>(granData->contactTypePatch, nContactPairs);
         // displayDeviceArray<bodyID_t>(granData->idPatchA, nContactPairs);
         // displayDeviceArray<bodyID_t>(granData->idPatchB, nContactPairs);
@@ -3217,7 +3220,7 @@ void DEMDynamicThread::calculateForces() {
                 .launch(&simParams, &granData, nContactPairs);
             DEME_GPU_DEBUG_SYNC(streamInfo.stream);
             // displayDeviceArray<float>(granData->aZ, simParams->nOwnerBodies);
-            // displayDeviceFloat3(granData->contactForces, nContactPairs);
+            // displayDeviceFloat3(granData->contactForcesA, nContactPairs);
             // std::cout << nContactPairs << std::endl;
             timers.StopGpuTimer("Optional force reduction", streamInfo.stream);
         }
@@ -3511,9 +3514,6 @@ inline void DEMDynamicThread::ensureSynchronousContacts() {
 void DEMDynamicThread::workerThread() {
     // Set the gpu for this thread
     DEME_GPU_CALL(cudaSetDevice(streamInfo.device));
-
-    // Allocate arrays whose length does not depend on user inputs
-    initAllocation();
 
     while (!pSchedSupport->dynamicShouldJoin) {
         {

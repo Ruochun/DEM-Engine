@@ -446,7 +446,17 @@ class DEMSolver {
     /// can have contacts only with clumps.
     /// @details Set to false to speedup the simulation if its involved meshes are not expected to have contacts. The
     /// default is false.
+    /// With universal contact enabled, Initialize/Update infer volume-equivalent contact radii for watertight
+    /// solid meshes unless explicitly overridden. Otherwise meshes default to walls (zero curvature).
+    /// Open/failed/shell meshes stay walls. ComputeMassProperties and lightweight deformation do not refresh radii.
     void SetMeshUniversalContact(bool use = true);
+    /// Enable RR rolling-length bounds (default true). False uses the raw projected A/(pi*penetration)
+    /// even if very large; non-finite results still error. Apply runtime changes with full Update.
+    void SetRollingResistanceLengthBoundsEnabled(bool enabled = true);
+    /// Bound RR length by multiplier * intrinsic effective radius (default multiplier=1).
+    /// An optional positive absolute maximum provides a length scale for two zero-curvature objects.
+    /// Zero disables the absolute bound. Apply runtime changes with full Update.
+    void SetRollingResistanceLengthLimit(float multiplier = 1.f, float absolute_max = 0.f);
 
     /// @brief Set whether the solver should expect the user to mark certain contacts as persistent across kT updates.
     /// @param use If true, the solver will expect the user to mark certain contacts as persistent across kT updates.
@@ -719,6 +729,7 @@ class DEMSolver {
     /// @brief Enable per-triangle P/V/PxV tracking for the specified mesh owners.
     /// @details Owner IDs are simulation owner IDs; each selected owner must be a mesh owner.
     /// Tracking buffers are reset when this method is called.
+    /// P is allocated normal load, not pressure per unit area.
     void SetTrianglePVTrackingOwners(const std::vector<bodyID_t>& mesh_owner_ids);
     /// @brief Disable per-triangle P/V/PxV tracking and clear tracking state.
     void DisableTrianglePVTracking();
@@ -897,6 +908,7 @@ class DEMSolver {
     /// @param update_patch_centers Refresh automatic centers from all accumulated deformation (default true).
     /// False preserves current centers. Has no effect for user-supplied centers, which are never overwritten.
     /// Automatic single-patch centers remain at the local origin.
+    /// Contact radii remain unchanged until full Update(), including for the device-input variants below.
     void UpdateTriNodeRelPos(size_t owner,
                              size_t triID,
                              const std::vector<float3>& updates,
@@ -993,14 +1005,14 @@ class DEMSolver {
     /// number to, instead of getting all potential contacts, only get the ones that are currently confirmed to generate
     /// force.
     /// @return A map that may have the following keys: "ContactType", "Point", "AOwner", "BOwner", "AOwnerFamily",
-    /// "BOwnerFamily", "Force", "ForceB", "Torque", "TorqueB", "Normal" and wildcard names, each mapping to a vector.
+    /// "BOwnerFamily", "ForceA", "ForceB", "TorqueA", "TorqueB", "Normal" and wildcard names, each mapping to a vector.
     /// The "ContactType" is a vector of strings, each indicating the type of contact (e.g., "sphere-sphere",
     /// "sphere-triangle", etc.). The "Point" is a vector of float3s, each indicating the contact point location in
-    /// global coordinates. The "AOwner" and "BOwner" are vectors of body IDs for the two bodies in contact. The "Force"
-    /// is a vector of float3s indicating the total force on A at the contact point; "ForceB" is the force on B.
-    /// "Torque" and "TorqueB" are global direct extra torques on A and B, excluding force-generated moments.
-    /// The "Normal" is a vector of float3s, each indicating
-    /// the normal direction at the contact point.
+    /// global coordinates. The "AOwner" and "BOwner" are vectors of body IDs for the two bodies in contact. The
+    /// "ForceA" is a vector of float3s indicating the total force on A at the contact point; "ForceB" is the force on
+    /// B. "TorqueA" and "TorqueB" are global direct extra torques on A and B, excluding force-generated moments. Legacy
+    /// GetForce()/GetTorque() and generic "Force"/"Torque" keys alias A for backward compatibility. The "Normal" is a
+    /// vector of float3s, each indicating the normal direction at the contact point.
     std::shared_ptr<ContactInfoContainer> GetContactDetailedInfo(float force_thres = -1.0) const;
 
     /// @brief Get the host memory usage (in bytes) on dT.
@@ -1886,7 +1898,13 @@ class DEMSolver {
         return w_vals;
     }
 
-    /// Intialize the simulation system.
+    /// Build the simulation from loaded objects, materials, force model and solver settings before advancing time.
+    /// Validates inputs, resolves geometry/material/family resources, allocates and populates worker GPU arrays,
+    /// transfers simulation parameters, and compiles runtime kernels. Automatic mesh contact radii follow
+    /// SetMeshUniversalContact rules. Resolves combined owners and clears the pending object-load caches.
+    /// Call after configuring the initial system; use Update for supported additions to an initialized simulation.
+    /// @param dry_run If true, also detect initial contact pairs without advancing time, allowing contact wildcard
+    /// initialization before dynamics. False still performs allocation and runtime compilation.
     void Initialize(bool dry_run = false);
 
     /// Advance simulation by this amount of time, and at the end of this call, synchronize kT and dT. This is suitable
@@ -1904,7 +1922,14 @@ class DEMSolver {
     /// initialization.
     void UpdateSimParams();
 
-    /// @brief Transfer newly loaded clumps and meshes to the GPU-side in mid-simulation.
+    /// Incorporate newly loaded clumps and meshes into an initialized simulation while preserving current state.
+    /// Call from a synchronized stance (e.g., after DoDynamicsThenSync). Waits for pending output, retrieves current
+    /// device state and dirty deformed geometry, resizes/rebinds arrays, transfers additions, and forces fresh contact
+    /// detection. Refreshes automatic mesh contact radii; explicit radius overrides survive. Applies contact area
+    /// mode and rolling-length bounds. Clears pending load caches after incorporating their objects.
+    /// This is the full structural refresh boundary; lightweight mesh deformation does not recalculate radii.
+    /// Does not recompile runtime policies: new materials, clump templates, analytical objects or family prescriptions
+    /// require initialization rather than Update. Use UpdateSimParams for supported parameter-only changes.
     void Update();
 
     /// @brief Legacy method name for Update.
@@ -2176,6 +2201,9 @@ class DEMSolver {
     // User-instructed maximum tri-tri penetration margin (to prevent super large margins)
     double m_max_tritri_penetration = DEME_HUGE_FLOAT;
     // Ratio threshold for rejecting suspicious tri-tri contacts based on penetration depth vs center-contact distance.
+    bool m_rolling_length_bounds_enabled = true;
+    float m_rolling_length_multiplier = 1.f;
+    float m_rolling_length_max = 0.f;
     float m_triTriContactRejectionRatio = 0.8f;
     // Whether angular velocity contributes to the contact margin (auto-detected if not user-set).
     bool m_use_angvel_margin = true;
@@ -2366,7 +2394,8 @@ class DEMSolver {
     // A map that records the numbering for user-defined per-contact wildcards
     std::unordered_map<std::string, unsigned int> m_cnt_wc_num;
 
-    // Meshes cached on dT side that has corresponding owner number associated. Useful for modifying meshes.
+    // Persistent instantiated meshes with resolved owner IDs; retained after pending load caches are cleared.
+    // Used for geometry synchronization and full-system mesh metadata refreshes.
     std::vector<std::shared_ptr<DEMMesh>> m_meshes;
     // A map between the owner of mesh, and the offset this mesh lives in m_meshes array.
     std::unordered_map<bodyID_t, unsigned int> m_owner_mesh_map;
@@ -2403,7 +2432,8 @@ class DEMSolver {
     // Shared pointers to analytical objects cached at the API system
     std::vector<std::shared_ptr<DEMExternObj>> cached_extern_objs;
 
-    // Shared pointers to meshed objects cached at the API system
+    // Pending mesh additions consumed by Initialize/Update, then cleared by ClearCache.
+    // Unlike m_meshes, this queue does not contain every existing mesh during a later Update.
     std::vector<std::shared_ptr<DEMMesh>> cached_mesh_objs;
     // Combined template instances.
     std::vector<std::shared_ptr<DEMCombinedInstances>> cached_combined_instances;

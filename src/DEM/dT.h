@@ -246,15 +246,15 @@ class DEMDynamicThread {
         DualArray<contactPairs_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
 
     // Some of dT's own work arrays
-    // Force of each contact event. It is the force that bodyA feels. They are in global.
-    DualArray<float3> contactForces = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // Per-contact global total forces and direct extra torques, stored independently for A and B.
+    DualArray<float3> contactForcesA = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    // During mesh geometry aggregation B stores primitive global points; the per-type sweep consumes them
+    // before patch force writeback replaces them with final B forces (see calculateForces).
     DualArray<float3> contactForcesB = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float3> contactTorquesA = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float3> contactTorquesB = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Optional contact normals.
     DualArray<float3> contactNormals = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
-    // Temporary global contact point used during primitive-to-patch geometry aggregation.
-    DualArray<float3> contactPointScratch = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     // Local position of contact point of contact w.r.t. the reference frame of body A and B
     DualArray<float3> contactPointGeometryA = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float3> contactPointGeometryB = DualArray<float3>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
@@ -306,6 +306,7 @@ class DEMDynamicThread {
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<notStupidBool_t> ownerMeshNeverWinner =
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
+    DualArray<float> ownerContactCurvature = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<notStupidBool_t> ownerMeshWatertight =
         DualArray<notStupidBool_t>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
     DualArray<float> ownerMeshShellHalfThickness = DualArray<float>(&m_approxHostBytesUsed, &m_approxDeviceBytesUsed);
@@ -402,6 +403,10 @@ class DEMDynamicThread {
         // reached before the stream is created in the child thread. So we have to create the stream here before
         // spawning the child thread.
         DEME_GPU_CALL(cudaStreamCreate(&streamInfo.stream));
+
+        // Public setup APIs can access fixed-size arrays immediately after construction. Allocate them before
+        // starting the worker, otherwise SetFamilyExtraMargin can race its first allocation.
+        initAllocation();
 
         // Launch a worker thread bound to this instance
         th = std::move(std::thread([this]() { this->workerThread(); }));
@@ -904,10 +909,12 @@ class DEMDynamicThread {
 
     // Impl of calculateForces
     inline void dispatchPrimitiveForceKernels(
+        contact_t contact_type,
         const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountMap,
         const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&
             typeKernelMap);
     inline void dispatchPatchBasedForceCorrections(
+        contact_t contact_type,
         const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPrimitiveMap,
         const ContactTypeMap<std::pair<contactPairs_t, contactPairs_t>>& typeStartCountPatchMap,
         const ContactTypeMap<std::vector<std::pair<std::shared_ptr<JitHelper::CachedProgram>, std::string>>>&

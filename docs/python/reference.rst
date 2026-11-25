@@ -1192,7 +1192,7 @@ DEMSolver
 
       Initialize(self: deme._deme.DEMSolver, dry_run: bool = False) -> None
 
-      Finalize cached setup data, allocate runtime state, and prepare JIT CUDA kernels. Call once after materials, geometry, particles, and solver options have been configured. ``dry_run=True`` performs initialization without starting normal dynamics.
+      Finalize cached setup data, allocate runtime state, and prepare JIT CUDA kernels. Call once after materials, geometry, particles, and solver options have been configured. ``dry_run=True`` performs initial contact detection without advancing time, so contact wildcards can be initialized.
 
 
 .. py:method:: DEMSolver.InstructBoxDomainBoundingBC
@@ -2163,7 +2163,7 @@ DEMSolver
 
       SetMeshUniversalContact(self: deme._deme.DEMSolver, use: bool = True) -> None
 
-      Set whether mesh-mesh contacts should be universally detected. Set to false to speedup simulation if meshes are not expected to have contacts. Default is false.
+      Enable mesh-mesh and mesh-analytical contacts in addition to mesh-clump contacts. Set to false if meshes are not expected to have contacts. Default is false. When enabled, Initialize/Update infer volume-equivalent radii for watertight solid meshes unless explicitly overridden. Open/shell meshes remain walls. When disabled, meshes default to walls without automatic radius inference.
 
 
 .. py:method:: DEMSolver.SetNoForceRecord
@@ -2341,6 +2341,24 @@ DEMSolver
       SetPersistentContact(self: deme._deme.DEMSolver, use: bool = True) -> None
 
       Set whether the solver should expect the user to mark certain contacts as persistent across kT updates. Set this to true if you later will call MarkPersistentContact series of methods.
+
+
+.. py:method:: DEMSolver.SetRollingResistanceLengthBoundsEnabled
+
+   .. code-block:: text
+
+      SetRollingResistanceLengthBoundsEnabled(self: deme._deme.DEMSolver, enabled: bool = True) -> None
+
+      Enable rolling-length bounds (default true). False uses raw area/(pi*penetration), including large finite lengths; nonfinite results still error. Apply runtime changes with full Update.
+
+
+.. py:method:: DEMSolver.SetRollingResistanceLengthLimit
+
+   .. code-block:: text
+
+      SetRollingResistanceLengthLimit(self: deme._deme.DEMSolver, multiplier: typing.SupportsFloat | typing.SupportsIndex = 1.0, absolute_max: typing.SupportsFloat | typing.SupportsIndex = 0.0) -> None
+
+      Bound rolling length by multiplier times the intrinsic effective radius and an optional absolute maximum. Zero disables only the absolute bound. Apply runtime changes with full Update.
 
 
 .. py:method:: DEMSolver.SetSimplePatchCombination
@@ -2521,13 +2539,22 @@ DEMSolver
       Create a single tracker that tracks all member owners in a combined-instances batch.
 
 
+.. py:method:: DEMSolver.Update
+
+   .. code-block:: text
+
+      Update(self: deme._deme.DEMSolver) -> None
+
+      From a synchronized stance, preserve current state and incorporate pending clumps/meshes, refresh deformed mesh radii and rolling-length bounds, transfer arrays, and request fresh contacts. Does not recompile policies; new materials, clump templates, analytical objects or family prescriptions require initialization.
+
+
 .. py:method:: DEMSolver.UpdateClumps
 
    .. code-block:: text
 
       UpdateClumps(self: deme._deme.DEMSolver) -> None
 
-      Transfer newly loaded clumps to the GPU-side in mid-simulation.
+      Legacy alias of Update: incorporate pending objects and refresh full simulation metadata.
 
 
 .. py:method:: DEMSolver.UpdateSimParams
@@ -3293,7 +3320,25 @@ ContactInfoContainer
 
       GetForce(self: deme._deme.ContactInfoContainer) -> list[float3]
 
-      Get force as vectors from the container.
+      Legacy alias of GetForceA: global total contact forces on A.
+
+
+.. py:method:: ContactInfoContainer.GetForceA
+
+   .. code-block:: text
+
+      GetForceA(self: deme._deme.ContactInfoContainer) -> list[float3]
+
+      Get global total contact forces on A.
+
+
+.. py:method:: ContactInfoContainer.GetForceB
+
+   .. code-block:: text
+
+      GetForceB(self: deme._deme.ContactInfoContainer) -> list[float3]
+
+      Get global contact forces on B.
 
 
 .. py:method:: ContactInfoContainer.GetNormal
@@ -3320,7 +3365,25 @@ ContactInfoContainer
 
       GetTorque(self: deme._deme.ContactInfoContainer) -> list[float3]
 
-      Get torque as vectors from the container.
+      Legacy alias of GetTorqueA: global direct extra torques on A.
+
+
+.. py:method:: ContactInfoContainer.GetTorqueA
+
+   .. code-block:: text
+
+      GetTorqueA(self: deme._deme.ContactInfoContainer) -> list[float3]
+
+      Get global direct extra torques on A.
+
+
+.. py:method:: ContactInfoContainer.GetTorqueB
+
+   .. code-block:: text
+
+      GetTorqueB(self: deme._deme.ContactInfoContainer) -> list[float3]
+
+      Get global direct extra torques on B.
 
 
 
@@ -4143,6 +4206,15 @@ DEMMesh
       Remove all mesh geometry and cached attributes.
 
 
+.. py:method:: DEMMesh.ClearContactRadius
+
+   .. code-block:: text
+
+      ClearContactRadius(self: deme._deme.DEMMesh) -> None
+
+      Restore automatic radius selection at the next Initialize or full Update.
+
+
 .. py:method:: DEMMesh.ClearWildcards
 
    .. code-block:: text
@@ -4168,6 +4240,15 @@ DEMMesh
       DisableShell(self: deme._deme.DEMMesh) -> None
 
       Disable finite-thickness shell mode.
+
+
+.. py:method:: DEMMesh.GetContactRadius
+
+   .. code-block:: text
+
+      GetContactRadius(self: deme._deme.DEMMesh) -> float
+
+      Return the last resolved intrinsic radius; zero denotes a wall or unresolved radius.
 
 
 .. py:method:: DEMMesh.GetCoordsVertices
@@ -4328,6 +4409,15 @@ DEMMesh
       2. Scale(self: deme._deme.DEMMesh, factors: collections.abc.Sequence[typing.SupportsFloat | typing.SupportsIndex]) -> None
 
       Scale mesh vertices independently along X, Y, and Z.
+
+
+.. py:method:: DEMMesh.SetContactRadius
+
+   .. code-block:: text
+
+      SetContactRadius(self: deme._deme.DEMMesh, radius: typing.SupportsFloat | typing.SupportsIndex) -> None
+
+      Override intrinsic radius; zero explicitly selects a wall. Apply live changes with Update.
 
 
 .. py:method:: DEMMesh.SetEachTriangleAsPatch

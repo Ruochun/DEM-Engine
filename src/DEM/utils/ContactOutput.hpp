@@ -28,9 +28,10 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
         outstrstream << "," + OUTPUT_FILE_GEO_ID_1_NAME + "," + OUTPUT_FILE_GEO_ID_2_NAME;
     }
     if (output_flags & CNT_OUTPUT_CONTENT::FORCE) {
-        outstrstream << "," + OUTPUT_FILE_FORCE_X_NAME + "," + OUTPUT_FILE_FORCE_Y_NAME + "," +
-                            OUTPUT_FILE_FORCE_Z_NAME;
-        outstrstream << ",ForceB_X,ForceB_Y,ForceB_Z";
+        outstrstream << "," + OUTPUT_FILE_FORCE_A_X_NAME + "," + OUTPUT_FILE_FORCE_A_Y_NAME + "," +
+                            OUTPUT_FILE_FORCE_A_Z_NAME;
+        outstrstream << "," + OUTPUT_FILE_FORCE_B_X_NAME + "," + OUTPUT_FILE_FORCE_B_Y_NAME + "," +
+                            OUTPUT_FILE_FORCE_B_Z_NAME;
     }
     if (output_flags & CNT_OUTPUT_CONTENT::CNT_POINT) {
         outstrstream << "," + OUTPUT_FILE_X_COL_NAME + "," + OUTPUT_FILE_Y_COL_NAME + "," + OUTPUT_FILE_Z_COL_NAME;
@@ -46,9 +47,10 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
                             OUTPUT_FILE_NORMAL_Z_NAME;
     }
     if (output_flags & CNT_OUTPUT_CONTENT::TORQUE) {
-        outstrstream << "," + OUTPUT_FILE_TORQUE_X_NAME + "," + OUTPUT_FILE_TORQUE_Y_NAME + "," +
-                            OUTPUT_FILE_TORQUE_Z_NAME;
-        outstrstream << ",TorqueB_X,TorqueB_Y,TorqueB_Z";
+        outstrstream << "," + OUTPUT_FILE_TORQUE_A_X_NAME + "," + OUTPUT_FILE_TORQUE_A_Y_NAME + "," +
+                            OUTPUT_FILE_TORQUE_A_Z_NAME;
+        outstrstream << "," + OUTPUT_FILE_TORQUE_B_X_NAME + "," + OUTPUT_FILE_TORQUE_B_Y_NAME + "," +
+                            OUTPUT_FILE_TORQUE_B_Z_NAME;
     }
     if (output_flags & CNT_OUTPUT_CONTENT::CNT_WILDCARD) {
         // Write all wildcard names as header
@@ -73,10 +75,10 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
 
         // Force is already in global...
         if (output_flags & CNT_OUTPUT_CONTENT::FORCE) {
-            outstrstream << "," << contact_info.Get<float3>("Force")[i].x << ","
-                         << contact_info.Get<float3>("Force")[i].y << "," << contact_info.Get<float3>("Force")[i].z;
-            outstrstream << "," << contact_info.Get<float3>("ForceB")[i].x << ","
-                         << contact_info.Get<float3>("ForceB")[i].y << "," << contact_info.Get<float3>("ForceB")[i].z;
+            const float3 forceA = contact_info.Get<float3>("ForceA")[i];
+            const float3 forceB = contact_info.Get<float3>("ForceB")[i];
+            outstrstream << "," << forceA.x << "," << forceA.y << "," << forceA.z;
+            outstrstream << "," << forceB.x << "," << forceB.y << "," << forceB.z;
         }
 
         if (output_flags & CNT_OUTPUT_CONTENT::CNT_POINT) {
@@ -93,10 +95,10 @@ inline void writeContactSnapshotAsCsv(std::ostream& ptFile,
 
         // Torque is in global already...
         if (output_flags & CNT_OUTPUT_CONTENT::TORQUE) {
-            outstrstream << "," << contact_info.Get<float3>("Torque")[i].x << ","
-                         << contact_info.Get<float3>("Torque")[i].y << "," << contact_info.Get<float3>("Torque")[i].z;
-            outstrstream << "," << contact_info.Get<float3>("TorqueB")[i].x << ","
-                         << contact_info.Get<float3>("TorqueB")[i].y << "," << contact_info.Get<float3>("TorqueB")[i].z;
+            const float3 torqueA = contact_info.Get<float3>("TorqueA")[i];
+            const float3 torqueB = contact_info.Get<float3>("TorqueB")[i];
+            outstrstream << "," << torqueA.x << "," << torqueA.y << "," << torqueA.z;
+            outstrstream << "," << torqueB.x << "," << torqueB.y << "," << torqueB.z;
         }
 
         // Contact wildcards
