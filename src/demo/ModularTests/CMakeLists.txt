@@ -37,6 +37,7 @@ SET(MODULAR_TESTS
 		DEMTest_MeshSlidingOnSlope
 		DEMTest_MeshTemplate
 		DEMTest_PatchLocations
+		DEMTest_RestartContactHistory
 		DEMTest_RuntimeSimParams
 		DEMTest_MeshPatch
 		DEMTest_SimpleCollisions
