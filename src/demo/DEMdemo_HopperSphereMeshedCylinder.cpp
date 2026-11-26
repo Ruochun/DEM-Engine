@@ -5,7 +5,7 @@
 
 // =============================================================================
 // Hopper discharge with analytical sphere particles and low-poly mesh cylinders.
-// Cylinders have an octagonal cross section, flat ends, and 28 triangles each.
+// Cylinders have a regular 32-sided cross section, centered flat-end fans, and 128 triangles each.
 // Spheres and cylinders settle together above a fixed mesh plug. Disabling the
 // plug's contacts and output opens the outlet for discharge into the lower bin.
 // Run with --smoke-test for a small bed and a short, self-checking discharge.
@@ -243,7 +243,7 @@ int main(int argc, char* argv[]) {
 
     if (smoke_test) {
         // Check the representation, free cylinder motion, finite particle states, and stationary disabled plug.
-        bool valid = DEMSim.GetNumClumps() == total_spheres && cylinder_type->GetNumTriangles() == 28;
+        bool valid = DEMSim.GetNumClumps() == total_spheres && cylinder_type->GetNumTriangles() == 128;
         const auto positions = DEMSim.GetOwnerPosition(0, static_cast<bodyID_t>(DEMSim.GetNumOwners()));
         const auto velocities = DEMSim.GetOwnerVelocity(0, static_cast<bodyID_t>(DEMSim.GetNumOwners()));
         for (size_t i = 0; i < positions.size(); i++) {
